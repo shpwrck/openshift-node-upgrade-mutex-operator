@@ -1,0 +1,10 @@
+dependencies:
+- type: olm.package
+  value:
+    packageName: nfd
+    version: ">=4.x"
+- type: olm.gvk
+  value:
+    group: nfd.openshift.io
+    kind: NodeFeatureDiscovery
+    version: v1

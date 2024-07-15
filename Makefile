@@ -51,7 +51,7 @@ endif
 OPERATOR_SDK_VERSION ?= v1.35.0
 
 # Image URL to use all building/pushing image targets
-IMG ?= controller:latest
+IMG ?= ${IMAGE_TAG_BASE}:${VERSION}
 
 .PHONY: all
 all: docker-build
@@ -218,11 +218,27 @@ endif
 # Build a catalog image by adding bundle images to an empty catalog using the operator package manager tool, 'opm'.
 # This recipe invokes 'opm' in 'semver' bundle add mode. For more information on add modes, see:
 # https://github.com/operator-framework/community-operators/blob/7f1438c/docs/packaging-operator.md#updating-your-existing-operator
-.PHONY: catalog-build
-catalog-build: opm ## Build a catalog image.
-	$(OPM) index add --container-tool docker --mode semver --tag $(CATALOG_IMG) --bundles $(BUNDLE_IMGS) $(FROM_INDEX_OPT)
+.PHONY: catalog-build-index
+catalog-build-index: opm ## Build a catalog image.
+	$(OPM) index add --container-tool docker --mode semver --tag $(CATALOG_IMG)-index --bundles $(BUNDLE_IMGS) $(FROM_INDEX_OPT)
 
 # Push the catalog image.
-.PHONY: catalog-push
-catalog-push: ## Push a catalog image.
-	$(MAKE) docker-push IMG=$(CATALOG_IMG)
+.PHONY: catalog-push-index
+catalog-push-index: ## Push a catalog image.
+	$(MAKE) docker-push IMG=$(CATALOG_IMG)-index
+
+# Migrate the catalog index to files
+.PHONY: catalog-migrate
+catalog-migrate: ## Migrate the catalog index to files
+	rm -rf catalog/*
+	$(OPM) migrate $(CATALOG_IMG)-index catalog -o yaml
+
+# Build a file based catalog
+.PHONY: catalog-build-file
+catalog-build-file: ## Build a file based catalog
+	docker build -f catalog.Dockerfile -t $(CATALOG_IMG)-file .
+
+# Push the file based catalog
+.PHONY: catalog-push-file
+catalog-push-file: ## Push the file based catalog
+	$(MAKE) docker-push IMG=$(CATALOG_IMG)-file
