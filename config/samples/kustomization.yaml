@@ -1,0 +1,6 @@
+## Append samples of your project ##
+resources:
+- openshift-optional_v1alpha1_mutexrule.yaml
+- openshift-optional_v1alpha1_mutextarget.yaml
+- openshift-optional_v1alpha1_mutexrunconfig.yaml
+#+kubebuilder:scaffold:manifestskustomizesamples

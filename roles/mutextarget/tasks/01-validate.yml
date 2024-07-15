@@ -1,0 +1,44 @@
+---
+- name: Validate
+  block:
+    - name: Gather Machine Config Pools
+      kubernetes.core.k8s_info:
+        api_version: "machineconfiguration.openshift.io/v1"
+        kind: MachineConfigPool
+        name: "{{ item }}"
+      loop: "{{ _openshift_optional_skrzypek_io_mutextarget_spec.machineConfigPools }}"
+      failed_when:
+        - machineConfigPools.resources == []
+      register: machineConfigPools
+
+    - name: Report Configuration Results
+      operator_sdk.util.k8s_status:
+        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        kind: MutexTarget
+        name: "{{ ansible_operator_meta.name }}"
+        namespace: "{{ ansible_operator_meta.namespace }}"
+        conditions:
+          - type: ValidConfig
+            status: "True"
+            reason: MachineConfigPoolFetchSucceeded
+            message: MachineConfigPools were successfully fetched.
+            lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
+
+  rescue:
+    - name: Report Invalid Config
+      operator_sdk.util.k8s_status:
+        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        kind: MutexTarget
+        name: "{{ ansible_operator_meta.name }}"
+        namespace: "{{ ansible_operator_meta.namespace }}"
+        conditions:
+          - type: ValidConfig
+            status: "False"
+            reason: MachineConfigPoolFetchFailed
+            message: MachineConfigPools were not successfully fetched.
+            lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
+
+  always:
+    - name: Set Configuration Status
+      ansible.builtin.set_fact:
+        ValidConfig: "{{ (ansible_failed_result is not defined) | ternary('true', 'false') }}"

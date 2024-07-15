@@ -1,0 +1,12 @@
+---
+- name: Validate
+  ansible.builtin.include_tasks: 01-validate.yml
+
+- name: Gather Nodes
+  ansible.builtin.include_tasks: 02-gather-nodes.yml
+  when:
+    - ValidConfig
+  loop: "{{ machineConfigPools.results }}"
+  loop_control:
+    extended: true
+    loop_var: mcp

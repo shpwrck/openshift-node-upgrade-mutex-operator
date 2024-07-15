@@ -1,0 +1,66 @@
+---
+- name: Validate
+  block:
+    - name: Gather MutexRules
+      kubernetes.core.k8s_info:
+        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        kind: MutexRule
+        name: "{{ item.name }}"
+        namespace: "{{ item.namespace | default(ansible_operator_meta.namespace) }}"
+      loop: "{{ _openshift_optional_skrzypek_io_mutexrunconfig_spec.mutexRules }}"
+      failed_when:
+        - mutexRules.resources == []
+      register: mutexRules
+
+    - name: Check CRD Status
+      ansible.builtin.assert:
+        that: item.resources[0].status.conditions[0].status == "True"
+      loop: "{{ mutexRules.results }}"
+
+    - name: Gather MutexTargets
+      kubernetes.core.k8s_info:
+        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        kind: MutexTarget
+        name: "{{ item.name }}"
+        namespace: "{{ item.namespace | default(ansible_operator_meta.namespace) }}"
+      loop: "{{ _openshift_optional_skrzypek_io_mutexrunconfig_spec.mutexTargets }}"
+      failed_when:
+        - mutexTargets.resources == []
+      register: mutexTargets
+
+    - name: Check CRD Status
+      ansible.builtin.assert:
+        that: item.resources[0].status.conditions[0].status == "True"
+      loop: "{{ mutexTargets.results }}"
+
+    - name: Report Configuration Results
+      operator_sdk.util.k8s_status:
+        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        kind: MutexRunConfig
+        name: "{{ ansible_operator_meta.name }}"
+        namespace: "{{ ansible_operator_meta.namespace }}"
+        conditions:
+          - type: ConfigValidated
+            status: "True"
+            reason: MutexFetchSucceeded
+            message: MutexRules and MutexTargets were successfully fetched.
+            lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
+
+  rescue:
+    - name: Report Invalid Config
+      operator_sdk.util.k8s_status:
+        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        kind: MutexRunConfig
+        name: "{{ ansible_operator_meta.name }}"
+        namespace: "{{ ansible_operator_meta.namespace }}"
+        conditions:
+          - type: ConfigValidated
+            status: "False"
+            reason: MutexFetchFailed
+            message: MutexRules and MutexTargets were not successfully fetched.
+            lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
+
+  always:
+    - name: Set Configuration Status
+      ansible.builtin.set_fact:
+        ConfigValidated: "{{ (ansible_failed_result is not defined) | ternary('true', 'false') }}"

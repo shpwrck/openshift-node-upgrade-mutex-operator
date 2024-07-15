@@ -1,0 +1,64 @@
+---
+- name: Node Label Block
+  block:
+    - name: Get Mutex Targets
+      kubernetes.core.k8s_info:
+        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        kind: MutexTarget
+        name: "{{ item.name }}"
+        namespace: "{{ item.namespace }}"
+      loop: "{{ _openshift_optional_skrzypek_io_mutexrunconfig_spec.mutexTargets }}"
+      register: mutexTargets
+
+    - name: Create Node List
+      ansible.builtin.set_fact:
+        targetNodeList: "{{ mutexTargets | community.general.json_query(query) | flatten | unique }}"
+      vars: 
+        query: results[*].resources[*].status.nodes[*]
+
+    - name: Create Label Matrix
+      ansible.builtin.set_fact:
+        labelMatrix: "{{ [ (labelMatrix | default([])) ,[{ 'node': item[0], 'labels': {'mutexrule.openshift-optional.skrzypek.io/' + item[1].name + '.' + item[1].namespace: ''}}]] | community.general.lists_mergeby('node', recursive=true) }}"
+      loop: "{{ targetNodeList | product( _openshift_optional_skrzypek_io_mutexrunconfig_spec.mutexRules ) }}"
+
+    - name: Label Nodes
+      kubernetes.core.k8s:
+        state: patched
+        name: "{{ item.node }}"
+        kind: "Node"
+        definition:
+          metadata:
+            labels: "{{ item.labels }}"
+      loop: "{{ labelMatrix }}"
+
+    - name: Report Applied
+      operator_sdk.util.k8s_status:
+        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        kind: MutexRunConfig
+        name: "{{ ansible_operator_meta.name }}"
+        namespace: "{{ ansible_operator_meta.namespace }}"
+        conditions:
+          - type: MutexRulesApplied
+            status: "True"
+            reason: "ApplySucceeded"
+            message: "All MutexRule labels have been applied"
+            lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
+
+  rescue:
+    - name: Report Not Applied
+      operator_sdk.util.k8s_status:
+        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        kind: MutexRunConfig
+        name: "{{ ansible_operator_meta.name }}"
+        namespace: "{{ ansible_operator_meta.namespace }}"
+        conditions:
+          - type: MutexRulesApplied
+            status: "False"
+            reason: "ApplyFailed"
+            message: "All MutexRule labels have not been applied"
+            lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
+
+  always:
+    - name: Set Mutex Rules Applied
+      ansible.builtin.set_fact:
+        MutexRulesApplied: "{{ (ansible_failed_result is not defined) | ternary('true', 'false') }}"

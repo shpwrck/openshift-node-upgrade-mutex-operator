@@ -1,0 +1,52 @@
+---
+- name: Configuration Validation Block
+  block:
+    - name: Confirm K8S
+      kubernetes.core.k8s:
+        host: "{{ _openshift_optional_skrzypek_io_mutexrule_spec.host | default('https://kubernetes.default.svc') }}"
+        ca_cert: "{{ _openshift_optional_skrzypek_io_mutexrule_spec.ca_cert | default('/run/secrets/kubernetes.io/serviceaccount/ca.crt') }}"
+        client_key: "{{ _openshift_optional_skrzypek_io_mutexrule_spec.ca_cert | default('/run/secrets/kubernetes.io/serviceaccount/token') }}"
+        api_version: "batch/v1"
+        kind: "Job"
+        name: "{{ _openshift_optional_skrzypek_io_mutexrule_spec.job_name }}"
+        namespace: "{{ _openshift_optional_skrzypek_io_mutexrule_spec.job_namespace }}"
+        definition: 
+          spec: "{{ _openshift_optional_skrzypek_io_mutexrule_spec.job_spec }}"
+        state: absent
+        validate:
+          fail_on_error: true
+          strict: true
+      register: k8s_validation
+      when: _openshift_optional_skrzypek_io_mutexrule_spec.type == "k8s"
+
+    - name: Report Configuration Results
+      operator_sdk.util.k8s_status:
+        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        kind: MutexRule
+        name: "{{ ansible_operator_meta.name }}"
+        namespace: "{{ ansible_operator_meta.namespace }}"
+        conditions:
+          - type: ValidConfig
+            status: "True"
+            reason: ValidConfig
+            message: The Host/Token/Job combination is valid.
+            lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
+
+  rescue:
+    - name: Report Invalid Config
+      operator_sdk.util.k8s_status:
+        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        kind: MutexRule
+        name: "{{ ansible_operator_meta.name }}"
+        namespace: "{{ ansible_operator_meta.namespace }}"
+        conditions:
+          - type: ValidConfig
+            status: "False"
+            reason: InvalidConfig
+            message: The Host/Token/Job combination is not valid.
+            lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
+
+  always:
+    - name: Set Configuration Status
+      ansible.builtin.set_fact:
+        ValidConfig: "{{ (ansible_failed_result is not defined) | ternary('true', 'false') }}"

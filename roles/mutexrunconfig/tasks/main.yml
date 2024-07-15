@@ -1,0 +1,42 @@
+---
+- name: Validate
+  ansible.builtin.include_tasks: 01-validate.yml
+
+- name: Pause Pools
+  ansible.builtin.include_tasks: 02-pause-machine-config-pools.yml
+  when:
+    - ConfigValidated
+
+- name: Apply Labels
+  ansible.builtin.include_tasks: 03-apply-mutex-rules-as-labels.yml
+  when:
+    - ConfigValidated
+    - TargetPoolsPaused
+
+- name: Update Canary MachineConfigPool
+  ansible.builtin.include_tasks: 04-modify_canarymachineconfigpool.yml
+  when:
+    - ConfigValidated
+    - TargetPoolsPaused
+    - MutexRulesApplied
+
+- name: Check For Upgrade
+  ansible.builtin.include_tasks: 05-check-for-upgrade.yml
+  when:
+    - ConfigValidated
+    - TargetPoolsPaused
+    - MutexRulesApplied
+    - CanaryUpdated
+
+- name: Run Job
+  ansible.builtin.include_tasks: 06-execute_jobs.yml
+  loop: "{{ targetNodeList }}"
+  loop_control:
+    extended: true
+    loop_var: targetNode
+  when:
+    - ConfigValidated
+    - TargetPoolsPaused
+    - MutexRulesApplied
+    - CanaryUpdated
+    - UpgradabilityChecked and UpgradeAvailable

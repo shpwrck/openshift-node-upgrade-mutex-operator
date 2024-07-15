@@ -1,0 +1,13 @@
+apiVersion: openshift-optional.skrzypek.io/v1alpha1
+kind: MutexTarget
+metadata:
+  labels:
+    app.kubernetes.io/name: mutextarget
+    app.kubernetes.io/instance: mutextarget-sample
+    app.kubernetes.io/part-of: openshift-node-upgrade-mutex-operator
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/created-by: openshift-node-upgrade-mutex-operator
+  name: mutextarget-sample
+spec:
+  machineConfigPools:
+    - worker

@@ -1,0 +1,19 @@
+apiVersion: openshift-optional.skrzypek.io/v1alpha1
+kind: MutexRunConfig
+metadata:
+  labels:
+    app.kubernetes.io/name: mutexrunconfig
+    app.kubernetes.io/instance: mutexrunconfig-sample
+    app.kubernetes.io/part-of: openshift-node-upgrade-mutex-operator
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/created-by: openshift-node-upgrade-mutex-operator
+  name: mutexrunconfig-sample
+spec:
+  canary:
+    name: canary
+  mutexRules:
+    - name: k8s-example
+      namespace: node-upgrade-mutex-operator
+  mutexTargets:
+    - name: worker-example
+      namespace: node-upgrade-mutex-operator

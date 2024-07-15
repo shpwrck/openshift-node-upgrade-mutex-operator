@@ -1,0 +1,138 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: manager-role
+rules:
+  ##
+  ## Base operator rules
+  ##
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+      - pods
+      - pods/exec
+      - pods/log
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - apps
+    resources:
+      - deployments
+      - daemonsets
+      - replicasets
+      - statefulsets
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  ##
+  ## Rules added for related resources
+  ##
+  - apiGroups:
+      - "batch"
+    resources:
+      - jobs
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - "config.openshift.io"
+    resources:
+      - clusterversions
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - nodes
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - "machineconfiguration.openshift.io"
+    resources:
+      - machineconfigpools
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  ##
+  ## Rules for openshift-optional.skrzypek.io/v1alpha1, Kind: MutexRule
+  ##
+  - apiGroups:
+      - openshift-optional.skrzypek.io
+    resources:
+      - mutexrules
+      - mutexrules/status
+      - mutexrules/finalizers
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  ##
+  ## Rules for openshift-optional.skrzypek.io/v1alpha1, Kind: MutexTarget
+  ##
+  - apiGroups:
+      - openshift-optional.skrzypek.io
+    resources:
+      - mutextargets
+      - mutextargets/status
+      - mutextargets/finalizers
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  ##
+  ## Rules for openshift-optional.skrzypek.io/v1alpha1, Kind: MutexRunConfig
+  ##
+  - apiGroups:
+      - openshift-optional.skrzypek.io
+    resources:
+      - mutexrunconfigs
+      - mutexrunconfigs/status
+      - mutexrunconfigs/finalizers
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+#+kubebuilder:scaffold:rules

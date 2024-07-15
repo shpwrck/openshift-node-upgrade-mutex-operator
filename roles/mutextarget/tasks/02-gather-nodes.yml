@@ -1,0 +1,66 @@
+---
+- name: Loop Through And Convert Label Selectors
+  ansible.builtin.set_fact:
+    labelSelector: "{{ item.key }} = {{ item.value }}"
+  loop: '{{ lookup("ansible.builtin.dict", mcp.resources[0].spec.nodeSelector.matchLabels, wantlist=True) }}'
+  register: labelSelectorResults
+
+- name: Reconfigure Label Selector Data Format
+  ansible.builtin.set_fact:
+    labelSelectors: "{{ labelSelectorResults.results | map(attribute='ansible_facts.labelSelector') | list }}"
+
+- name: Get All Nodes
+  kubernetes.core.k8s_info:
+    kind: Node
+    label_selectors: "{{ labelSelectors }}"
+  register: Nodes
+
+- name: Update Status
+  block:
+    - name: Get All Nodes
+      kubernetes.core.k8s_info:
+        kind: Node
+        label_selectors: "{{ labelSelectors }}"
+      register: Nodes
+
+    - name: Set Cummulative Nodes
+      ansible.builtin.set_fact:
+        AllNodes: "{{ (AllNodes | default([])) + ( Nodes | community.general.json_query('resources[*].metadata.name') ) | unique }}"
+
+    - name: Report Configuration Results
+      operator_sdk.util.k8s_status:
+        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        kind: MutexTarget
+        name: "{{ ansible_operator_meta.name }}"
+        namespace: "{{ ansible_operator_meta.namespace }}"
+        replace_lists: True
+        status:
+          nodes: "{{ AllNodes }}"
+        conditions:
+          - type: NodeListGathered
+            status: "True"
+            reason: MachineConfigPoolFetchSucceeded
+            message: All nodes were successfully fetched.
+            lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
+      when: ansible_loop.last
+
+  rescue:
+    - name: Report Invalid Config
+      operator_sdk.util.k8s_status:
+        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        kind: MutexTarget
+        name: "{{ ansible_operator_meta.name }}"
+        namespace: "{{ ansible_operator_meta.namespace }}"
+        status:
+          nodes: []
+        conditions:
+          - type: NodeListGathered
+            status: "True"
+            reason: MachineConfigPoolFetchFailed
+            message: All nodes were not successfully fetched.
+            lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
+
+  always:
+    - name: Set Configuration Status
+      ansible.builtin.set_fact:
+        NodeListGathered: "{{ (ansible_failed_result is not defined) | ternary('true', 'false') }}"

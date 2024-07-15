@@ -1,0 +1,50 @@
+---
+- name: Canary Pool Block
+  block:
+    - name: Build Expressions List
+      ansible.builtin.set_fact:
+        matchExpressionsList: "{{ matchExpressionsList | default([]) + [{'key': 'mutexrule.openshift-optional.skrzypek.io/' + item.name + '.' + item.namespace, 'operator': 'DoesNotExist'}] }}"
+      loop: "{{ _openshift_optional_skrzypek_io_mutexrunconfig_spec.mutexRules }}"
+
+    - name: Update Canary Membership
+      kubernetes.core.k8s:
+        state: patched
+        name: "{{ _openshift_optional_skrzypek_io_mutexrunconfig_spec.canary.name }}"
+        kind: "MachineConfigPool"
+        api_version: "machineconfiguration.openshift.io/v1"
+        definition:
+          spec:
+            nodeSelector:
+              matchExpressions: "{{ matchExpressionsList }}"
+
+    - name: Report Canary Updated
+      operator_sdk.util.k8s_status:
+        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        kind: MutexRunConfig
+        name: "{{ ansible_operator_meta.name }}"
+        namespace: "{{ ansible_operator_meta.namespace }}"
+        conditions:
+          - type: CanaryUpdated
+            status: "True"
+            reason: UpdateSucceeded
+            message: Canary MachineConfigPool was successfully updated.
+            lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
+
+  rescue:
+    - name: Report Canary Not Updated
+      operator_sdk.util.k8s_status:
+        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        kind: MutexRunConfig
+        name: "{{ ansible_operator_meta.name }}"
+        namespace: "{{ ansible_operator_meta.namespace }}"
+        conditions:
+          - type: CanaryUpdated
+            status: "False"
+            reason: UpdateFailed
+            message: Canary MachineConfigPool was not successfully updated.
+            lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
+
+  always:
+    - name: Set CanaryUpdated Variable
+      ansible.builtin.set_fact:
+        CanaryUpdated: "{{ (ansible_failed_result is not defined) | ternary('true', 'false') }}"

@@ -1,0 +1,52 @@
+---
+- name: Pool Modification Block
+  block:
+    - name: Create MachineConfigPool List
+      ansible.builtin.set_fact:
+        machineConfigPoolList: "{{ mutexTargets | community.general.json_query(query) | flatten }}"
+      vars:
+        query: results[*].resources[*].spec.machineConfigPools[*]
+
+    - name: Pause Pools
+      kubernetes.core.k8s:
+        definition:
+          apiVersion: "machineconfiguration.openshift.io/v1"
+          kind: MachineConfigPool
+          metadata:
+            name: "{{ item }}"
+          spec:
+            paused: True
+        wait: yes
+      loop: "{{ machineConfigPoolList }}"
+
+    - name: Report Paused
+      operator_sdk.util.k8s_status:
+        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        kind: MutexRunConfig
+        name: "{{ ansible_operator_meta.name }}"
+        namespace: "{{ ansible_operator_meta.namespace }}"
+        conditions:
+          - type: TargetPoolsPaused
+            status: "True"
+            reason: "PauseSucceeded"
+            message: "All target Machine Config Pools have been paused"
+            lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
+
+  rescue:
+    - name: Report Not Paused
+      operator_sdk.util.k8s_status:
+        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        kind: MutexRunConfig
+        name: "{{ ansible_operator_meta.name }}"
+        namespace: "{{ ansible_operator_meta.namespace }}"
+        conditions:
+          - type: TargetPoolsPaused
+            status: "False"
+            reason: "PauseFailed"
+            message: "All target Machine Config Pools have not been paused"
+            lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
+
+  always:
+    - name: Set Machine Config Pools Paused
+      ansible.builtin.set_fact:
+        TargetPoolsPaused: "{{ (ansible_failed_result is not defined) | ternary('true', 'false') }}"

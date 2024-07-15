@@ -1,0 +1,132 @@
+---
+- name: Job Execution Block
+  block:
+    - name: Get Node Details
+      kubernetes.core.k8s_info:
+        kind: Node
+        name: "{{ targetNode }}"
+      register: nodeResource
+
+    - name: Set MutexRuleList Fact
+      ansible.builtin.set_fact:
+        mutexRuleList: "{{ nodeResource | community.general.json_query(query) }}"
+      vars:
+        query: "resources[0].metadata.labels.keys(@) | [?starts_with(@,'mutexrule')]"
+
+    - name: Get Rule Details
+      kubernetes.core.k8s_info:
+        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        kind: MutexRule
+        name: "{{ item | split('/') | last | split('.') | first }}"
+        namespace: "{{ item | split('/') | last | split('.') | last }}"
+      register: mutexRules
+      loop: "{{ mutexRuleList }}"
+
+    - name: Split Mutex Rules By Type
+      ansible.builtin.set_fact:
+        k8sMutexRules: "{{ mutexRules | community.general.json_query(k8sQuery) }}"
+        aapMutexRules: "{{ mutexRules | community.general.json_query(aapQuery) }}"
+      vars:
+        k8sQuery: "results[?resources[?spec.type=='k8s']]"
+        aapQuery: "results[?resources[?spec.type=='aap']]"
+
+    - name: Add Node Variable To Job
+      ansible.utils.update_fact:
+        updates:
+          - path: "k8sMutexRules[{{loopIndex}}].resources[0].spec.job_spec.template.spec.containers[0].env"
+            value:
+              - name: NODE_NAME
+                value: "{{ targetNode }}"
+              - name: MUTEX_RULE
+                value: "{{ k8sMutexRules[loopIndex].resources[0].metadata.name }}"
+          - path: "k8sMutexRules[{{loopIndex}}].resources[0].spec.job_spec.template.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[0].matchExpressions"
+            value:
+              - key: kubernetes.io/hostname
+                operator: NotIn
+                values:
+                - "{{ targetNode }}"
+      register: updatedK8sMutexRules
+      loop: "{{ k8sMutexRules }}"
+      loop_control:
+        index_var: loopIndex
+
+    - name: Launch K8s Jobs
+      kubernetes.core.k8s:
+        api_version: "batch/v1"
+        kind: Job
+        generate_name: "{{ item.k8sMutexRules[0].resources[0].spec.job_name }}-"
+        namespace: "{{ item.k8sMutexRules[0].resources[0].spec.job_namespace }}"
+        definition:
+          spec: "{{ item.k8sMutexRules[0].resources[0].spec.job_spec }}"
+        state: present
+        wait: true
+        wait_condition:
+          status: "True"
+          type: "Complete"
+      loop: "{{ updatedK8sMutexRules.results }}"
+
+    - name: Report Job Run Finish
+      operator_sdk.util.k8s_status:
+        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        kind: MutexRunConfig
+        name: "{{ ansible_operator_meta.name }}"
+        namespace: "{{ ansible_operator_meta.namespace }}"
+        conditions:
+          - type: JobRun
+            status: "True"
+            reason: JobRunSucceeded
+            message: |-
+              Jobs for {{ targetNode }} have run successfully.
+              Node is {{ ansible_loop.index }} of {{ ansible_loop.length }}
+            lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
+
+    - name: Clear JSON_Patch Fact
+      ansible.builtin.set_fact:
+        jsonPatch: []
+
+    - name: Set JSON_Patch Fact
+      ansible.builtin.set_fact:
+        jsonPatch: "{{ jsonPatch + [{'op': 'remove','path': '/metadata/labels/' + (item | regex_replace('/','~1')) }] }}"
+      loop: "{{ mutexRuleList }}"
+
+    - name: Remove Mutex Labels
+      kubernetes.core.k8s_json_patch:
+        kind: Node
+        api_version: "v1"
+        name: "{{ targetNode }}"
+        patch: "{{ jsonPatch }}"
+
+    - name: Wait Until Node Version Matches Desired Version
+      kubernetes.core.k8s_info:
+        api_version: "v1"
+        kind: Node
+        name: "{{ targetNode }}"
+      register: actual_version
+      until: desired_version == actual_version.resources[0].metadata.labels['machineconfiguration.openshift.io/release-image-version']
+      retries: 100
+      delay: 60
+
+  rescue:
+    - name: Report Job Run Failure
+      operator_sdk.util.k8s_status:
+        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        kind: MutexRunConfig
+        name: "{{ ansible_operator_meta.name }}"
+        namespace: "{{ ansible_operator_meta.namespace }}"
+        conditions:
+          - type: JobRun
+            status: "False"
+            reason: JobRunFailed
+            message: |-
+              Jobs for {{ targetNode }} have run not successfully.
+              Node is {{ ansible_loop.index }} of {{ ansible_loop.length }}
+            lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
+
+    - name: Break Loop
+      ansible.builtin.fail:
+        msg: "Failed to run job or upgrade node."
+
+  always:
+    - name: Set JobRun
+      ansible.builtin.set_fact:
+        JobRun: "{{ (ansible_failed_result is not defined) | ternary('true', 'false') }}"

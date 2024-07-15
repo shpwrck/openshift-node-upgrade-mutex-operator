@@ -1,0 +1,31 @@
+---
+- version: v1alpha1
+  group: openshift-optional.skrzypek.io
+  kind: MutexRule
+  role: mutexrule
+  reconcilePeriod: 10m
+  manageStatus: False
+  watchAnnotationsChanges: True
+  watchDependentResources: True
+  watchClusterScopedResources: True
+
+- version: v1alpha1
+  group: openshift-optional.skrzypek.io
+  kind: MutexTarget
+  role: mutextarget
+  reconcilePeriod: 10m
+  manageStatus: False
+  watchAnnotationsChanges: True
+  watchDependentResources: True
+  watchClusterScopedResources: True
+
+- version: v1alpha1
+  group: openshift-optional.skrzypek.io
+  kind: MutexRunConfig
+  role: mutexrunconfig
+  reconcilePeriod: 10m
+  manageStatus: False
+  watchAnnotationsChanges: True
+  watchDependentResources: True
+  watchClusterScopedResources: True
+#+kubebuilder:scaffold:watch
