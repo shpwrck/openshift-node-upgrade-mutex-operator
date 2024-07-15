@@ -1,0 +1,17 @@
+---
+# Use the 'create api' subcommand to add watches to this file.
+- version: v1alpha1
+  group: openshift-optional.skrzypek.io
+  kind: Mutex
+  role: mutex
+  reconcilePeriod: 10s
+  manageStatus: false
+  watchAnnotationsChanges: True
+  watchDependentResources: True
+  watchClusterScopedResources: True
+  finalizer:
+    name: openshift-optional.skrzypek.io/finalizer
+    role: mutex
+    vars:
+      finalize: ''
+#+kubebuilder:scaffold:watch
