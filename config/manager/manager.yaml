@@ -6,8 +6,8 @@ metadata:
     app.kubernetes.io/name: namespace
     app.kubernetes.io/instance: system
     app.kubernetes.io/component: manager
-    app.kubernetes.io/created-by: openshift-node-upgrade-mutex
-    app.kubernetes.io/part-of: openshift-node-upgrade-mutex
+    app.kubernetes.io/created-by: openshift-node-upgrade-mutex-operator
+    app.kubernetes.io/part-of: openshift-node-upgrade-mutex-operator
     app.kubernetes.io/managed-by: kustomize
   name: system
 ---
@@ -21,8 +21,8 @@ metadata:
     app.kubernetes.io/name: deployment
     app.kubernetes.io/instance: controller-manager
     app.kubernetes.io/component: manager
-    app.kubernetes.io/created-by: openshift-node-upgrade-mutex
-    app.kubernetes.io/part-of: openshift-node-upgrade-mutex
+    app.kubernetes.io/created-by: openshift-node-upgrade-mutex-operator
+    app.kubernetes.io/part-of: openshift-node-upgrade-mutex-operator
     app.kubernetes.io/managed-by: kustomize
 spec:
   selector:
@@ -60,7 +60,7 @@ spec:
       containers:
       - args:
         - --leader-elect
-        - --leader-election-id=openshift-node-upgrade-mutex
+        - --leader-election-id=openshift-node-upgrade-mutex-operator
         image: controller:latest
         name: manager
         env:
