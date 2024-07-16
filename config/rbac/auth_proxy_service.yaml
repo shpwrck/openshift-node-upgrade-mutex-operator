@@ -9,7 +9,7 @@ metadata:
     app.kubernetes.io/created-by: openshift-node-upgrade-mutex-operator
     app.kubernetes.io/part-of: openshift-node-upgrade-mutex-operator
     app.kubernetes.io/managed-by: kustomize
-  name: controller-manager-metrics-service
+  name: service
   namespace: system
 spec:
   ports:

@@ -10,7 +10,7 @@ metadata:
     app.kubernetes.io/name: service
     app.kubernetes.io/part-of: openshift-node-upgrade-mutex-operator
     control-plane: controller-manager
-  name: openshift-node-upgrade-mutex-operator-controller-manager-metrics-service
+  name: openshift-node-upgrade-mutex-operator-service
 spec:
   ports:
   - name: https

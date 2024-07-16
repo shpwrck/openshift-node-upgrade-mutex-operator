@@ -1,0 +1,24 @@
+---
+# Update Upgrading Status
+- name: Report Upgrade Complete
+  operator_sdk.util.k8s_status:
+    api_version: "openshift-optional.skrzypek.io/v1alpha1"
+    kind: Mutex
+    name: "{{ ansible_operator_meta.name }}"
+    namespace: "{{ ansible_operator_meta.namespace }}"
+    conditions:
+      - type: Upgrading
+        status: "False"
+        reason: "UpgradeComplete"
+        message: "All nodes have been upgraded"
+        lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
+
+# Remove Mutable Label
+- name: Remove Mutable Label
+  kubernetes.core.k8s_json_patch:
+    kind: Node
+    api_version: "v1"
+    name: "{{ item.metadata.name }}"
+    patch:
+      - op: remove
+        path: "/metadata/labels/openshift-optional.skrzypek.io~1mutable"

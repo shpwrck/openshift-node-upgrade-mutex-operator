@@ -22,8 +22,10 @@ metadata:
       ]
     capabilities: Basic Install
     categories: OpenShift Optional
+    certified: "false"
     containerImage: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator
-    createdAt: "2024-07-16T14:13:44Z"
+    createdAt: "2024-07-16T19:20:53Z"
+    description: Short Description
     features.operators.openshift.io/cnf: "false"
     features.operators.openshift.io/cni: "false"
     features.operators.openshift.io/csi: "false"
@@ -34,12 +36,13 @@ metadata:
     features.operators.openshift.io/token-auth-aws: "false"
     features.operators.openshift.io/token-auth-azure: "false"
     features.operators.openshift.io/token-auth-gcp: "false"
+    operatorframework.io/suggested-namespace: node-upgrade-mutex-operator
     operators.operatorframework.io/builder: operator-sdk-v1.35.0
     operators.operatorframework.io/project_layout: ansible.sdk.operatorframework.io/v1
     provider: Jason Skrzypek
     repository: https://github.com/shpwrck/openshift-upgrade-rollout-operator
     support: Best Effort
-  name: openshift-node-upgrade-mutex-operator.v0.0.1
+  name: openshift-node-upgrade-mutex-operator.v0.0.8
   namespace: placeholder
 spec:
   apiservicedefinitions: {}
@@ -48,7 +51,8 @@ spec:
     - kind: Mutex
       name: mutexes.openshift-optional.skrzypek.io
       version: v1alpha1
-  description: Inject mutex requirements into the worker node upgrade flow.
+  description: |
+    Inject mutex requirements into the worker node upgrade flow.
   displayName: OpenShift Node Upgrade Mutex Operator
   icon:
   - base64data: |
@@ -450,7 +454,7 @@ spec:
                 env:
                 - name: ANSIBLE_GATHERING
                   value: explicit
-                image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator:0.0.1
+                image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator:0.0.8
                 livenessProbe:
                   httpGet:
                     path: /healthz
@@ -478,7 +482,6 @@ spec:
                     - ALL
               securityContext:
                 runAsNonRoot: true
-                runAsUser: 1001
               serviceAccountName: openshift-node-upgrade-mutex-operator-controller-manager
               terminationGracePeriodSeconds: 10
               tolerations:
@@ -543,4 +546,4 @@ spec:
   provider:
     name: Jason Skrzypek
     url: https://github.com/shpwrck
-  version: 0.0.1
+  version: 0.0.8

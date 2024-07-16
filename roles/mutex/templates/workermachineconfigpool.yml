@@ -1,0 +1,9 @@
+{% for workerpool in workerpools -%}
+---
+apiVersion: machineconfiguration.openshift.io/v1
+kind: MachineConfigPool
+metadata:
+  name: "{{ workerpool }}"
+spec:
+  paused: true
+{% endfor %}

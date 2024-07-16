@@ -1,2 +1,75 @@
 ---
-# tasks file for Mutex
+# Is the CRD being removed?
+- name: Finalize CRD
+  ansible.builtin.include_tasks: 00-finalize_resources.yml
+  when:
+    - finalize is defined
+
+# Is the CRD valid?
+- name: Validate CRD
+  ansible.builtin.include_tasks: 01-validate_crd.yml
+  when:
+    - finalize is undefined
+
+# Is there an update?
+- name: Identify Update Status
+  ansible.builtin.include_tasks: 02-validate_upgradeability.yml
+  when:
+    - finalize is undefined
+    - valid_crd_configuration
+
+# Is the control plane finished?
+- name: Pause Nodes
+  ansible.builtin.include_tasks: 03-modify_machineconfigpools.yml
+  when:
+    - finalize is undefined
+    - valid_crd_configuration
+    - worker_nodes_upgradeable
+
+# Is there a canary pool?
+- name: Create Canary Pool
+  ansible.builtin.include_tasks: 04-modify_canarymachineconfigpool.yml
+  when:
+    - finalize is undefined
+    - valid_crd_configuration
+    - worker_nodes_upgradeable
+    - machine_config_pools_paused
+
+# Run Jobs
+- name: Run Job
+  ansible.builtin.include_tasks: 05-execute_jobs.yml
+  loop: "{{ wp_nodes }}"
+  loop_control:
+    extended: true
+  when:
+    - finalize is undefined
+    - valid_crd_configuration
+    - worker_nodes_upgradeable
+    - machine_config_pools_paused
+    - canary_machine_config_pool_present
+
+# Cleanup Nodes
+- name: Clean Up
+  ansible.builtin.include_tasks: 06-cleanup_nodes.yml
+  loop: "{{ wp_nodes }}"
+  when:
+    - finalize is undefined
+    - valid_crd_configuration
+    - worker_nodes_upgradeable
+    - machine_config_pools_paused
+    - canary_machine_config_pool_present
+    - worker_nodes_upgraded
+
+# Playbook Complete Set Upgrade to False
+- name: Upgrade Not Running
+  operator_sdk.util.k8s_status:
+    api_version: "openshift-optional.skrzypek.io/v1alpha1"
+    kind: Mutex
+    name: "{{ ansible_operator_meta.name }}"
+    namespace: "{{ ansible_operator_meta.namespace }}"
+    conditions:
+      - type: Upgrading
+        status: "False"
+        reason: "UpgradeComplete"
+        message: "All nodes have been upgraded"
+        lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"

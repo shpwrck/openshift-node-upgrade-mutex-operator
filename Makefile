@@ -54,7 +54,7 @@ OPERATOR_SDK_VERSION ?= v1.35.0
 IMG ?= ${IMAGE_TAG_BASE}:${VERSION}
 
 .PHONY: all
-all: docker-build
+all: docker-build docker-push bundle bundle-build bundle-push catalog-build-index catalog-push-index catalog-migrate catalog-build-file catalog-push-file
 
 ##@ General
 

@@ -1,0 +1,19 @@
+---
+apiVersion: machineconfiguration.openshift.io/v1
+kind: MachineConfigPool
+metadata:
+  name: canary
+  labels:
+    pools.operator.machineconfiguration.openshift.io/canary: ''
+  annotations:
+    operator-sdk/primary-resource: "{{ resource_namespace }}/{{ resource_name }}"
+    operator-sdk/primary-resource-type: "{{ resource_kind }}.{{ resource_group }}"
+spec:
+  machineConfigSelector:
+    matchLabels:
+      machineconfiguration.openshift.io/role: worker
+  nodeSelector:
+    matchLabels:
+      node-role.kubernetes.io/worker: ''
+      upgrades.example.com/mutable: ''
+  paused: false

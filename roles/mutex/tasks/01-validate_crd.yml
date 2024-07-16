@@ -1,0 +1,48 @@
+---
+# Validate AAP Configuration
+- name: AAP Configuration Validation Block
+  block:
+    # Confirm AAP Config through URI
+    - name: Confirm oauthtoken, host, and job
+      ansible.builtin.uri:
+        url: "https://{{ vars.aap.controller_host }}/api/v2/job_templates?search={{ vars.aap.job_template | urlencode() }}"
+        headers:
+          Authorization: "Bearer {{ vars.aap.controller_oauthtoken }}"
+      register: aap_response
+      failed_when:
+      - aap_response.json.count != 1
+
+    # Upon Success, Set Status to Valid
+    - name: Report Configuration Results
+      operator_sdk.util.k8s_status:
+        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        kind: Mutex
+        name: "{{ ansible_operator_meta.name }}"
+        namespace: "{{ ansible_operator_meta.namespace }}"
+        conditions:
+          - type: Validation
+            status: "True"
+            reason: CRDValid
+            message: The AAP configuration has been validated successfully
+            lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
+
+  rescue:
+    # Upon Failure, Set Status to Invalid
+    - name: Report Invalid Config
+      operator_sdk.util.k8s_status:
+        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        kind: Mutex
+        name: "{{ ansible_operator_meta.name }}"
+        namespace: "{{ ansible_operator_meta.namespace }}"
+        conditions:
+          - type: Validation
+            status: "False"
+            reason: CRDInvalid
+            message: The AAP configuration has not been validated successfully
+            lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
+
+  always:
+    # Update Control Flow Variable
+    - name: Set Configuration Status
+      ansible.builtin.set_fact:
+        valid_crd_configuration: "{{ (ansible_failed_result is not defined) | ternary('true', 'false') }}"

@@ -2,10 +2,12 @@ apiVersion: operators.coreos.com/v1alpha1
 kind: ClusterServiceVersion
 metadata:
   annotations:
-    alm-examples: '[]'
+    alm-examples: '[{"apiVersion":"openshift-optional.skrzypek.io/v1alpha1","kind":"Mutex","metadata":{"labels":{"app.kubernetes.io/created-by":"openshift-node-upgrade-mutex-operator","app.kubernetes.io/instance":"mutex-sample","app.kubernetes.io/managed-by":"kustomize","app.kubernetes.io/name":"mutex","app.kubernetes.io/part-of":"openshift-node-upgrade-mutex-operator"},"name":"mutex-sample"},"spec":null},{"apiVersion":"openshift-optional.skrzypek.io/v1alpha1","kind":"Mutex","metadata":{"labels":{"app.kubernetes.io/created-by":"openshift-node-upgrade-mutex-operator","app.kubernetes.io/instance":"mutex-sample","app.kubernetes.io/managed-by":"kustomize","app.kubernetes.io/name":"mutex","app.kubernetes.io/part-of":"openshift-node-upgrade-mutex-operator"},"name":"mutex-sample"},"spec":null}]'
     capabilities: Basic Install
     categories: OpenShift Optional
+    certified: "false"
     containerImage: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator
+    description: Short Description
     features.operators.openshift.io/cnf: "false"
     features.operators.openshift.io/cni: "false"
     features.operators.openshift.io/csi: "false"
@@ -16,6 +18,7 @@ metadata:
     features.operators.openshift.io/token-auth-aws: "false"
     features.operators.openshift.io/token-auth-azure: "false"
     features.operators.openshift.io/token-auth-gcp: "false"
+    operatorframework.io/suggested-namespace: node-upgrade-mutex-operator
     provider: Jason Skrzypek
     repository: https://github.com/shpwrck/openshift-upgrade-rollout-operator
     support: Best Effort
@@ -24,7 +27,8 @@ metadata:
 spec:
   apiservicedefinitions: {}
   customresourcedefinitions: {}
-  description: Inject mutex requirements into the worker node upgrade flow.
+  description: |
+    Inject mutex requirements into the worker node upgrade flow.
   displayName: OpenShift Node Upgrade Mutex Operator
   icon:
   - base64data: |
