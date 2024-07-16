@@ -23,7 +23,7 @@ metadata:
     capabilities: Basic Install
     categories: OpenShift Optional
     containerImage: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator
-    createdAt: "2024-07-15T19:42:26Z"
+    createdAt: "2024-07-16T14:13:44Z"
     features.operators.openshift.io/cnf: "false"
     features.operators.openshift.io/cni: "false"
     features.operators.openshift.io/csi: "false"
