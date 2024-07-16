@@ -24,7 +24,7 @@ metadata:
     categories: OpenShift Optional
     certified: "false"
     containerImage: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator
-    createdAt: "2024-07-16T19:20:53Z"
+    createdAt: "2024-07-16T20:05:03Z"
     description: Short Description
     features.operators.openshift.io/cnf: "false"
     features.operators.openshift.io/cni: "false"
@@ -42,7 +42,7 @@ metadata:
     provider: Jason Skrzypek
     repository: https://github.com/shpwrck/openshift-upgrade-rollout-operator
     support: Best Effort
-  name: openshift-node-upgrade-mutex-operator.v0.0.8
+  name: openshift-node-upgrade-mutex-operator.v0.0.12
   namespace: placeholder
 spec:
   apiservicedefinitions: {}
@@ -366,6 +366,39 @@ spec:
           - update
           - watch
         - apiGroups:
+          - config.openshift.io
+          resources:
+          - clusterversions
+          verbs:
+          - get
+          - list
+          - watch
+        - apiGroups:
+          - ""
+          resources:
+          - nodes
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
+          - machineconfiguration.openshift.io
+          resources:
+          - machineconfigpools
+          - machineconfigs
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
           - openshift-optional.skrzypek.io
           resources:
           - mutexes
@@ -454,7 +487,7 @@ spec:
                 env:
                 - name: ANSIBLE_GATHERING
                   value: explicit
-                image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator:0.0.8
+                image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator:0.0.12
                 livenessProbe:
                   httpGet:
                     path: /healthz
@@ -546,4 +579,4 @@ spec:
   provider:
     name: Jason Skrzypek
     url: https://github.com/shpwrck
-  version: 0.0.8
+  version: 0.0.12

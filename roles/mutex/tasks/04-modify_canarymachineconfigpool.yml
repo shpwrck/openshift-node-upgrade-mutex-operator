@@ -7,10 +7,10 @@
         state: present
         template: canarymachineconfigpool.yml
       vars:
-        resource_name: "{{ _openshift-optional_skrzypek_io_mutex.metadata.name }}"
-        resource_namespace: "{{ _openshift-optional_skrzypek_io_mutex.metadata.namespace }}"
-        resource_kind: "{{ _openshift-optional_skrzypek_io_mutex.kind }}"
-        resource_group: "{{ _openshift-optional_skrzypek_io_mutex.apiVersion | split('/') | first }}"
+        resource_name: "{{ _openshift_optional_skrzypek_io_mutex.metadata.name }}"
+        resource_namespace: "{{ _openshift_optional_skrzypek_io_mutex.metadata.namespace }}"
+        resource_kind: "{{ _openshift_optional_skrzypek_io_mutex.kind }}"
+        resource_group: "{{ _openshift_optional_skrzypek_io_mutex.apiVersion | split('/') | first }}"
 
     # Upon Success, Set Canary Status true
     - name: Report Canary Created

@@ -38,6 +38,42 @@ rules:
       - update
       - watch
   ##
+  ## Rules added for related resources
+  ##
+  - apiGroups:
+      - "config.openshift.io"
+    resources:
+      - clusterversions
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - nodes
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - "machineconfiguration.openshift.io"
+    resources:
+      - machineconfigpools
+      - machineconfigs
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  ##
   ## Rules for openshift-optional.skrzypek.io/v1alpha1, Kind: Mutex
   ##
   - apiGroups:
