@@ -17,4 +17,25 @@ resources:
   group: openshift-optional
   kind: Mutex
   version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  domain: skrzypek.io
+  group: openshift-optional
+  kind: MutexRule
+  version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  domain: skrzypek.io
+  group: openshift-optional
+  kind: MutexTarget
+  version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  domain: skrzypek.io
+  group: openshift-optional
+  kind: MutexRunConfig
+  version: v1alpha1
 version: "3"

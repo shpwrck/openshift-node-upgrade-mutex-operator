@@ -1,0 +1,43 @@
+---
+- name: AAP Configuration Validation Block
+  block:
+    - name: Confirm oauthtoken, host, and job
+      ansible.builtin.uri:
+        url: "https://{{ _openshift_optional_skrzypek_io_mutexrule_spec.aap.controller_host }}/api/v2/job_templates?search={{ _openshift_optional_skrzypek_io_mutexrule_spec.aap.job_template | urlencode() }}"
+        headers:
+          Authorization: "Bearer {{ _openshift_optional_skrzypek_io_mutexrule_spec.aap.controller_oauthtoken }}"
+      register: aap_response
+      failed_when:
+        - aap_response.json.count != 1
+
+    - name: Report Configuration Results
+      operator_sdk.util.k8s_status:
+        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        kind: MutexRule
+        name: "{{ ansible_operator_meta.name }}"
+        namespace: "{{ ansible_operator_meta.namespace }}"
+        conditions:
+          - type: ValidConfig
+            status: "True"
+            reason: AAPValid
+            message: The AAP configuration has been validated successfully
+            lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
+
+  rescue:
+    - name: Report Invalid Config
+      operator_sdk.util.k8s_status:
+        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        kind: MutexRule
+        name: "{{ ansible_operator_meta.name }}"
+        namespace: "{{ ansible_operator_meta.namespace }}"
+        conditions:
+          - type: ValidConfig
+            status: "False"
+            reason: AAPInvalid
+            message: The AAP configuration has not been validated successfully
+            lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
+
+  always:
+    - name: Set Configuration Status
+      ansible.builtin.set_fact:
+        valid_configuration: "{{ (ansible_failed_result is not defined) | ternary('true', 'false') }}"

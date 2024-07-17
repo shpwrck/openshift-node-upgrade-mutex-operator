@@ -14,4 +14,49 @@
     role: mutex
     vars:
       finalize: ''
+
+- version: v1alpha1
+  group: openshift-optional.skrzypek.io
+  kind: MutexRule
+  role: mutexrule
+  reconcilePeriod: 10s
+  manageStatus: false
+  watchAnnotationsChanges: True
+  watchDependentResources: True
+  watchClusterScopedResources: True
+  finalizer:
+    name: openshift-optional.skrzypek.io/finalizer
+    role: mutexrule
+    vars:
+      finalize: ''
+
+- version: v1alpha1
+  group: openshift-optional.skrzypek.io
+  kind: MutexTarget
+  role: mutextarget
+  reconcilePeriod: 10s
+  manageStatus: false
+  watchAnnotationsChanges: True
+  watchDependentResources: True
+  watchClusterScopedResources: True
+  finalizer:
+    name: openshift-optional.skrzypek.io/finalizer
+    role: mutextarget
+    vars:
+      finalize: ''
+
+- version: v1alpha1
+  group: openshift-optional.skrzypek.io
+  kind: MutexRunConfig
+  role: mutexrunconfig
+  reconcilePeriod: 10s
+  manageStatus: false
+  watchAnnotationsChanges: True
+  watchDependentResources: True
+  watchClusterScopedResources: True
+  finalizer:
+    name: openshift-optional.skrzypek.io/finalizer
+    role: mutexrunconfig
+    vars:
+      finalize: ''
 #+kubebuilder:scaffold:watch

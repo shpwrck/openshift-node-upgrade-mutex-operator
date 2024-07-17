@@ -18,13 +18,58 @@ metadata:
             "name": "mutex-sample"
           },
           "spec": null
+        },
+        {
+          "apiVersion": "openshift-optional.skrzypek.io/v1alpha1",
+          "kind": "MutexRule",
+          "metadata": {
+            "labels": {
+              "app.kubernetes.io/created-by": "openshift-node-upgrade-mutex-operator",
+              "app.kubernetes.io/instance": "mutexrule-sample",
+              "app.kubernetes.io/managed-by": "kustomize",
+              "app.kubernetes.io/name": "mutexrule",
+              "app.kubernetes.io/part-of": "openshift-node-upgrade-mutex-operator"
+            },
+            "name": "mutexrule-sample"
+          },
+          "spec": null
+        },
+        {
+          "apiVersion": "openshift-optional.skrzypek.io/v1alpha1",
+          "kind": "MutexRunConfig",
+          "metadata": {
+            "labels": {
+              "app.kubernetes.io/created-by": "openshift-node-upgrade-mutex-operator",
+              "app.kubernetes.io/instance": "mutexrunconfig-sample",
+              "app.kubernetes.io/managed-by": "kustomize",
+              "app.kubernetes.io/name": "mutexrunconfig",
+              "app.kubernetes.io/part-of": "openshift-node-upgrade-mutex-operator"
+            },
+            "name": "mutexrunconfig-sample"
+          },
+          "spec": null
+        },
+        {
+          "apiVersion": "openshift-optional.skrzypek.io/v1alpha1",
+          "kind": "MutexTarget",
+          "metadata": {
+            "labels": {
+              "app.kubernetes.io/created-by": "openshift-node-upgrade-mutex-operator",
+              "app.kubernetes.io/instance": "mutextarget-sample",
+              "app.kubernetes.io/managed-by": "kustomize",
+              "app.kubernetes.io/name": "mutextarget",
+              "app.kubernetes.io/part-of": "openshift-node-upgrade-mutex-operator"
+            },
+            "name": "mutextarget-sample"
+          },
+          "spec": null
         }
       ]
     capabilities: Basic Install
     categories: OpenShift Optional
     certified: "false"
     containerImage: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator
-    createdAt: "2024-07-16T20:05:03Z"
+    createdAt: "2024-07-17T19:26:56Z"
     description: Short Description
     features.operators.openshift.io/cnf: "false"
     features.operators.openshift.io/cni: "false"
@@ -42,7 +87,7 @@ metadata:
     provider: Jason Skrzypek
     repository: https://github.com/shpwrck/openshift-upgrade-rollout-operator
     support: Best Effort
-  name: openshift-node-upgrade-mutex-operator.v0.0.12
+  name: openshift-node-upgrade-mutex-operator.v0.0.31
   namespace: placeholder
 spec:
   apiservicedefinitions: {}
@@ -50,6 +95,15 @@ spec:
     owned:
     - kind: Mutex
       name: mutexes.openshift-optional.skrzypek.io
+      version: v1alpha1
+    - kind: MutexRule
+      name: mutexrules.openshift-optional.skrzypek.io
+      version: v1alpha1
+    - kind: MutexRunConfig
+      name: mutexrunconfigs.openshift-optional.skrzypek.io
+      version: v1alpha1
+    - kind: MutexTarget
+      name: mutextargets.openshift-optional.skrzypek.io
       version: v1alpha1
   description: |
     Inject mutex requirements into the worker node upgrade flow.
@@ -413,6 +467,48 @@ spec:
           - update
           - watch
         - apiGroups:
+          - openshift-optional.skrzypek.io
+          resources:
+          - mutexrules
+          - mutexrules/status
+          - mutexrules/finalizers
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
+          - openshift-optional.skrzypek.io
+          resources:
+          - mutextargets
+          - mutextargets/status
+          - mutextargets/finalizers
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
+          - openshift-optional.skrzypek.io
+          resources:
+          - mutexrunconfigs
+          - mutexrunconfigs/status
+          - mutexrunconfigs/finalizers
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
           - authentication.k8s.io
           resources:
           - tokenreviews
@@ -487,7 +583,7 @@ spec:
                 env:
                 - name: ANSIBLE_GATHERING
                   value: explicit
-                image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator:0.0.12
+                image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator:0.0.31
                 livenessProbe:
                   httpGet:
                     path: /healthz
@@ -579,4 +675,4 @@ spec:
   provider:
     name: Jason Skrzypek
     url: https://github.com/shpwrck
-  version: 0.0.12
+  version: 0.0.31

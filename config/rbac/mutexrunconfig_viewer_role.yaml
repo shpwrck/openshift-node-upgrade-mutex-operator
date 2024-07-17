@@ -1,0 +1,27 @@
+# permissions for end users to view mutexrunconfigs.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/name: clusterrole
+    app.kubernetes.io/instance: mutexrunconfig-viewer-role
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/created-by: openshift-node-upgrade-mutex-operator
+    app.kubernetes.io/part-of: openshift-node-upgrade-mutex-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: mutexrunconfig-viewer-role
+rules:
+- apiGroups:
+  - openshift-optional.skrzypek.io
+  resources:
+  - mutexrunconfigs
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - openshift-optional.skrzypek.io
+  resources:
+  - mutexrunconfigs/status
+  verbs:
+  - get

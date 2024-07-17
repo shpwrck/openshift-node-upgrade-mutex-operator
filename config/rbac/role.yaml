@@ -90,4 +90,55 @@ rules:
       - patch
       - update
       - watch
+  ##
+  ## Rules for openshift-optional.skrzypek.io/v1alpha1, Kind: MutexRule
+  ##
+  - apiGroups:
+      - openshift-optional.skrzypek.io
+    resources:
+      - mutexrules
+      - mutexrules/status
+      - mutexrules/finalizers
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  ##
+  ## Rules for openshift-optional.skrzypek.io/v1alpha1, Kind: MutexTarget
+  ##
+  - apiGroups:
+      - openshift-optional.skrzypek.io
+    resources:
+      - mutextargets
+      - mutextargets/status
+      - mutextargets/finalizers
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  ##
+  ## Rules for openshift-optional.skrzypek.io/v1alpha1, Kind: MutexRunConfig
+  ##
+  - apiGroups:
+      - openshift-optional.skrzypek.io
+    resources:
+      - mutexrunconfigs
+      - mutexrunconfigs/status
+      - mutexrunconfigs/finalizers
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
 #+kubebuilder:scaffold:rules
