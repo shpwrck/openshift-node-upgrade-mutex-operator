@@ -8,3 +8,10 @@
   ansible.builtin.include_tasks: 01-validate.yml
   when:
     - finalize is undefined
+
+- name: Gather Nodes
+  ansible.builtin.include_tasks: 02-gather-nodes.yml
+  when:
+    - finalize is undefined
+    - ValidConfig
+  loop: "{{ machineConfigPools.results }}"

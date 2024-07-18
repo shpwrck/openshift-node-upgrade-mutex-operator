@@ -1,0 +1,24 @@
+---
+- name: debug
+  ansible.builtin.debug:
+    msg: "{{ item }}"
+
+- name: set fact
+  ansible.builtin.set_fact:
+    labelSelector: "{{ item.key }} == '{{ item.value }}'"
+  loop: '{{ lookup("ansible.builtin.dict", item.resources[0].spec.nodeSelector.matchLabels, wantlist=True) }}'
+  register: labelSelectorResults
+
+- name: set fact
+  ansible.builtin.set_fact:
+    labelSelectors: "{{ labelSelectorResults.results | map(attribute='ansible_facts.labelSelector') | list }}"
+
+- name: debug
+  ansible.builtin.debug:
+    msg: "{{ labelSelectors }}"
+
+- name: Test Node
+  kubernetes.core.k8s_info:
+    kind: Node
+    label_selectors: "{{ labelSelectors }}"
+  register: Nodes
