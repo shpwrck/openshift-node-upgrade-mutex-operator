@@ -1,0 +1,59 @@
+---
+- name: Create MutexRule List
+  ansible.builtin.set_fact:
+    mutexRuleList: "{{ mutexRules | community.general.json_query(query) | flatten }}"
+  vars: 
+    query: results[*].resources[*].spec.machineConfigPools[*]
+
+- name: Create TargetNode List
+  kubernetes.core.k8s:
+    definition:
+    nodeList: "{{ mutexTargets | community.general.json_query(query) | flatten }}"
+  vars: 
+    query: results[*].resources[*].spec.machineConfigPools[*]
+
+- name: Node Label Block
+  block:
+    - name: Pause Pools
+      kubernetes.core.k8s:
+        definition:
+          apiVersion: "machineconfiguration.openshift.io/v1"
+          kind: MachineConfigPool
+          metadata:
+            name: "{{ item }}"
+          spec:
+            paused: True
+        wait: yes
+      loop: "{{ machineConfigPoolList }}"
+
+    - name: Report Applied
+      operator_sdk.util.k8s_status:
+        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        kind: MutexRunConfig
+        name: "{{ ansible_operator_meta.name }}"
+        namespace: "{{ ansible_operator_meta.namespace }}"
+        conditions:
+          - type: MutexRulesApplied
+            status: "True"
+            reason: "ApplySucceeded"
+            message: "All MutexRule labels have been applied"
+            lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
+
+  rescue:
+    - name: Report Not Applied
+      operator_sdk.util.k8s_status:
+        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        kind: MutexRunConfig
+        name: "{{ ansible_operator_meta.name }}"
+        namespace: "{{ ansible_operator_meta.namespace }}"
+        conditions:
+          - type: MutexRulesApplied
+            status: "False"
+            reason: "ApplyFailed"
+            message: "All MutexRule labels have not been applied"
+            lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
+
+  always:
+    - name: Set Mutex Rules Applied
+      ansible.builtin.set_fact:
+        MutexRulesApplied: "{{ (ansible_failed_result is not defined) | ternary('true', 'false') }}"

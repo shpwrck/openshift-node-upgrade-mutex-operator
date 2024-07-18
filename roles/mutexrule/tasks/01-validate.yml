@@ -40,4 +40,4 @@
   always:
     - name: Set Configuration Status
       ansible.builtin.set_fact:
-        valid_configuration: "{{ (ansible_failed_result is not defined) | ternary('true', 'false') }}"
+        ValidConfig: "{{ (ansible_failed_result is not defined) | ternary('true', 'false') }}"

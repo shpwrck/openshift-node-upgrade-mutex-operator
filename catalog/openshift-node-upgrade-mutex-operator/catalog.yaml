@@ -7,8 +7,75 @@ name: openshift-node-upgrade-mutex-operator
 schema: olm.package
 ---
 entries:
+- name: openshift-node-upgrade-mutex-operator.v0.0.10
+  replaces: openshift-node-upgrade-mutex-operator.v0.0.9
+- name: openshift-node-upgrade-mutex-operator.v0.0.11
+  replaces: openshift-node-upgrade-mutex-operator.v0.0.10
+- name: openshift-node-upgrade-mutex-operator.v0.0.12
+  replaces: openshift-node-upgrade-mutex-operator.v0.0.11
+- name: openshift-node-upgrade-mutex-operator.v0.0.13
+  replaces: openshift-node-upgrade-mutex-operator.v0.0.12
+- name: openshift-node-upgrade-mutex-operator.v0.0.14
+  replaces: openshift-node-upgrade-mutex-operator.v0.0.13
+- name: openshift-node-upgrade-mutex-operator.v0.0.15
+  replaces: openshift-node-upgrade-mutex-operator.v0.0.14
+- name: openshift-node-upgrade-mutex-operator.v0.0.16
+  replaces: openshift-node-upgrade-mutex-operator.v0.0.15
+- name: openshift-node-upgrade-mutex-operator.v0.0.17
+  replaces: openshift-node-upgrade-mutex-operator.v0.0.16
+- name: openshift-node-upgrade-mutex-operator.v0.0.18
+  replaces: openshift-node-upgrade-mutex-operator.v0.0.17
+- name: openshift-node-upgrade-mutex-operator.v0.0.19
+  replaces: openshift-node-upgrade-mutex-operator.v0.0.18
+- name: openshift-node-upgrade-mutex-operator.v0.0.20
+  replaces: openshift-node-upgrade-mutex-operator.v0.0.19
+- name: openshift-node-upgrade-mutex-operator.v0.0.21
+  replaces: openshift-node-upgrade-mutex-operator.v0.0.20
+- name: openshift-node-upgrade-mutex-operator.v0.0.22
+  replaces: openshift-node-upgrade-mutex-operator.v0.0.21
+- name: openshift-node-upgrade-mutex-operator.v0.0.23
+  replaces: openshift-node-upgrade-mutex-operator.v0.0.22
+- name: openshift-node-upgrade-mutex-operator.v0.0.24
+  replaces: openshift-node-upgrade-mutex-operator.v0.0.23
+- name: openshift-node-upgrade-mutex-operator.v0.0.25
+  replaces: openshift-node-upgrade-mutex-operator.v0.0.24
+- name: openshift-node-upgrade-mutex-operator.v0.0.26
+  replaces: openshift-node-upgrade-mutex-operator.v0.0.25
+- name: openshift-node-upgrade-mutex-operator.v0.0.27
+  replaces: openshift-node-upgrade-mutex-operator.v0.0.26
+- name: openshift-node-upgrade-mutex-operator.v0.0.28
+  replaces: openshift-node-upgrade-mutex-operator.v0.0.27
+- name: openshift-node-upgrade-mutex-operator.v0.0.29
+  replaces: openshift-node-upgrade-mutex-operator.v0.0.28
+- name: openshift-node-upgrade-mutex-operator.v0.0.30
+  replaces: openshift-node-upgrade-mutex-operator.v0.0.29
 - name: openshift-node-upgrade-mutex-operator.v0.0.31
   replaces: openshift-node-upgrade-mutex-operator.v0.0.30
+- name: openshift-node-upgrade-mutex-operator.v0.0.32
+  replaces: openshift-node-upgrade-mutex-operator.v0.0.31
+- name: openshift-node-upgrade-mutex-operator.v0.0.33
+  replaces: openshift-node-upgrade-mutex-operator.v0.0.32
+- name: openshift-node-upgrade-mutex-operator.v0.0.34
+  replaces: openshift-node-upgrade-mutex-operator.v0.0.33
+- name: openshift-node-upgrade-mutex-operator.v0.0.35
+  replaces: openshift-node-upgrade-mutex-operator.v0.0.34
+- name: openshift-node-upgrade-mutex-operator.v0.0.36
+  replaces: openshift-node-upgrade-mutex-operator.v0.0.35
+- name: openshift-node-upgrade-mutex-operator.v0.0.37
+  replaces: openshift-node-upgrade-mutex-operator.v0.0.36
+- name: openshift-node-upgrade-mutex-operator.v0.0.38
+  replaces: openshift-node-upgrade-mutex-operator.v0.0.37
+- name: openshift-node-upgrade-mutex-operator.v0.0.39
+  replaces: openshift-node-upgrade-mutex-operator.v0.0.38
+- name: openshift-node-upgrade-mutex-operator.v0.0.40
+  replaces: openshift-node-upgrade-mutex-operator.v0.0.39
+- name: openshift-node-upgrade-mutex-operator.v0.0.41
+  replaces: openshift-node-upgrade-mutex-operator.v0.0.40
+- name: openshift-node-upgrade-mutex-operator.v0.0.42
+  replaces: openshift-node-upgrade-mutex-operator.v0.0.41
+- name: openshift-node-upgrade-mutex-operator.v0.0.43
+  replaces: openshift-node-upgrade-mutex-operator.v0.0.42
+- name: openshift-node-upgrade-mutex-operator.v0.0.9
 name: alpha
 package: openshift-node-upgrade-mutex-operator
 schema: olm.channel
@@ -773,6 +840,450 @@ properties:
   value:
     packageName: openshift-node-upgrade-mutex-operator
     version: 0.0.31
+relatedImages:
+- image: gcr.io/kubebuilder/kube-rbac-proxy:v0.15.0
+  name: ""
+- image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator-bundle:v0.0.31
+  name: ""
+- image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator:0.0.31
+  name: ""
+schema: olm.bundle
+---
+image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator-bundle:v0.0.32
+name: openshift-node-upgrade-mutex-operator.v0.0.32
+package: openshift-node-upgrade-mutex-operator
+properties:
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: Mutex
+    version: v1alpha1
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: MutexRule
+    version: v1alpha1
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: MutexRunConfig
+    version: v1alpha1
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: MutexTarget
+    version: v1alpha1
+- type: olm.package
+  value:
+    packageName: openshift-node-upgrade-mutex-operator
+    version: 0.0.32
+relatedImages:
+- image: gcr.io/kubebuilder/kube-rbac-proxy:v0.15.0
+  name: ""
+- image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator-bundle:v0.0.32
+  name: ""
+- image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator:0.0.32
+  name: ""
+schema: olm.bundle
+---
+image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator-bundle:v0.0.33
+name: openshift-node-upgrade-mutex-operator.v0.0.33
+package: openshift-node-upgrade-mutex-operator
+properties:
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: Mutex
+    version: v1alpha1
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: MutexRule
+    version: v1alpha1
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: MutexRunConfig
+    version: v1alpha1
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: MutexTarget
+    version: v1alpha1
+- type: olm.package
+  value:
+    packageName: openshift-node-upgrade-mutex-operator
+    version: 0.0.33
+relatedImages:
+- image: gcr.io/kubebuilder/kube-rbac-proxy:v0.15.0
+  name: ""
+- image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator-bundle:v0.0.33
+  name: ""
+- image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator:0.0.33
+  name: ""
+schema: olm.bundle
+---
+image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator-bundle:v0.0.34
+name: openshift-node-upgrade-mutex-operator.v0.0.34
+package: openshift-node-upgrade-mutex-operator
+properties:
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: Mutex
+    version: v1alpha1
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: MutexRule
+    version: v1alpha1
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: MutexRunConfig
+    version: v1alpha1
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: MutexTarget
+    version: v1alpha1
+- type: olm.package
+  value:
+    packageName: openshift-node-upgrade-mutex-operator
+    version: 0.0.34
+relatedImages:
+- image: gcr.io/kubebuilder/kube-rbac-proxy:v0.15.0
+  name: ""
+- image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator-bundle:v0.0.34
+  name: ""
+- image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator:0.0.34
+  name: ""
+schema: olm.bundle
+---
+image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator-bundle:v0.0.35
+name: openshift-node-upgrade-mutex-operator.v0.0.35
+package: openshift-node-upgrade-mutex-operator
+properties:
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: Mutex
+    version: v1alpha1
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: MutexRule
+    version: v1alpha1
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: MutexRunConfig
+    version: v1alpha1
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: MutexTarget
+    version: v1alpha1
+- type: olm.package
+  value:
+    packageName: openshift-node-upgrade-mutex-operator
+    version: 0.0.35
+relatedImages:
+- image: gcr.io/kubebuilder/kube-rbac-proxy:v0.15.0
+  name: ""
+- image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator-bundle:v0.0.35
+  name: ""
+- image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator:0.0.35
+  name: ""
+schema: olm.bundle
+---
+image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator-bundle:v0.0.36
+name: openshift-node-upgrade-mutex-operator.v0.0.36
+package: openshift-node-upgrade-mutex-operator
+properties:
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: Mutex
+    version: v1alpha1
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: MutexRule
+    version: v1alpha1
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: MutexRunConfig
+    version: v1alpha1
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: MutexTarget
+    version: v1alpha1
+- type: olm.package
+  value:
+    packageName: openshift-node-upgrade-mutex-operator
+    version: 0.0.36
+relatedImages:
+- image: gcr.io/kubebuilder/kube-rbac-proxy:v0.15.0
+  name: ""
+- image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator-bundle:v0.0.36
+  name: ""
+- image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator:0.0.36
+  name: ""
+schema: olm.bundle
+---
+image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator-bundle:v0.0.37
+name: openshift-node-upgrade-mutex-operator.v0.0.37
+package: openshift-node-upgrade-mutex-operator
+properties:
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: Mutex
+    version: v1alpha1
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: MutexRule
+    version: v1alpha1
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: MutexRunConfig
+    version: v1alpha1
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: MutexTarget
+    version: v1alpha1
+- type: olm.package
+  value:
+    packageName: openshift-node-upgrade-mutex-operator
+    version: 0.0.37
+relatedImages:
+- image: gcr.io/kubebuilder/kube-rbac-proxy:v0.15.0
+  name: ""
+- image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator-bundle:v0.0.37
+  name: ""
+- image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator:0.0.37
+  name: ""
+schema: olm.bundle
+---
+image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator-bundle:v0.0.38
+name: openshift-node-upgrade-mutex-operator.v0.0.38
+package: openshift-node-upgrade-mutex-operator
+properties:
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: Mutex
+    version: v1alpha1
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: MutexRule
+    version: v1alpha1
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: MutexRunConfig
+    version: v1alpha1
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: MutexTarget
+    version: v1alpha1
+- type: olm.package
+  value:
+    packageName: openshift-node-upgrade-mutex-operator
+    version: 0.0.38
+relatedImages:
+- image: gcr.io/kubebuilder/kube-rbac-proxy:v0.15.0
+  name: ""
+- image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator-bundle:v0.0.38
+  name: ""
+- image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator:0.0.38
+  name: ""
+schema: olm.bundle
+---
+image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator-bundle:v0.0.39
+name: openshift-node-upgrade-mutex-operator.v0.0.39
+package: openshift-node-upgrade-mutex-operator
+properties:
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: Mutex
+    version: v1alpha1
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: MutexRule
+    version: v1alpha1
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: MutexRunConfig
+    version: v1alpha1
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: MutexTarget
+    version: v1alpha1
+- type: olm.package
+  value:
+    packageName: openshift-node-upgrade-mutex-operator
+    version: 0.0.39
+relatedImages:
+- image: gcr.io/kubebuilder/kube-rbac-proxy:v0.15.0
+  name: ""
+- image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator-bundle:v0.0.39
+  name: ""
+- image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator:0.0.39
+  name: ""
+schema: olm.bundle
+---
+image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator-bundle:v0.0.40
+name: openshift-node-upgrade-mutex-operator.v0.0.40
+package: openshift-node-upgrade-mutex-operator
+properties:
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: Mutex
+    version: v1alpha1
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: MutexRule
+    version: v1alpha1
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: MutexRunConfig
+    version: v1alpha1
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: MutexTarget
+    version: v1alpha1
+- type: olm.package
+  value:
+    packageName: openshift-node-upgrade-mutex-operator
+    version: 0.0.40
+relatedImages:
+- image: gcr.io/kubebuilder/kube-rbac-proxy:v0.15.0
+  name: ""
+- image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator-bundle:v0.0.40
+  name: ""
+- image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator:0.0.40
+  name: ""
+schema: olm.bundle
+---
+image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator-bundle:v0.0.41
+name: openshift-node-upgrade-mutex-operator.v0.0.41
+package: openshift-node-upgrade-mutex-operator
+properties:
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: Mutex
+    version: v1alpha1
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: MutexRule
+    version: v1alpha1
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: MutexRunConfig
+    version: v1alpha1
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: MutexTarget
+    version: v1alpha1
+- type: olm.package
+  value:
+    packageName: openshift-node-upgrade-mutex-operator
+    version: 0.0.41
+relatedImages:
+- image: gcr.io/kubebuilder/kube-rbac-proxy:v0.15.0
+  name: ""
+- image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator-bundle:v0.0.41
+  name: ""
+- image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator:0.0.41
+  name: ""
+schema: olm.bundle
+---
+image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator-bundle:v0.0.42
+name: openshift-node-upgrade-mutex-operator.v0.0.42
+package: openshift-node-upgrade-mutex-operator
+properties:
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: Mutex
+    version: v1alpha1
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: MutexRule
+    version: v1alpha1
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: MutexRunConfig
+    version: v1alpha1
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: MutexTarget
+    version: v1alpha1
+- type: olm.package
+  value:
+    packageName: openshift-node-upgrade-mutex-operator
+    version: 0.0.42
+relatedImages:
+- image: gcr.io/kubebuilder/kube-rbac-proxy:v0.15.0
+  name: ""
+- image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator-bundle:v0.0.42
+  name: ""
+- image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator:0.0.42
+  name: ""
+schema: olm.bundle
+---
+image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator-bundle:v0.0.43
+name: openshift-node-upgrade-mutex-operator.v0.0.43
+package: openshift-node-upgrade-mutex-operator
+properties:
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: Mutex
+    version: v1alpha1
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: MutexRule
+    version: v1alpha1
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: MutexRunConfig
+    version: v1alpha1
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: MutexTarget
+    version: v1alpha1
+- type: olm.package
+  value:
+    packageName: openshift-node-upgrade-mutex-operator
+    version: 0.0.43
 - type: olm.csv.metadata
   value:
     annotations:
@@ -843,7 +1354,7 @@ properties:
       categories: OpenShift Optional
       certified: "false"
       containerImage: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator
-      createdAt: "2024-07-17T19:26:56Z"
+      createdAt: "2024-07-18T17:41:06Z"
       description: Short Description
       features.operators.openshift.io/cnf: "false"
       features.operators.openshift.io/cni: "false"
@@ -906,9 +1417,9 @@ properties:
 relatedImages:
 - image: gcr.io/kubebuilder/kube-rbac-proxy:v0.15.0
   name: ""
-- image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator-bundle:v0.0.31
+- image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator-bundle:v0.0.43
   name: ""
-- image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator:0.0.31
+- image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator:0.0.43
   name: ""
 schema: olm.bundle
 ---

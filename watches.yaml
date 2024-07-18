@@ -9,11 +9,11 @@
   watchAnnotationsChanges: True
   watchDependentResources: True
   watchClusterScopedResources: True
-  finalizer:
-    name: openshift-optional.skrzypek.io/finalizer
-    role: mutex
-    vars:
-      finalize: ''
+#  finalizer:
+#    name: openshift-optional.skrzypek.io/finalizer
+#    role: mutex
+#    vars:
+#      finalize: ''
 
 - version: v1alpha1
   group: openshift-optional.skrzypek.io
@@ -24,11 +24,11 @@
   watchAnnotationsChanges: True
   watchDependentResources: True
   watchClusterScopedResources: True
-  finalizer:
-    name: openshift-optional.skrzypek.io/finalizer
-    role: mutexrule
-    vars:
-      finalize: ''
+#  finalizer:
+#    name: openshift-optional.skrzypek.io/finalizer
+#    role: mutexrule
+#    vars:
+#      finalize: ''
 
 - version: v1alpha1
   group: openshift-optional.skrzypek.io
@@ -39,11 +39,11 @@
   watchAnnotationsChanges: True
   watchDependentResources: True
   watchClusterScopedResources: True
-  finalizer:
-    name: openshift-optional.skrzypek.io/finalizer
-    role: mutextarget
-    vars:
-      finalize: ''
+#  finalizer:
+#    name: openshift-optional.skrzypek.io/finalizer
+#    role: mutextarget
+#    vars:
+#      finalize: ''
 
 - version: v1alpha1
   group: openshift-optional.skrzypek.io
@@ -54,9 +54,9 @@
   watchAnnotationsChanges: True
   watchDependentResources: True
   watchClusterScopedResources: True
-  finalizer:
-    name: openshift-optional.skrzypek.io/finalizer
-    role: mutexrunconfig
-    vars:
-      finalize: ''
+#  finalizer:
+#    name: openshift-optional.skrzypek.io/finalizer
+#    role: mutexrunconfig
+#    vars:
+#      finalize: ''
 #+kubebuilder:scaffold:watch

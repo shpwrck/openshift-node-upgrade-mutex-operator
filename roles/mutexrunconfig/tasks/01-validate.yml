@@ -12,7 +12,6 @@
         - mutexRules.resources == []
       register: mutexRules
 
-
     - name: Gather MutexTargets
       kubernetes.core.k8s_info:
         api_version: "openshift-optional.skrzypek.io/v1alpha1"
@@ -57,4 +56,4 @@
   always:
     - name: Set Configuration Status
       ansible.builtin.set_fact:
-        valid_configuration: "{{ (ansible_failed_result is not defined) | ternary('true', 'false') }}"
+        ValidConfig: "{{ (ansible_failed_result is not defined) | ternary('true', 'false') }}"

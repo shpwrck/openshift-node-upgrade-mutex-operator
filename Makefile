@@ -54,7 +54,7 @@ OPERATOR_SDK_VERSION ?= v1.35.0
 IMG ?= ${IMAGE_TAG_BASE}:${VERSION}
 
 .PHONY: all
-all: docker-build docker-push bundle bundle-build bundle-push catalog-build-index catalog-push-index catalog-migrate catalog-build-file catalog-push-file
+all: docker-build docker-push bundle bundle-build bundle-push catalog-build-index catalog-push-index catalog-migrate catalog-build-file catalog-push-file increment
 
 ##@ General
 
@@ -74,6 +74,10 @@ help: ## Display this help.
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
 
 ##@ Build
+
+.PHONY: increment
+increment:
+	awk -i inplace -F '=' -e 'FNR == 3 {print $$1 "=" $$2+1}' -e 'FNR != 3' .envrc
 
 .PHONY: run
 ANSIBLE_ROLES_PATH?="$(shell pwd)/roles"

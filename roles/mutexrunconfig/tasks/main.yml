@@ -8,3 +8,20 @@
   ansible.builtin.include_tasks: 01-validate.yml
   when:
     - finalize is undefined
+
+- name: Pause Pools
+  ansible.builtin.include_tasks: 02-pause-machine-config-pools.yml
+  when:
+    - finalize is undefined
+    - ValidConfig
+
+- name: Apply Labels
+  ansible.builtin.include_tasks: 03-apply-mutex-rules-as-labels.yml
+  when:
+    - finalize is undefined
+    - ValidConfig
+    - TargetPoolsPaused
+
+#- name: Check Upgrade
+#- name: Run Jobs
+#- name: Clean Up

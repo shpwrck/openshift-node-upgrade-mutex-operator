@@ -1,15 +1,21 @@
 ---
 - name: Validate
   block:
-    - name: Gather Control Plane Machine Config Pools
+    - name: Gather Machine Config Pools
       kubernetes.core.k8s_info:
         api_version: "machineconfiguration.openshift.io/v1"
         kind: MachineConfigPool
         name: "{{ item }}"
       loop: "{{ _openshift_optional_skrzypek_io_mutextarget_spec.machineConfigPools }}"
       failed_when:
-        - machineconfigpools.resources == []
-      register: machineconfigpools
+        - machineConfigPools.resources == []
+      register: machineConfigPools
+
+    - name: Create Node List
+      ansible.builtin.set_fact:
+        nodeList: "{{ machineConfigPools | community.general.json_query(query) }}"
+      vars:
+        query: results[*].resources[*].spec.nodeSelector[*]
 
     - name: Report Configuration Results
       operator_sdk.util.k8s_status:
@@ -18,7 +24,7 @@
         name: "{{ ansible_operator_meta.name }}"
         namespace: "{{ ansible_operator_meta.namespace }}"
         status:
-          machineConfigPoolCount: "{{ machineconfigpools.results | length }}"
+          nodes: "{{ nodeList }}"
         conditions:
           - type: ValidConfig
             status: "True"
@@ -34,7 +40,7 @@
         name: "{{ ansible_operator_meta.name }}"
         namespace: "{{ ansible_operator_meta.namespace }}"
         status:
-          machineConfigPoolCount: ""
+          nodes: "Empty"
         conditions:
           - type: ValidConfig
             status: "False"
