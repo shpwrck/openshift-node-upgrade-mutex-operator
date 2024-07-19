@@ -5,7 +5,7 @@
 
 - name: set fact
   ansible.builtin.set_fact:
-    labelSelector: "{{ item.key }} == '{{ item.value }}'"
+    labelSelector: "{{ item.key }} = {{ item.value }}"
   loop: '{{ lookup("ansible.builtin.dict", item.resources[0].spec.nodeSelector.matchLabels, wantlist=True) }}'
   register: labelSelectorResults
 
@@ -22,3 +22,7 @@
     kind: Node
     label_selectors: "{{ labelSelectors }}"
   register: Nodes
+
+- name: debug
+  ansible.builtin.debug:
+    msg: "{{ Nodes | community.general.json_query('resources[*].metadata.name') }}"
