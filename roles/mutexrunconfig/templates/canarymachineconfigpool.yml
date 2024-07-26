@@ -13,7 +13,5 @@ spec:
     matchLabels:
       machineconfiguration.openshift.io/role: worker
   nodeSelector:
-    matchLabels:
-      node-role.kubernetes.io/worker: ''
-      upgrades.example.com/mutable: ''
-  paused: false
+    matchExpressions:
+    - 

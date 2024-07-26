@@ -1,0 +1,89 @@
+---
+- name: Job Execution Block
+  block:
+    - name: Launch K8S job_id
+#
+#    - name: Launch
+#      awx.awx.job_launch:
+#        controller_host: "{{ vars.aap.controller_host }}"
+#        controller_oauthtoken: "{{ vars.aap.controller_oauthtoken }}"
+#        job_template: "{{ vars.aap.job_template }}"
+#        extra_vars:
+#          variable_host: "{{ item.metadata.name }}"
+#      register: launch_results
+#
+#    - name: Report Job Run Start
+#      operator_sdk.util.k8s_status:
+#        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+#        kind: Mutex
+#        name: "{{ ansible_operator_meta.name }}"
+#        namespace: "{{ ansible_operator_meta.namespace }}"
+#        conditions:
+#          - type: Upgrading
+#            status: "True"
+#            reason: "JobLaunched"
+#            message: |-
+#              Job {{ launch_results.id }} is running
+#              Node is {{ ansible_loop.index }} of {{ ansible_loop.length }}
+#            lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
+#
+#    - name: Wait For Job
+#      awx.awx.job_wait:
+#        controller_host: "{{ vars.aap.controller_host }}"
+#        controller_oauthtoken: "{{ vars.aap.controller_oauthtoken }}"
+#        job_id: "{{ launch_results.id }}"
+#
+#    - name: Report Job Run Finish
+#      operator_sdk.util.k8s_status:
+#        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+#        kind: Mutex
+#        name: "{{ ansible_operator_meta.name }}"
+#        namespace: "{{ ansible_operator_meta.namespace }}"
+#        conditions:
+#          - type: Upgrading
+#            status: "True"
+#            reason: "NodeUpgrading"
+#            message: |-
+#              Node {{ item.metadata.name }} is upgrading
+#              Node is {{ ansible_loop.index }} of {{ ansible_loop.length }}
+#            lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
+#
+#    - name: Add Mutable Label
+#      kubernetes.core.k8s_json_patch:
+#        kind: Node
+#        api_version: "v1"
+#        name: "{{ item.metadata.name }}"
+#        patch:
+#          - op: add
+#            path: "/metadata/labels/openshift-optional.skrzypek.io~1mutable"
+#            value: ''
+#
+#    - name: Wait Until Node Version Matches Desired Version
+#      kubernetes.core.k8s_info:
+#        api_version: "v1"
+#        kind: Node
+#        name: "{{ item.metadata.name }}"
+#      register: actual_version
+#      until: desired_version == actual_version.resources[0].metadata.labels['machineconfiguration.openshift.io/release-image-version']
+#
+#  rescue:
+#    - name: Report Job Run Failure
+#      operator_sdk.util.k8s_status:
+#        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+#        kind: Mutex
+#        name: "{{ ansible_operator_meta.name }}"
+#        namespace: "{{ ansible_operator_meta.namespace }}"
+#        conditions:
+#          - type: Upgrading
+#            status: "False"
+#            reason: "{{ (launch_results.status != 'Successful') | ternary('JobFailed', 'NodeUpgradeFailed') }}"
+#            message: |-
+#              {{ (launch_results.status != 'Successful') | ternary('Job Failed', 'Node Upgrade Failed') }}
+#              Node {{ item.metadata.name }}
+#            lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
+#
+#  always:
+#    - name: Set Worker Nodes Upgraded
+#      ansible.builtin.set_fact:
+#        worker_nodes_upgraded: "{{ (ansible_failed_result is not defined) | ternary('true', 'false') }}"
+#

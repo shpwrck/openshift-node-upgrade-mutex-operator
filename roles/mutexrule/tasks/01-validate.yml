@@ -1,14 +1,27 @@
 ---
-- name: AAP Configuration Validation Block
+- name: Configuration Validation Block
   block:
-    - name: Confirm oauthtoken, host, and job
-      ansible.builtin.uri:
-        url: "https://{{ _openshift_optional_skrzypek_io_mutexrule_spec.aap.controller_host }}/api/v2/job_templates?search={{ _openshift_optional_skrzypek_io_mutexrule_spec.aap.job_template | urlencode() }}"
-        headers:
-          Authorization: "Bearer {{ _openshift_optional_skrzypek_io_mutexrule_spec.aap.controller_oauthtoken }}"
-      register: aap_response
-      failed_when:
-        - aap_response.json.count != 1
+    - name: Confirm AAP
+      awx.awx.job_template:
+        controller_host: "{{ _openshift_optional_skrzypek_io_mutexrule_spec.host }}"
+        controller_oauthtoken: "{{ _openshift_optional_skrzypek_io_mutexrule_spec.token }}"
+        name: "{{ _openshift_optional_skrzypek_io_mutexrule_spec.job_name }}"
+        project: "{{ _openshift_optional_skrzypek_io_mutexrule_spec.job_project }}"
+        state: "exists"
+      register: aap_validation
+      when: _openshift_optional_skrzypek_io_mutexrule_spec.type == "aap"
+
+    - name: Confirm K8S
+      kubernetes.core.k8s_info:
+        host: "{{ _openshift_optional_skrzypek_io_mutexrule_spec.host | default('https://kubernetes.default.svc') }}"
+        ca_cert: "{{ _openshift_optional_skrzypek_io_mutexrule_spec.ca_cert | default('/run/secrets/kubernetes.io/serviceaccount/ca.crt') }}"
+        client_key: "{{ _openshift_optional_skrzypek_io_mutexrule_spec.ca_cert | default('/run/secrets/kubernetes.io/serviceaccount/token') }}"
+        kind: "CronJob"
+        name: "{{ _openshift_optional_skrzypek_io_mutexrule_spec.job_name }}"
+        namespace: "{{ _openshift_optional_skrzypek_io_mutexrule_spec.job_namespace }}"
+      register: k8s_validation
+      failed_when: (k8s_validation.resources | length) < 1
+      when: _openshift_optional_skrzypek_io_mutexrule_spec.type == "k8s"
 
     - name: Report Configuration Results
       operator_sdk.util.k8s_status:
@@ -19,8 +32,8 @@
         conditions:
           - type: ValidConfig
             status: "True"
-            reason: AAPValid
-            message: The AAP configuration has been validated successfully
+            reason: ValidConfig
+            message: The Host/Token/Job combination is valid.
             lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
 
   rescue:
@@ -33,8 +46,8 @@
         conditions:
           - type: ValidConfig
             status: "False"
-            reason: AAPInvalid
-            message: The AAP configuration has not been validated successfully
+            reason: InvalidConfig
+            message: The Host/Token/Job combination is not valid.
             lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
 
   always:

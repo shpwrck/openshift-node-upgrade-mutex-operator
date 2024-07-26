@@ -29,11 +29,8 @@
         kind: MutexRunConfig
         name: "{{ ansible_operator_meta.name }}"
         namespace: "{{ ansible_operator_meta.namespace }}"
-        status:
-          mutexRules: "{{ mutexRules.results | length }}"
-          mutexTargets: "{{ mutexTargets.results | length }}"
         conditions:
-          - type: ValidConfig
+          - type: ConfigValidated
             status: "True"
             reason: MutexFetchSucceeded
             message: MutexRules and MutexTargets were successfully fetched.
@@ -47,7 +44,7 @@
         name: "{{ ansible_operator_meta.name }}"
         namespace: "{{ ansible_operator_meta.namespace }}"
         conditions:
-          - type: ValidConfig
+          - type: ConfigValidated
             status: "False"
             reason: MutexFetchFailed
             message: MutexRules and MutexTargets were not successfully fetched.
@@ -56,4 +53,4 @@
   always:
     - name: Set Configuration Status
       ansible.builtin.set_fact:
-        ValidConfig: "{{ (ansible_failed_result is not defined) | ternary('true', 'false') }}"
+        ConfigValidated: "{{ (ansible_failed_result is not defined) | ternary('true', 'false') }}"

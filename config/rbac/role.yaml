@@ -41,6 +41,19 @@ rules:
   ## Rules added for related resources
   ##
   - apiGroups:
+      - "batch"
+    resources:
+      - cronjobs
+      - jobs
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
       - "config.openshift.io"
     resources:
       - clusterversions

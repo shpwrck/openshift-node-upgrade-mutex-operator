@@ -1,30 +1,30 @@
 ---
-- name: Create MutexRule List
-  ansible.builtin.set_fact:
-    mutexRuleList: "{{ mutexRules | community.general.json_query(query) | flatten }}"
-  vars: 
-    query: results[*].resources[*].spec.machineConfigPools[*]
-
-- name: Create TargetNode List
-  kubernetes.core.k8s:
-    definition:
-    nodeList: "{{ mutexTargets | community.general.json_query(query) | flatten }}"
-  vars: 
-    query: results[*].resources[*].spec.machineConfigPools[*]
-
 - name: Node Label Block
   block:
-    - name: Pause Pools
+    - name: Get Mutex Targets
+      kubernetes.core.k8s_info:
+        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        kind: MutexTarget
+        name: "{{ item.name }}"
+        namespace: "{{ item.namespace }}"
+      loop: "{{ _openshift_optional_skrzypek_io_mutexrunconfig_spec.mutexTargets }}"
+      register: mutexTargets
+
+    - name: Create Node List
+      ansible.builtin.set_fact:
+        targetNodeList: "{{ mutexTargets | community.general.json_query(query) | flatten | unique }}"
+      vars: 
+        query: results[*].resources[*].status.nodes[*]
+
+    - name: Label Nodes
       kubernetes.core.k8s:
+        state: patched
+        name: "{{ item[0] }}"
+        kind: "Node"
         definition:
-          apiVersion: "machineconfiguration.openshift.io/v1"
-          kind: MachineConfigPool
           metadata:
-            name: "{{ item }}"
-          spec:
-            paused: True
-        wait: yes
-      loop: "{{ machineConfigPoolList }}"
+            labels: "{{ '' | community.general.dict_kv('mutexrule.openshift-optional.skrzypek.io/' + item[1].name + '.' + item[1].namespace ) }}"
+      loop: "{{ targetNodeList | product( _openshift_optional_skrzypek_io_mutexrunconfig_spec.mutexRules ) }}"
 
     - name: Report Applied
       operator_sdk.util.k8s_status:

@@ -1,12 +1,12 @@
 ---
-- name: Create MachineConfigPool List
-  ansible.builtin.set_fact:
-    machineConfigPoolList: "{{ mutexTargets | community.general.json_query(query) | flatten }}"
-  vars: 
-    query: results[*].resources[*].spec.machineConfigPools[*]
-
-- name: Pool Modifcation Block
+- name: Pool Modification Block
   block:
+    - name: Create MachineConfigPool List
+      ansible.builtin.set_fact:
+        machineConfigPoolList: "{{ mutexTargets | community.general.json_query(query) | flatten }}"
+      vars: 
+        query: results[*].resources[*].spec.machineConfigPools[*]
+
     - name: Pause Pools
       kubernetes.core.k8s:
         definition:
