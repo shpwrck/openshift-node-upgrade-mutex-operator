@@ -4,7 +4,7 @@
     - name: Create MachineConfigPool List
       ansible.builtin.set_fact:
         machineConfigPoolList: "{{ mutexTargets | community.general.json_query(query) | flatten }}"
-      vars: 
+      vars:
         query: results[*].resources[*].spec.machineConfigPools[*]
 
     - name: Pause Pools

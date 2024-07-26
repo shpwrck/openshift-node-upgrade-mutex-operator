@@ -13,5 +13,3 @@ spec:
     matchLabels:
       machineconfiguration.openshift.io/role: worker
   nodeSelector:
-    matchExpressions:
-    - 

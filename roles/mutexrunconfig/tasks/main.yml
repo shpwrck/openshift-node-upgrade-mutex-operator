@@ -21,7 +21,7 @@
     - finalize is undefined
     - ConfigValidated
     - TargetPoolsPaused
-    
+
 - name: Check For Upgrade
   ansible.builtin.include_tasks: 04-check-for-upgrade.yml
   when:
@@ -32,7 +32,6 @@
 
 - name: Update Canary MachineConfigPool
   ansible.builtin.include_tasks: 05-modify_canarymachineconfigpool.yml
-  
 
 - name: Run Job
   ansible.builtin.include_tasks: 06-execute_jobs.yml
