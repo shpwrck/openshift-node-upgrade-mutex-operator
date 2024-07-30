@@ -1,20 +1,20 @@
 ---
-#- name: Finalize
-#  ansible.builtin.include_tasks: 00-finalize.yml
-#  when:
-#    - finalize is defined
-#
-#- name: Validate
-#  ansible.builtin.include_tasks: 01-validate.yml
-#  when:
-#    - finalize is undefined
-#
-#- name: Gather Nodes
-#  ansible.builtin.include_tasks: 02-gather-nodes.yml
-#  when:
-#    - finalize is undefined
-#    - ValidConfig
-#  loop: "{{ machineConfigPools.results }}"
-#  loop_control:
-#    extended: true
-#    loop_var: mcp
+- name: Finalize
+  ansible.builtin.include_tasks: 00-finalize.yml
+  when:
+    - finalize is defined
+
+- name: Validate
+  ansible.builtin.include_tasks: 01-validate.yml
+  when:
+    - finalize is undefined
+
+- name: Gather Nodes
+  ansible.builtin.include_tasks: 02-gather-nodes.yml
+  when:
+    - finalize is undefined
+    - ValidConfig
+  loop: "{{ machineConfigPools.results }}"
+  loop_control:
+    extended: true
+    loop_var: mcp

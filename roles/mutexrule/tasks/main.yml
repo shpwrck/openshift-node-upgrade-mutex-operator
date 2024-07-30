@@ -1,10 +1,10 @@
 ---
-#- name: Finalize
-#  ansible.builtin.include_tasks: 00-finalize.yml
-#  when:
-#    - finalize is defined
-#
-#- name: Validate
-#  ansible.builtin.include_tasks: 01-validate.yml
-#  when:
-#    - finalize is undefined
+- name: Finalize
+  ansible.builtin.include_tasks: 00-finalize.yml
+  when:
+    - finalize is defined
+
+- name: Validate
+  ansible.builtin.include_tasks: 01-validate.yml
+  when:
+    - finalize is undefined

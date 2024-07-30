@@ -15,6 +15,10 @@
         targetNodeList: "{{ mutexTargets | community.general.json_query(query) | flatten | unique }}"
       vars: 
         query: results[*].resources[*].status.nodes[*]
+    
+    - name: Create Target Matrix
+      ansible.builtin.set_fact:
+        targetMatrix: "{{ targetNodeList | product( _openshift_optional_skrzypek_io_mutexrunconfig_spec.mutexRules ) }}"
 
     - name: Label Nodes
       kubernetes.core.k8s:
@@ -24,7 +28,7 @@
         definition:
           metadata:
             labels: "{{ '' | community.general.dict_kv('mutexrule.openshift-optional.skrzypek.io/' + item[1].name + '.' + item[1].namespace ) }}"
-      loop: "{{ targetNodeList | product( _openshift_optional_skrzypek_io_mutexrunconfig_spec.mutexRules ) }}"
+      loop: "{{ targetMatrix }}"
 
     - name: Report Applied
       operator_sdk.util.k8s_status:

@@ -3,7 +3,7 @@
   block:
     - name: Build Expressions List
       ansible.builtin.set_fact:
-        matchExpressionsList: "{{ matchExpressionsList | default([]) }}"
+        matchExpressionsList: "{{ matchExpressionsList | default([]) + [{'key': 'mutexrule.openshift-optional.skrzypek.io/' + item.name + '.' + item.namespace, 'operator': 'DoesNotExist'}] }}"
       loop: "{{ _openshift_optional_skrzypek_io_mutexrunconfig_spec.mutexRules }}"
 
     - name: Update Canary Membership
@@ -15,13 +15,12 @@
         definition:
           spec:
             nodeSelector:
-              matchExpressions:
-      loop: "{{ _openshift_optional_skrzypek_io_mutexrunconfig_spec.mutexRules }}"
+              matchExpressions: "{{ matchExpressionsList }}"
 
     - name: Report Canary Updated
       operator_sdk.util.k8s_status:
         api_version: "openshift-optional.skrzypek.io/v1alpha1"
-        kind: Mutex
+        kind: MutexRunConfig
         name: "{{ ansible_operator_meta.name }}"
         namespace: "{{ ansible_operator_meta.namespace }}"
         conditions:
@@ -35,7 +34,7 @@
     - name: Report Canary Not Updated
       operator_sdk.util.k8s_status:
         api_version: "openshift-optional.skrzypek.io/v1alpha1"
-        kind: Mutex
+        kind: MutexRunConfig
         name: "{{ ansible_operator_meta.name }}"
         namespace: "{{ ansible_operator_meta.namespace }}"
         conditions:

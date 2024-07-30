@@ -1,7 +1,53 @@
 ---
 - name: Job Execution Block
   block:
-    - name: Launch K8S job_id
+    - name: Get Node Details
+      kubernetes.core.k8s_info:
+        kind: Node
+        name: "{{ item }}"
+      register: nodeResource
+
+    - name: Get Rule Details
+      kubernetes.core.k8s_info:
+        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        kind: MutexRule
+        name: "{{ item | split('/') | last | split('.') | first }}"
+        namespace: "{{ item | split('/') | last | split('.') | last }}"
+      register: mutexRules
+      loop: "{{ nodeResource | community.general.json_query(query) }}"
+      vars:
+        query: "resources[0].metadata.labels | keys(@) | [?starts_with(@,'mutexrule')]"
+
+    - name: Add Node Variable To Job
+      ansible.utils.update_fact:
+        updates:
+          - path: resources[0].spec.job_spec.template.spec.containers[0].env
+            value:
+              - name: NODE_NAME
+                value: "{{ item[0] }}"
+              - name: JOB_NAME
+                value: "{{ item[1].name }}"
+      register: updatedMutexRules
+      loop: "{{ mutexRules.results }}"
+
+    - name: Debug
+      ansible.builtin.debug:
+        msg: "{{ updatedMutexRules }}"
+
+#    - name: Launch
+#      kubernetes.core.k8s:
+#        api_version: "batch/v1"
+#        kind: Job
+#        generate_name: "{{ updatedMutexRule.mutexRule.resources[0].spec.job_name }}-"
+#        namespace: "{{ updatedMutexRule.mutexRule.resources[0].spec.job_namespace }}"
+#        definition:
+#          spec: "{{ updatedMutexRule.mutexRule.resources[0].spec.job_spec }}"
+#        state: present
+#        wait: true
+#        wait_condition:
+#          status: "True"
+#          type: "Complete"
+#      register: job_results
 #
 #    - name: Launch
 #      awx.awx.job_launch:
@@ -66,7 +112,10 @@
 #      register: actual_version
 #      until: desired_version == actual_version.resources[0].metadata.labels['machineconfiguration.openshift.io/release-image-version']
 #
-#  rescue:
+  rescue:
+    - name: "Debug"
+      ansible.builtin.debug:
+        msg: "Rescue"
 #    - name: Report Job Run Failure
 #      operator_sdk.util.k8s_status:
 #        api_version: "openshift-optional.skrzypek.io/v1alpha1"
@@ -82,8 +131,7 @@
 #              Node {{ item.metadata.name }}
 #            lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
 #
-#  always:
-#    - name: Set Worker Nodes Upgraded
-#      ansible.builtin.set_fact:
-#        worker_nodes_upgraded: "{{ (ansible_failed_result is not defined) | ternary('true', 'false') }}"
-#
+  always:
+    - name: Set Worker Nodes Upgraded
+      ansible.builtin.set_fact:
+        worker_nodes_upgraded: "{{ (ansible_failed_result is not defined) | ternary('true', 'false') }}"
