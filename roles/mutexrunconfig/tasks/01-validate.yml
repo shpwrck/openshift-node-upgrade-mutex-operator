@@ -12,6 +12,11 @@
         - mutexRules.resources == []
       register: mutexRules
 
+    - name: Check CRD Status
+      ansible.builtin.assert:
+        that: item.resources[0].status.conditions[0].status == "True"
+      loop: "{{ mutexRules.results }}"
+
     - name: Gather MutexTargets
       kubernetes.core.k8s_info:
         api_version: "openshift-optional.skrzypek.io/v1alpha1"
@@ -22,6 +27,11 @@
       failed_when:
         - mutexTargets.resources == []
       register: mutexTargets
+
+    - name: Check CRD Status
+      ansible.builtin.assert:
+        that: item.resources[0].status.conditions[0].status == "True"
+      loop: "{{ mutexTargets.results }}"
 
     - name: Report Configuration Results
       operator_sdk.util.k8s_status:

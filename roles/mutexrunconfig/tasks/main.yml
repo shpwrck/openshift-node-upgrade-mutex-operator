@@ -1,53 +1,54 @@
 ---
-#- name: Finalize
-#  ansible.builtin.include_tasks: 00-finalize.yml
-#  when:
-#    - finalize is defined
+- name: Finalize
+  ansible.builtin.include_tasks: 00-finalize.yml
+  when:
+    - finalize is defined
 
-#- name: Validate
-#  ansible.builtin.include_tasks: 01-validate.yml
-#  when:
-#    - finalize is undefined
+- name: Validate
+  ansible.builtin.include_tasks: 01-validate.yml
+  when:
+    - finalize is undefined
 
-#- name: Pause Pools
-#  ansible.builtin.include_tasks: 02-pause-machine-config-pools.yml
-#  when:
-#    - finalize is undefined
-#    - ConfigValidated
+- name: Pause Pools
+  ansible.builtin.include_tasks: 02-pause-machine-config-pools.yml
+  when:
+    - finalize is undefined
+    - ConfigValidated
 
 - name: Apply Labels
   ansible.builtin.include_tasks: 03-apply-mutex-rules-as-labels.yml
-#  when:
-#    - finalize is undefined
-#    - ConfigValidated
-#    - TargetPoolsPaused
+  when:
+    - finalize is undefined
+    - ConfigValidated
+    - TargetPoolsPaused
 
-#- name: Check For Upgrade
-#  ansible.builtin.include_tasks: 04-check-for-upgrade.yml
-#  when:
-#    - finalize is undefined
-#    - ConfigValidated
-#    - TargetPoolsPaused
-#    - MutexRulesApplied
+- name: Check For Upgrade
+  ansible.builtin.include_tasks: 04-check-for-upgrade.yml
+  when:
+    - finalize is undefined
+    - ConfigValidated
+    - TargetPoolsPaused
+    - MutexRulesApplied
 
-#- name: Update Canary MachineConfigPool
-#  ansible.builtin.include_tasks: 05-modify_canarymachineconfigpool.yml
-#  when:
-#    - finalize is undefined
-#    - ConfigValidated
-#    - TargetPoolsPaused
-#    - MutexRulesApplied
+- name: Update Canary MachineConfigPool
+  ansible.builtin.include_tasks: 05-modify_canarymachineconfigpool.yml
+  when:
+    - finalize is undefined
+    - ConfigValidated
+    - TargetPoolsPaused
+    - MutexRulesApplied
+    - UpgradabilityChecked and UpgradeAvailable
 
 - name: Run Job
   ansible.builtin.include_tasks: 06-execute_jobs.yml
   loop: "{{ targetNodeList }}"
   loop_control:
     extended: true
-#  when:
-#    - finalize is undefined
-#    - ConfigValidated
-#    - TargetPoolsPaused
-#    - MutexRulesApplied
-#    - UpgradabilityChecked and UpgradeAvailable
-
-#- name: Clean Up
+    loop_var: targetNode
+  when:
+    - finalize is undefined
+    - ConfigValidated
+    - TargetPoolsPaused
+    - MutexRulesApplied
+    - UpgradabilityChecked and UpgradeAvailable
+    - CanaryUpdated

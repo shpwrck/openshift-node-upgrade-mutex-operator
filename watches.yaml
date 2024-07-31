@@ -4,8 +4,8 @@
   group: openshift-optional.skrzypek.io
   kind: Mutex
   role: mutex
-  reconcilePeriod: 1h
-  manageStatus: false
+  reconcilePeriod: 10m
+  manageStatus: False
   watchAnnotationsChanges: True
   watchDependentResources: True
   watchClusterScopedResources: True
@@ -19,8 +19,8 @@
   group: openshift-optional.skrzypek.io
   kind: MutexRule
   role: mutexrule
-  reconcilePeriod: 1h
-  manageStatus: false
+  reconcilePeriod: 10m
+  manageStatus: False
   watchAnnotationsChanges: True
   watchDependentResources: True
   watchClusterScopedResources: True
@@ -34,8 +34,8 @@
   group: openshift-optional.skrzypek.io
   kind: MutexTarget
   role: mutextarget
-  reconcilePeriod: 1h
-  manageStatus: false
+  reconcilePeriod: 10m
+  manageStatus: False
   watchAnnotationsChanges: True
   watchDependentResources: True
   watchClusterScopedResources: True
@@ -49,8 +49,8 @@
   group: openshift-optional.skrzypek.io
   kind: MutexRunConfig
   role: mutexrunconfig
-  reconcilePeriod: 1h
-  manageStatus: false
+  reconcilePeriod: 10m
+  manageStatus: False
   watchAnnotationsChanges: True
   watchDependentResources: True
   watchClusterScopedResources: True

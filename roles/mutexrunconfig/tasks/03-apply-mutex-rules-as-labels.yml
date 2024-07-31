@@ -15,20 +15,21 @@
         targetNodeList: "{{ mutexTargets | community.general.json_query(query) | flatten | unique }}"
       vars: 
         query: results[*].resources[*].status.nodes[*]
-    
-    - name: Create Target Matrix
+
+    - name: Create Label Matrix
       ansible.builtin.set_fact:
-        targetMatrix: "{{ targetNodeList | product( _openshift_optional_skrzypek_io_mutexrunconfig_spec.mutexRules ) }}"
+        labelMatrix: "{{ [ (labelMatrix | default([])) ,[{ 'node': item[0], 'labels': {'mutexrule.openshift-optional.skrzypek.io/' + item[1].name + '.' + item[1].namespace: ''}}]] | community.general.lists_mergeby('node', recursive=true) }}"
+      loop: "{{ targetNodeList | product( _openshift_optional_skrzypek_io_mutexrunconfig_spec.mutexRules ) }}"
 
     - name: Label Nodes
       kubernetes.core.k8s:
         state: patched
-        name: "{{ item[0] }}"
+        name: "{{ item.node }}"
         kind: "Node"
         definition:
           metadata:
-            labels: "{{ '' | community.general.dict_kv('mutexrule.openshift-optional.skrzypek.io/' + item[1].name + '.' + item[1].namespace ) }}"
-      loop: "{{ targetMatrix }}"
+            labels: "{{ item.labels }}"
+      loop: "{{ labelMatrix }}"
 
     - name: Report Applied
       operator_sdk.util.k8s_status:
