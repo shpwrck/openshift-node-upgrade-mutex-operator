@@ -100,6 +100,8 @@
         name: "{{ targetNode }}"
         patch: "{{ jsonPatch }}"
 
+# TODO Increase Retries
+
     - name: Wait Until Node Version Matches Desired Version
       kubernetes.core.k8s_info:
         api_version: "v1"
@@ -107,6 +109,8 @@
         name: "{{ targetNode }}"
       register: actual_version
       until: desired_version == actual_version.resources[0].metadata.labels['machineconfiguration.openshift.io/release-image-version']
+      retries: 100
+      delay: 60
 
   rescue:
     - name: Report Job Run Failure
