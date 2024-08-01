@@ -10,6 +10,11 @@ LABEL operators.operatorframework.io.metrics.builder=operator-sdk-v1.35.0
 LABEL operators.operatorframework.io.metrics.mediatype.v1=metrics+v1
 LABEL operators.operatorframework.io.metrics.project_layout=ansible.sdk.operatorframework.io/v1
 
+# Labels for testing.
+LABEL operators.operatorframework.io.test.mediatype.v1=scorecard+v1
+LABEL operators.operatorframework.io.test.config.v1=tests/scorecard/
+
 # Copy files to locations specified by labels.
-COPY ./bundles/0.0.246/manifests /manifests/
-COPY ./bundles/0.0.246/metadata /metadata/
+COPY ./bundles/0.0.252/manifests /manifests/
+COPY ./bundles/0.0.252/metadata /metadata/
+COPY ./bundles/0.0.252/tests/scorecard /tests/scorecard/

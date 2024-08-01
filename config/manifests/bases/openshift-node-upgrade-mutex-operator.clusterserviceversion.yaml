@@ -2,7 +2,7 @@ apiVersion: operators.coreos.com/v1alpha1
 kind: ClusterServiceVersion
 metadata:
   annotations:
-    alm-examples: '[{"apiVersion":"openshift-optional.skrzypek.io/v1alpha1","kind":"Mutex","metadata":{"labels":{"app.kubernetes.io/created-by":"openshift-node-upgrade-mutex-operator","app.kubernetes.io/instance":"mutex-sample","app.kubernetes.io/managed-by":"kustomize","app.kubernetes.io/name":"mutex","app.kubernetes.io/part-of":"openshift-node-upgrade-mutex-operator"},"name":"mutex-sample"},"spec":null}]'
+    alm-examples: '[]'
     capabilities: Basic Install
     categories: OpenShift Optional
     certified: "false"
@@ -36,11 +36,11 @@ spec:
     given target, enable updates for the given target by modifying it's MachineConfigPool
     membership, and wait until the node has been upgraded before proceeding onto subsequent
     operations and targets.\n\n## Dependencies\n\nIn order to confirm the successful
-    upgrade of each target node, the NFD discovery Operator is used to generate a
-    version feature on every worker node. In order to proceed through given targets,
-    each node must have this label\n`'machineconfiguration.openshift.io/release-image-version'`
-    with a key providing the semantic version of this node (e.g. `'4.16.4'`)\n\nThere
-    are several ways to accomplish this, but an example MachineConfig has been provided
+    upgrade of each target node, the NFD Operator is used to generate a version feature
+    on every worker node. In order to proceed through given targets, each node must
+    have this label\n`'machineconfiguration.openshift.io/release-image-version'` with
+    a key providing the semantic version of this node (e.g. `'4.16.4'`)\n\nThere are
+    several ways to accomplish this, but an example MachineConfig has been provided
     [here](https://github.com/shpwrck/openshift-node-upgrade-mutex-operator/blob/main/machineconfig.yaml).\n\nIn
     addition to node labels, a MachineConfigPool that will be used to accomodate targets
     subject to upgrades must be provided matching the following criteria:\n* selects
