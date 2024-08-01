@@ -43,7 +43,6 @@ rules:
   - apiGroups:
       - "batch"
     resources:
-      - cronjobs
       - jobs
     verbs:
       - create
@@ -77,24 +76,6 @@ rules:
       - "machineconfiguration.openshift.io"
     resources:
       - machineconfigpools
-      - machineconfigs
-    verbs:
-      - create
-      - delete
-      - get
-      - list
-      - patch
-      - update
-      - watch
-  ##
-  ## Rules for openshift-optional.skrzypek.io/v1alpha1, Kind: Mutex
-  ##
-  - apiGroups:
-      - openshift-optional.skrzypek.io
-    resources:
-      - mutexes
-      - mutexes/status
-      - mutexes/finalizers
     verbs:
       - create
       - delete

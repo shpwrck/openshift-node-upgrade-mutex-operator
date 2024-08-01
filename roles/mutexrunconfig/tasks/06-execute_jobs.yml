@@ -59,7 +59,6 @@
           type: "Complete"
       loop: "{{ updatedK8sMutexRules.results }}"
 
-# TODO Confirm Job Fail => Playbook Fail
     - name: Launch AAP Jobs
       awx.awx.job_launch:
         controller_host: "{{ item.resources[0].spec.host }}"
@@ -88,9 +87,13 @@
               Node is {{ ansible_loop.index }} of {{ ansible_loop.length }}
             lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
 
+    - name: Clear JSON_Patch Fact
+      ansible.builtin.set_fact:
+        jsonPatch: []
+
     - name: Set JSON_Patch Fact
       ansible.builtin.set_fact:
-        jsonPatch: "{{ jsonPatch | default([]) + [{'op': 'remove','path': '/metadata/labels/' + (item | regex_replace('/','~1')) }] }}"
+        jsonPatch: "{{ jsonPatch + [{'op': 'remove','path': '/metadata/labels/' + (item | regex_replace('/','~1')) }] }}"
       loop: "{{ mutexRuleList }}"
 
     - name: Remove Mutex Labels
