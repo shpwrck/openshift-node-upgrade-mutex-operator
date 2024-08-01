@@ -1,0 +1,14 @@
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: CatalogSource
+metadata:
+  name: skrzypek-io
+  namespace: openshift-marketplace
+spec:
+  displayName: Skrzypek Operators
+  image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator-catalog:latest
+  publisher: Jason Skrzypek
+  sourceType: grpc
+  updateStrategy:
+    registryPoll:
+      interval: 1m

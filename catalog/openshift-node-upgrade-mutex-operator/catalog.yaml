@@ -327,6 +327,10 @@ entries:
   replaces: openshift-node-upgrade-mutex-operator.v0.0.242
 - name: openshift-node-upgrade-mutex-operator.v0.0.244
   replaces: openshift-node-upgrade-mutex-operator.v0.0.243
+- name: openshift-node-upgrade-mutex-operator.v0.0.245
+  replaces: openshift-node-upgrade-mutex-operator.v0.0.244
+- name: openshift-node-upgrade-mutex-operator.v0.0.246
+  replaces: openshift-node-upgrade-mutex-operator.v0.0.245
 - name: openshift-node-upgrade-mutex-operator.v0.0.25
   replaces: openshift-node-upgrade-mutex-operator.v0.0.24
 - name: openshift-node-upgrade-mutex-operator.v0.0.26
@@ -6304,6 +6308,32 @@ properties:
   value:
     packageName: openshift-node-upgrade-mutex-operator
     version: 0.0.244
+relatedImages:
+- image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator-bundle:v0.0.244
+  name: ""
+schema: olm.bundle
+---
+image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator-bundle:v0.0.245
+name: openshift-node-upgrade-mutex-operator.v0.0.245
+package: openshift-node-upgrade-mutex-operator
+properties:
+- type: olm.package
+  value:
+    packageName: openshift-node-upgrade-mutex-operator
+    version: 0.0.245
+relatedImages:
+- image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator-bundle:v0.0.245
+  name: ""
+schema: olm.bundle
+---
+image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator-bundle:v0.0.246
+name: openshift-node-upgrade-mutex-operator.v0.0.246
+package: openshift-node-upgrade-mutex-operator
+properties:
+- type: olm.package
+  value:
+    packageName: openshift-node-upgrade-mutex-operator
+    version: 0.0.246
 - type: olm.csv.metadata
   value:
     annotations:
@@ -6312,7 +6342,7 @@ properties:
       categories: OpenShift Optional
       certified: "false"
       containerImage: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator
-      createdAt: "2024-08-01T14:03:25Z"
+      createdAt: "2024-08-01T14:23:29Z"
       description: |
         This software injects required operations into the worker node upgrade process.
       features.operators.openshift.io/cnf: "false"
@@ -6346,7 +6376,7 @@ properties:
       given targets, each node must have this label\n`'machineconfiguration.openshift.io/release-image-version'`
       with a key providing the semantic version of this node (e.g. `'4.16.4'`)\n\nThere
       are several ways to accomplish this, but an example MachineConfig has been provided
-      [here](https://github.com/shpwrck/openshift-node-upgrade-mutex-operator/blob/main/machineconfig.yaml)\n\nIn
+      [here](https://github.com/shpwrck/openshift-node-upgrade-mutex-operator/blob/main/machineconfig.yaml).\n\nIn
       addition to node labels, a MachineConfigPool that will be used to accomodate
       targets subject to upgrades must be provided matching the following criteria:\n*
       selects only worker nodes\n* is not paused\n\nApplying the example below will
@@ -6383,10 +6413,10 @@ properties:
       \n      namespace: node-upgrade-mutex-operator\n    - name: k8s-example\n      namespace:
       node-upgrade-mutex-operator\n  mutexTargets: # List of existing mutexTargets\n
       \   - name: worker-example\n      namespace: node-upgrade-mutex-operator\n```\n\n##
-      Usage\n\n#### MutexRule\n\n1. Upon creation/modification, the existence of each
-      AAP rule and the schema of each K8s rule is validated.\n2. Status is updated
-      to indicate valid or invalid configuration.\n\n#### MutexTargets\n\n1. Upon
-      creation/modification, the existence of each target is validated.\n2. Status
+      Procedure\n\n#### MutexRule\n\n1. Upon creation/modification, the existence
+      of each AAP rule and the schema of each K8s rule is validated.\n2. Status is
+      updated to indicate valid or invalid configuration.\n\n#### MutexTargets\n\n1.
+      Upon creation/modification, the existence of each target is validated.\n2. Status
       is updated to indicate valid or invalid configuration.\n3. The nodes assigned
       to each target are added to the status field `nodes`.\n\n#### MutexRunConfigs\n\n1.
       Upon creation/modification, the existence as well as validation status of each
@@ -6407,14 +6437,15 @@ properties:
       \ * Wait until the `release-image-version` of the node matches the `spec.desiredUpdate.version`
       of the `cluster` ClusterVersion\n\n## Permissions Granted\n\nIn addition to
       the permissions required to operate the included CRDs, the following access
-      is granted to the operator's service account.\n\n|Resource|Permissions|\n|:-:|:-:|\n|Jobs|Create
-      & Read|\n|Nodes|Read & Update|\n|ClusterVersion|Read|\n|MachineConfigPools|Read
-      & Update|\n\n## Notes\n\n* This operator was built using the operator-sdk's
-      ansible plugin and therefore has all of the inherited capabilities and restrictions.\n*
-      This operator has undergone minimal testing and should not be run in production
-      environments without acknowledging the risks.\n* This operator is currently
-      alpha and subject to change based on requirements.\n\n## Additional Information\nFor
-      additional information refer to the [GitHub Repository](https://github.com/shpwrck/openshift-node-upgrade-mutex-operator)\n"
+      is granted to the operator's service account.\n\n| Resource | Permissions |\n|
+      :---: | :---: |\n| Jobs | Create & Read |\n| Nodes | Read & Update |\n| ClusterVersion
+      | Read |\n| MachineConfigPools | Read & Update |\n\n## Notes\n\n* This operator
+      was built using the operator-sdk's ansible plugin and therefore has all of the
+      inherited capabilities and restrictions.\n* This operator has undergone minimal
+      testing and should not be run in production environments without acknowledging
+      the risks.\n* This operator is currently alpha and subject to change based on
+      requirements.\n\n## Additional Information\nFor additional information refer
+      to the [GitHub Repository](https://github.com/shpwrck/openshift-node-upgrade-mutex-operator)\n"
     displayName: OpenShift Node Upgrade Mutex Operator
     installModes:
     - supported: true
@@ -6441,7 +6472,7 @@ properties:
       name: Jason Skrzypek
       url: https://github.com/shpwrck
 relatedImages:
-- image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator-bundle:v0.0.244
+- image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator-bundle:v0.0.246
   name: ""
 schema: olm.bundle
 ---

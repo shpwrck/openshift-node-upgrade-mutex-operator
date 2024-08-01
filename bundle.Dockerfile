@@ -11,5 +11,5 @@ LABEL operators.operatorframework.io.metrics.mediatype.v1=metrics+v1
 LABEL operators.operatorframework.io.metrics.project_layout=ansible.sdk.operatorframework.io/v1
 
 # Copy files to locations specified by labels.
-COPY ./bundles/0.0.244/manifests /manifests/
-COPY ./bundles/0.0.244/metadata /metadata/
+COPY ./bundles/0.0.246/manifests /manifests/
+COPY ./bundles/0.0.246/metadata /metadata/

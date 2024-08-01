@@ -41,7 +41,7 @@ spec:
     each node must have this label\n`'machineconfiguration.openshift.io/release-image-version'`
     with a key providing the semantic version of this node (e.g. `'4.16.4'`)\n\nThere
     are several ways to accomplish this, but an example MachineConfig has been provided
-    [here](https://github.com/shpwrck/openshift-node-upgrade-mutex-operator/blob/main/machineconfig.yaml)\n\nIn
+    [here](https://github.com/shpwrck/openshift-node-upgrade-mutex-operator/blob/main/machineconfig.yaml).\n\nIn
     addition to node labels, a MachineConfigPool that will be used to accomodate targets
     subject to upgrades must be provided matching the following criteria:\n* selects
     only worker nodes\n* is not paused\n\nApplying the example below will create a
@@ -76,17 +76,17 @@ spec:
     mutexRules\n    - name: aap-example \n      namespace: node-upgrade-mutex-operator\n
     \   - name: k8s-example\n      namespace: node-upgrade-mutex-operator\n  mutexTargets:
     # List of existing mutexTargets\n    - name: worker-example\n      namespace:
-    node-upgrade-mutex-operator\n```\n\n## Usage\n\n#### MutexRule\n\n1. Upon creation/modification,
-    the existence of each AAP rule and the schema of each K8s rule is validated.\n2.
-    Status is updated to indicate valid or invalid configuration.\n\n#### MutexTargets\n\n1.
-    Upon creation/modification, the existence of each target is validated.\n2. Status
-    is updated to indicate valid or invalid configuration.\n3. The nodes assigned
-    to each target are added to the status field `nodes`.\n\n#### MutexRunConfigs\n\n1.
-    Upon creation/modification, the existence as well as validation status of each
-    rule and target is confirmed.\n2. If all validation is successful, each target
-    MachineConfigPool has `spec.paused` set to `true`.\n3. If all target pools have
-    been updated successfully, each node is updated to include a label for each rule
-    with the following format:\n  * `mutexrule.openshift-optional.skrzypek.io/{{MutexRule_Name}}.{{MutexRule_Namespace}}`\n4.
+    node-upgrade-mutex-operator\n```\n\n## Procedure\n\n#### MutexRule\n\n1. Upon
+    creation/modification, the existence of each AAP rule and the schema of each K8s
+    rule is validated.\n2. Status is updated to indicate valid or invalid configuration.\n\n####
+    MutexTargets\n\n1. Upon creation/modification, the existence of each target is
+    validated.\n2. Status is updated to indicate valid or invalid configuration.\n3.
+    The nodes assigned to each target are added to the status field `nodes`.\n\n####
+    MutexRunConfigs\n\n1. Upon creation/modification, the existence as well as validation
+    status of each rule and target is confirmed.\n2. If all validation is successful,
+    each target MachineConfigPool has `spec.paused` set to `true`.\n3. If all target
+    pools have been updated successfully, each node is updated to include a label
+    for each rule with the following format:\n  * `mutexrule.openshift-optional.skrzypek.io/{{MutexRule_Name}}.{{MutexRule_Namespace}}`\n4.
     If all target pools and target nodes have been updated successfully, the existence
     of an upgrade is queried. An upgrade is available if the following is true:\n
     \ * The `status.history` of the `cluster` ClusterVersion equals `Completed`\n
@@ -100,14 +100,14 @@ spec:
     \ * Wait until the `release-image-version` of the node matches the `spec.desiredUpdate.version`
     of the `cluster` ClusterVersion\n\n## Permissions Granted\n\nIn addition to the
     permissions required to operate the included CRDs, the following access is granted
-    to the operator's service account.\n\n|Resource|Permissions|\n|:-:|:-:|\n|Jobs|Create
-    & Read|\n|Nodes|Read & Update|\n|ClusterVersion|Read|\n|MachineConfigPools|Read
-    & Update|\n\n## Notes\n\n* This operator was built using the operator-sdk's ansible
-    plugin and therefore has all of the inherited capabilities and restrictions.\n*
-    This operator has undergone minimal testing and should not be run in production
-    environments without acknowledging the risks.\n* This operator is currently alpha
-    and subject to change based on requirements.\n\n## Additional Information\nFor
-    additional information refer to the [GitHub Repository](https://github.com/shpwrck/openshift-node-upgrade-mutex-operator)\n"
+    to the operator's service account.\n\n| Resource | Permissions |\n| :---: | :---:
+    |\n| Jobs | Create & Read |\n| Nodes | Read & Update |\n| ClusterVersion | Read
+    |\n| MachineConfigPools | Read & Update |\n\n## Notes\n\n* This operator was built
+    using the operator-sdk's ansible plugin and therefore has all of the inherited
+    capabilities and restrictions.\n* This operator has undergone minimal testing
+    and should not be run in production environments without acknowledging the risks.\n*
+    This operator is currently alpha and subject to change based on requirements.\n\n##
+    Additional Information\nFor additional information refer to the [GitHub Repository](https://github.com/shpwrck/openshift-node-upgrade-mutex-operator)\n"
   displayName: OpenShift Node Upgrade Mutex Operator
   icon:
   - base64data: |
