@@ -22,22 +22,22 @@
     - ConfigValidated
     - TargetPoolsPaused
 
-- name: Check For Upgrade
-  ansible.builtin.include_tasks: 04-check-for-upgrade.yml
+- name: Update Canary MachineConfigPool
+  ansible.builtin.include_tasks: 04-modify_canarymachineconfigpool.yml
   when:
     - finalize is undefined
     - ConfigValidated
     - TargetPoolsPaused
     - MutexRulesApplied
 
-- name: Update Canary MachineConfigPool
-  ansible.builtin.include_tasks: 05-modify_canarymachineconfigpool.yml
+- name: Check For Upgrade
+  ansible.builtin.include_tasks: 05-check-for-upgrade.yml
   when:
     - finalize is undefined
     - ConfigValidated
     - TargetPoolsPaused
     - MutexRulesApplied
-    - UpgradabilityChecked and UpgradeAvailable
+    - CanaryUpdated
 
 - name: Run Job
   ansible.builtin.include_tasks: 06-execute_jobs.yml
@@ -50,5 +50,5 @@
     - ConfigValidated
     - TargetPoolsPaused
     - MutexRulesApplied
-    - UpgradabilityChecked and UpgradeAvailable
     - CanaryUpdated
+    - UpgradabilityChecked and UpgradeAvailable

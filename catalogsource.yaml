@@ -6,7 +6,7 @@ metadata:
   namespace: openshift-marketplace
 spec:
   displayName: Skrzypek Operators
-  image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator-catalog:latest
+  image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator-catalog:v0.1.7-file
   publisher: Jason Skrzypek
   sourceType: grpc
   updateStrategy:

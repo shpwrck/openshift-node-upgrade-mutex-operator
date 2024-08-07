@@ -2,21 +2,6 @@
 # Use the 'create api' subcommand to add watches to this file.
 - version: v1alpha1
   group: openshift-optional.skrzypek.io
-  kind: Mutex
-  role: mutex
-  reconcilePeriod: 10m
-  manageStatus: False
-  watchAnnotationsChanges: True
-  watchDependentResources: True
-  watchClusterScopedResources: True
-#  finalizer:
-#    name: openshift-optional.skrzypek.io/finalizer
-#    role: mutex
-#    vars:
-#      finalize: ''
-
-- version: v1alpha1
-  group: openshift-optional.skrzypek.io
   kind: MutexRule
   role: mutexrule
   reconcilePeriod: 10m

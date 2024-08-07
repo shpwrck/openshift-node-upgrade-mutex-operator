@@ -4,10 +4,8 @@
 2. Create an NFD Instance
 3. Create `machineconfig.yaml`
 4. Create `catalogsource.yaml`
-5. Install ONUMO
+5. Install OpenShift Node Upgrade Mutex Operator through OperatorHub
 6. Create MutexRule, MutexTarget, and MutexRunConfig
-
-
 
 # Work Remaining
 
