@@ -66,9 +66,9 @@ kind: MutexRule
 metadata:
   name: k8s-example
 spec:
-  job_name: "Job Name" # Jobs will be run with this prefix name
-  job_namespace: "Job Namespace" # Jobs will be run in this namespace
-  job_spec: # Accepts full 'batch/v1' job spec
+  jobName: "Job Name" # Jobs will be run with this prefix name
+  jobNamespace: "Job Namespace" # Jobs will be run in this namespace
+  jobSpec: # Accepts full 'batch/v1' job spec
     selector: {}
     template:
       metadata:
@@ -82,7 +82,7 @@ spec:
           image: ubi9/toolbox
           name: mutex
         restartPolicy: Never
-  type: k8s 
+  type: kubernetes
 ```
 
 #### MutexTarget:

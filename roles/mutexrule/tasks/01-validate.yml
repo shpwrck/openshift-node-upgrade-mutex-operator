@@ -8,16 +8,16 @@
         client_key: "{{ _openshift_optional_skrzypek_io_mutexrule_spec.ca_cert | default('/run/secrets/kubernetes.io/serviceaccount/token') }}"
         api_version: "batch/v1"
         kind: "Job"
-        name: "{{ _openshift_optional_skrzypek_io_mutexrule_spec.job_name }}"
-        namespace: "{{ _openshift_optional_skrzypek_io_mutexrule_spec.job_namespace }}"
+        name: "{{ _openshift_optional_skrzypek_io_mutexrule_spec.jobName }}"
+        namespace: "{{ _openshift_optional_skrzypek_io_mutexrule_spec.jobNamespace }}"
         definition: 
-          spec: "{{ _openshift_optional_skrzypek_io_mutexrule_spec.job_spec }}"
+          spec: "{{ _openshift_optional_skrzypek_io_mutexrule_spec.jobSpec }}"
         state: absent
         validate:
           fail_on_error: true
           strict: true
       register: k8s_validation
-      when: _openshift_optional_skrzypek_io_mutexrule_spec.type == "k8s"
+      when: _openshift_optional_skrzypek_io_mutexrule_spec.type == "kubernetes"
 
     - name: Report Configuration Results
       operator_sdk.util.k8s_status:

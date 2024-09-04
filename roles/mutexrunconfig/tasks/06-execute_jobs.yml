@@ -25,21 +25,19 @@
     - name: Split Mutex Rules By Type
       ansible.builtin.set_fact:
         k8sMutexRules: "{{ mutexRules | community.general.json_query(k8sQuery) }}"
-        aapMutexRules: "{{ mutexRules | community.general.json_query(aapQuery) }}"
       vars:
-        k8sQuery: "results[?resources[?spec.type=='k8s']]"
-        aapQuery: "results[?resources[?spec.type=='aap']]"
+        k8sQuery: "results[?resources[?spec.type=='kubernetes']]"
 
     - name: Add Node Variable To Job
       ansible.utils.update_fact:
         updates:
-          - path: "k8sMutexRules[{{loopIndex}}].resources[0].spec.job_spec.template.spec.containers[0].env"
+          - path: "k8sMutexRules[{{loopIndex}}].resources[0].spec.jobSpec.template.spec.containers[0].env"
             value:
               - name: NODE_NAME
                 value: "{{ targetNode }}"
               - name: MUTEX_RULE
                 value: "{{ k8sMutexRules[loopIndex].resources[0].metadata.name }}"
-          - path: "k8sMutexRules[{{loopIndex}}].resources[0].spec.job_spec.template.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[0].matchExpressions"
+          - path: "k8sMutexRules[{{loopIndex}}].resources[0].spec.jobSpec.template.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[0].matchExpressions"
             value:
               - key: kubernetes.io/hostname
                 operator: NotIn
@@ -54,10 +52,10 @@
       kubernetes.core.k8s:
         api_version: "batch/v1"
         kind: Job
-        generate_name: "{{ item.k8sMutexRules[0].resources[0].spec.job_name }}-"
-        namespace: "{{ item.k8sMutexRules[0].resources[0].spec.job_namespace }}"
+        generate_name: "{{ item.k8sMutexRules[0].resources[0].spec.jobName }}-"
+        namespace: "{{ item.k8sMutexRules[0].resources[0].spec.jobNamespace }}"
         definition:
-          spec: "{{ item.k8sMutexRules[0].resources[0].spec.job_spec }}"
+          spec: "{{ item.k8sMutexRules[0].resources[0].spec.jobSpec }}"
         state: present
         wait: true
         wait_condition:
