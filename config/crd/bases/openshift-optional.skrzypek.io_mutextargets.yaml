@@ -15,9 +15,18 @@ spec:
   scope: Namespaced
   versions:
   - name: v1alpha1
+    additionalPrinterColumns:
+    - name: Machine Config Pools
+      type: string
+      description: List of target Machine Config Pools
+      jsonPath: .spec.machineConfigPools
+    - name: Nodes
+      type: string
+      description: List of target Nodes
+      jsonPath: .status.nodes
     schema:
       openAPIV3Schema:
-        description: MutexTarget is the Schema for the mutextargets API
+        description: 'MutexTarget is the Schema for the mutextargets API'
         properties:
           apiVersion:
             description: 'APIVersion defines the versioned schema of this representation
@@ -41,9 +50,30 @@ spec:
                 items:
                   type: string
           status:
-            description: Status defines the observed state of MutexTarget
+            description: 'Status defines the observed state of MutexRule'
+            properties:
+              nodes:
+                description: 'A list of all nodes belonging to specified Machine Config Pools'
+                type: array
+                items:
+                  description: "Node Name"
+                  type: string
+              conditions:
+                items:
+                  properties:
+                    lastTransitionTime:
+                      type: string
+                    message:
+                      type: string
+                    reason:
+                      type: string
+                    status:
+                      type: string
+                    type:
+                      type: string
+                  type: object
+                type: array
             type: object
-            x-kubernetes-preserve-unknown-fields: true
         type: object
     served: true
     storage: true

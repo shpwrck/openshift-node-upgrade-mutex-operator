@@ -1,3 +1,8 @@
 ---
+# Registers:
+# - k8s_validation
+# - ValidConfig
+# Dependencies:
+# -
 - name: Validate
   ansible.builtin.include_tasks: 01-validate.yml

@@ -3,4 +3,5 @@ resources:
 - openshift-optional_v1alpha1_mutexrule.yaml
 - openshift-optional_v1alpha1_mutextarget.yaml
 - openshift-optional_v1alpha1_mutexrunconfig.yaml
-#+kubebuilder:scaffold:manifestskustomizesamples
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization

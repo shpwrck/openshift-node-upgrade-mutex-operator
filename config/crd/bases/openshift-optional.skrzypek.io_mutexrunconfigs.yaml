@@ -15,9 +15,22 @@ spec:
   scope: Namespaced
   versions:
   - name: v1alpha1
+    additionalPrinterColumns:
+    - name: Canary
+      type: string
+      description: Name of Canary Machine Config Pool
+      jsonPath: .spec.canary.name
+    - name: Rules
+      type: string
+      description: List of Mutex Rules
+      jsonPath: .spec.mutexRules
+    - name: Targets
+      type: string
+      description: List of Mutex Targets
+      jsonPath: .spec.mutexTargets
     schema:
       openAPIV3Schema:
-        description: MutexRunConfig is the Schema for the mutexrunconfigs API
+        description: 'MutexRunConfig is the Schema for the mutexrunconfigs API'
         properties:
           apiVersion:
             description: 'APIVersion defines the versioned schema of this representation
@@ -32,7 +45,7 @@ spec:
           metadata:
             type: object
           spec:
-            description: Spec defines the desired state of MutexRunConfig
+            description: 'Spec defines the desired state of MutexRunConfig'
             type: object
             properties:
               canary:
@@ -67,9 +80,24 @@ spec:
                       description: 'Namespace of an existing mutexTarget resource'
                       type: string
           status:
-            description: Status defines the observed state of MutexRunConfig
+            description: 'Status defines the observed state of MutexRule'
+            properties:
+              conditions:
+                items:
+                  properties:
+                    lastTransitionTime:
+                      type: string
+                    message:
+                      type: string
+                    reason:
+                      type: string
+                    status:
+                      type: string
+                    type:
+                      type: string
+                  type: object
+                type: array
             type: object
-            x-kubernetes-preserve-unknown-fields: true
         type: object
     served: true
     storage: true

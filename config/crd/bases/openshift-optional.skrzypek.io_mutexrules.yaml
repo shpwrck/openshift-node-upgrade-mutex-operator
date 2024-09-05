@@ -15,6 +15,15 @@ spec:
   scope: Namespaced
   versions:
   - name: v1alpha1
+    additionalPrinterColumns:
+    - name: Job Name
+      type: string
+      description: Generated Job Name Prefix
+      jsonPath: .spec.jobName
+    - name: Job Namespace
+      type: string
+      description: Generated Job Namespace
+      jsonPath: .spec.jobNamespace
     schema:
       openAPIV3Schema:
         description: MutexRule is the Schema for the mutexrules API
@@ -32,7 +41,7 @@ spec:
           metadata:
             type: object
           spec:
-            description: Spec defines the desired state of MutexRule
+            description: 'Spec defines the desired state of MutexRule'
             type: object
             properties:
               jobName:
@@ -55,9 +64,24 @@ spec:
                 enum:
                   - kubernetes
           status:
-            description: Status defines the observed state of MutexRule
+            description: 'Status defines the observed state of MutexRule'
+            properties:
+              conditions:
+                items:
+                  properties:
+                    lastTransitionTime:
+                      type: string
+                    message:
+                      type: string
+                    reason:
+                      type: string
+                    status:
+                      type: string
+                    type:
+                      type: string
+                  type: object
+                type: array
             type: object
-            x-kubernetes-preserve-unknown-fields: true
         type: object
     served: true
     storage: true

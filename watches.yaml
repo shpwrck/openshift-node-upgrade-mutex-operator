@@ -5,9 +5,6 @@
   role: mutexrule
   reconcilePeriod: 10m
   manageStatus: False
-  watchAnnotationsChanges: True
-  watchDependentResources: True
-  watchClusterScopedResources: True
 
 - version: v1alpha1
   group: openshift-optional.skrzypek.io
@@ -15,9 +12,6 @@
   role: mutextarget
   reconcilePeriod: 10m
   manageStatus: False
-  watchAnnotationsChanges: True
-  watchDependentResources: True
-  watchClusterScopedResources: True
 
 - version: v1alpha1
   group: openshift-optional.skrzypek.io
@@ -25,7 +19,4 @@
   role: mutexrunconfig
   reconcilePeriod: 10m
   manageStatus: False
-  watchAnnotationsChanges: True
-  watchDependentResources: True
-  watchClusterScopedResources: True
 #+kubebuilder:scaffold:watch

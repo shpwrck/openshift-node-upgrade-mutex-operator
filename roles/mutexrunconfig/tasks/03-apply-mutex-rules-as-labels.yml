@@ -1,15 +1,6 @@
 ---
 - name: Node Label Block
   block:
-    - name: Get Mutex Targets
-      kubernetes.core.k8s_info:
-        api_version: "openshift-optional.skrzypek.io/v1alpha1"
-        kind: MutexTarget
-        name: "{{ item.name }}"
-        namespace: "{{ item.namespace }}"
-      loop: "{{ _openshift_optional_skrzypek_io_mutexrunconfig_spec.mutexTargets }}"
-      register: mutexTargets
-
     - name: Create Node List
       ansible.builtin.set_fact:
         targetNodeList: "{{ mutexTargets | community.general.json_query(query) | flatten | unique }}"

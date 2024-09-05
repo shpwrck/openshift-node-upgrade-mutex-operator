@@ -1,24 +1,69 @@
 ---
+# Registers:
+# - mutexRules
+# - mutexTargets
+# - ConfigValidated
+# Dependencies:
+# -
 - name: Validate
   ansible.builtin.include_tasks: 01-validate.yml
 
+# Registers:
+# - machineConfigPoolList
+# - TargetPoolsPaused
+# Dependencies:
+# - mutexTargets
+# - ConfigValidated
 - name: Pause Pools
   ansible.builtin.include_tasks: 02-pause-machine-config-pools.yml
   when:
     - ConfigValidated
 
+# Registers:
+# - targetNodeList
+# - labelMatrix
+# - MutexRulesApplied
+# Dependencies:
+# - mutexRules
+# - mutexTargets
+# - ConfigValidated
+# - TargetPoolsPaused
 - name: Apply Labels
   ansible.builtin.include_tasks: 03-apply-mutex-rules-as-labels.yml
   when:
     - ConfigValidated
     - TargetPoolsPaused
 
+# Registers:
+# - matchExpressionsList
+# - CanaryUpdated
+# Dependencies:
+# - mutexRules
+# - ConfigValidated
+# - TargetPoolsPaused
+# - MutexRulesApplied
 - name: Update Canary MachineConfigPool
   ansible.builtin.include_tasks: 04-modify_canarymachineconfigpool.yml
   when:
     - ConfigValidated
     - TargetPoolsPaused
     - MutexRulesApplied
+
+# Registers:
+# - version
+# - desired_version
+# - version_history
+# - nodes
+# - worker_node_version
+# - version_skew
+# - controlplane_ready
+# - UpgradabilityChecked
+# - UpgradeAvailable
+# Dependencies:
+# - ConfigValidated
+# - TargetPoolsPaused
+# - MutexRulesApplied
+# - CanaryUpdated
 
 - name: Check For Upgrade
   ansible.builtin.include_tasks: 05-check-for-upgrade.yml
@@ -28,6 +73,23 @@
     - MutexRulesApplied
     - CanaryUpdated
 
+# Registers:
+# - nodeResource
+# - mutexRuleList
+# - nodeMutexRules
+# - k8sMutexRules
+# - updatedK8sMutexRules
+# - jsonPatch
+# - actual_version
+# - JobRun
+# Dependencies:
+# - targetNodeList
+# - ConfigValidated
+# - TargetPoolsPaused
+# - MutexRulesApplied
+# - CanaryUpdated
+# - UpgradabilityChecked
+# - UpgradeAvailable
 - name: Run Job
   ansible.builtin.include_tasks: 06-execute_jobs.yml
   loop: "{{ targetNodeList }}"

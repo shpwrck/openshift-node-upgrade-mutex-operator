@@ -27,7 +27,24 @@ metadata:
   namespace: placeholder
 spec:
   apiservicedefinitions: {}
-  customresourcedefinitions: {}
+  customresourcedefinitions:
+    owned:
+    - description: Contains a kubernetes job to run per node.
+      displayName: MutexRule
+      kind: MutexRule
+      name: mutexrule.openshift-optional.skrzypek.io
+      version: v1alpha1
+    - description: Contains a list of Machine Config Pools to enforce operations upon.
+      displayName: MutexTarget
+      kind: MutexTarget
+      name: mutextarget.openshift-optional.skrzypek.io
+      version: v1alpha1
+    - description: Contains a list of rules, a list of targets, and a qualified Machine
+        Config Pool to operate upon.
+      displayName: MutexRunConfig
+      kind: MutexRunConfig
+      name: mutexrunconfig.openshift-optional.skrzypek.io
+      version: v1alpha1
   description: |+
     ## Introduction
 

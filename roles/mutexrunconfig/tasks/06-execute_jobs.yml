@@ -19,12 +19,12 @@
         kind: MutexRule
         name: "{{ item | split('/') | last | split('.') | first }}"
         namespace: "{{ item | split('/') | last | split('.') | last }}"
-      register: mutexRules
+      register: nodeMutexRules
       loop: "{{ mutexRuleList }}"
 
     - name: Split Mutex Rules By Type
       ansible.builtin.set_fact:
-        k8sMutexRules: "{{ mutexRules | community.general.json_query(k8sQuery) }}"
+        k8sMutexRules: "{{ nodeMutexRules | community.general.json_query(k8sQuery) }}"
       vars:
         k8sQuery: "results[?resources[?spec.type=='kubernetes']]"
 
@@ -37,12 +37,16 @@
                 value: "{{ targetNode }}"
               - name: MUTEX_RULE
                 value: "{{ k8sMutexRules[loopIndex].resources[0].metadata.name }}"
-          - path: "k8sMutexRules[{{loopIndex}}].resources[0].spec.jobSpec.template.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[0].matchExpressions"
+          - path: "k8sMutexRules[{{loopIndex}}].resources[0].spec.jobSpec.template.spec.affinity"
             value:
-              - key: kubernetes.io/hostname
-                operator: NotIn
-                values:
-                - "{{ targetNode }}"
+              nodeAffinity:
+                requiredDuringSchedulingIgnoredDuringExecution:
+                  nodeSelectorTerms:
+                  - matchExpressions:
+                    - key: kubernetes.io/hostname
+                      operator: NotIn
+                      values:
+                      - "{{ targetNode }}"
       register: updatedK8sMutexRules
       loop: "{{ k8sMutexRules }}"
       loop_control:
@@ -104,6 +108,36 @@
       retries: 100
       delay: 60
 
+    - name: Report Upgrade Finish
+      operator_sdk.util.k8s_status:
+        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        kind: MutexRunConfig
+        name: "{{ ansible_operator_meta.name }}"
+        namespace: "{{ ansible_operator_meta.namespace }}"
+        conditions:
+          - type: NodeUpgrade
+            status: "True"
+            reason: NodeUpgradeSucceeded
+            message: |-
+              Upgrade for {{ targetNode }} has run successfully.
+              Node is {{ ansible_loop.index }} of {{ ansible_loop.length }}
+            lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
+
+    - name: Report Upgrade Unavailable (Finished)
+      operator_sdk.util.k8s_status:
+        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        kind: MutexRunConfig
+        name: "{{ ansible_operator_meta.name }}"
+        namespace: "{{ ansible_operator_meta.namespace }}"
+        conditions:
+          - type: UpgradeAvailable
+            status: "False"
+            reason: "UpgradeUnavailable"
+            message: An upgrade is not available.
+            lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
+      when:
+      - ansible_loop.last
+
   rescue:
     - name: Report Job Run Failure
       operator_sdk.util.k8s_status:
@@ -111,12 +145,29 @@
         kind: MutexRunConfig
         name: "{{ ansible_operator_meta.name }}"
         namespace: "{{ ansible_operator_meta.namespace }}"
+        when: ansible_failed_task.name == 'Launch K8s Jobs'
         conditions:
           - type: JobRun
             status: "False"
             reason: JobRunFailed
             message: |-
               Jobs for {{ targetNode }} have run not successfully.
+              Node is {{ ansible_loop.index }} of {{ ansible_loop.length }}
+            lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
+
+    - name: Report Upgrade Failure
+      operator_sdk.util.k8s_status:
+        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        kind: MutexRunConfig
+        name: "{{ ansible_operator_meta.name }}"
+        namespace: "{{ ansible_operator_meta.namespace }}"
+        when: ansible_failed_task.name == 'Wait Until Node Version Matches Desired Version'
+        conditions:
+          - type: NodeUpgrade
+            status: "False"
+            reason: NodeUpgradeFailed
+            message: |-
+              Upgrade for {{ targetNode }} has run not successfully.
               Node is {{ ansible_loop.index }} of {{ ansible_loop.length }}
             lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
 

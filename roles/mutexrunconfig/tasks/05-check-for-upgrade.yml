@@ -40,19 +40,22 @@
         controlplane_ready: "true"
       when: version_history == "Completed"
 
+    - name: Set Worker Nodes Upgradeable
+      ansible.builtin.set_fact:
+        UpgradeAvailable: "{{ (version_skew is defined and controlplane_ready is defined) | ternary('True', 'False') }}"
+
     - name: Report Upgrade Exists
       operator_sdk.util.k8s_status:
         api_version: "openshift-optional.skrzypek.io/v1alpha1"
         kind: MutexRunConfig
         name: "{{ ansible_operator_meta.name }}"
         namespace: "{{ ansible_operator_meta.namespace }}"
-        status:
-          upgrade: "{{ version_skew is defined and controlplane_ready is defined | ternary('available','unavailable') }}"
-      when: version_skew is defined and controlplane_ready is defined
-
-    - name: Set Worker Nodes Upgradeable
-      ansible.builtin.set_fact:
-        UpgradeAvailable: "{{ (version_skew is defined and controlplane_ready is defined) | ternary('True', 'False') }}"
+        conditions:
+          - type: UpgradeAvailable
+            status: "{{ UpgradeAvailable | ternary('True','False') }}"
+            reason: "{{ UpgradeAvailable | ternary('UpgradeAvailable','UpgradeUnavailable') }}"
+            message: "{{ UpgradeAvailable | ternary('An upgrade is available','An upgrade is not available') }}"
+            lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
 
     - name: Report Upgrade Check Success
       operator_sdk.util.k8s_status:
