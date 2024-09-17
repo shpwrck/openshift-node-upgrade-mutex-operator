@@ -1,22 +1,7 @@
 ---
-# Registers:
-# - machineConfigPools
-# - ValidConfig
-# Dependencies:
-# -
 - name: Validate
   ansible.builtin.include_tasks: 01-validate.yml
 
-# Registers:
-# - labelSelector
-# - labelSelectors
-# - labelSelectorResults
-# - Nodes
-# - AllNodes
-# - NodeListGathered
-# Dependencies:
-# - machineConfigPools
-# - ValidConfig
 - name: Gather Nodes
   ansible.builtin.include_tasks: 02-gather-nodes.yml
   when:

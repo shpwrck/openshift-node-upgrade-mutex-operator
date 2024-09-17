@@ -10,10 +10,10 @@ metadata:
   name: mutexrunconfig-sample
 spec:
   canary:
-    name: canary
+    name: canary-example
   mutexRules:
-    - name: k8s-example
+    - name: mutexrule-sample
       namespace: node-upgrade-mutex-operator
   mutexTargets:
-    - name: worker-example
+    - name: mutextarget-sample
       namespace: node-upgrade-mutex-operator

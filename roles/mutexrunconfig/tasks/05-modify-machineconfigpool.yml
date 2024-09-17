@@ -1,0 +1,72 @@
+---
+- name: Canary Pool Block
+  block:
+    - name: Build Expressions List
+      ansible.builtin.set_fact:
+        matchExpressionsListCanary: "{{ matchExpressionsListCanary | default([]) + [{'key': 'mutexrule.openshift-optional.skrzypek.io/' + item.name + '.' + item.namespace, 'operator': 'DoesNotExist'}] }}"
+        matchExpressionsListTargetPool: "{{ matchExpressionsListTargetPool | default([]) + [{'key': 'mutexrule.openshift-optional.skrzypek.io/' + item.name + '.' + item.namespace, 'operator': 'Exists'}] }}"
+      loop: "{{ _openshift_optional_skrzypek_io_mutexrunconfig_spec.mutexRules }}"
+      when: setExpressions
+
+    - name: Build Expressions List
+      ansible.builtin.set_fact:
+        matchExpressionsListCanary:
+        - key: 'isCanary'
+          operator: Exists
+        matchExpressionsListTargetPool: []
+      when: not setExpressions
+
+    - name: Update Canary NodeSelector
+      kubernetes.core.k8s:
+        state: patched
+        name: "{{ _openshift_optional_skrzypek_io_mutexrunconfig_spec.canary.name }}"
+        kind: "MachineConfigPool"
+        api_version: "machineconfiguration.openshift.io/v1"
+        definition:
+          spec:
+            nodeSelector:
+              matchExpressions: "{{ matchExpressionsListCanary }}"
+
+    - name: Update TargetPool NodeSelector
+      kubernetes.core.k8s:
+        state: patched
+        name: "{{ item }}"
+        kind: "MachineConfigPool"
+        api_version: "machineconfiguration.openshift.io/v1"
+        definition:
+          spec:
+            nodeSelector:
+              matchExpressions: "{{ matchExpressionsListTargetPool }}"
+      loop: "{{ machineConfigPoolList }}"
+
+    - name: Report MCP Updated
+      operator_sdk.util.k8s_status:
+        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        kind: MutexRunConfig
+        name: "{{ ansible_operator_meta.name }}"
+        namespace: "{{ ansible_operator_meta.namespace }}"
+        conditions:
+          - type: MCPUpdated
+            status: "True"
+            reason: UpdateSucceeded
+            message: MachineConfigPools was successfully updated.
+            lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
+
+  rescue:
+    - name: Report MCP Not Updated
+      operator_sdk.util.k8s_status:
+        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        kind: MutexRunConfig
+        name: "{{ ansible_operator_meta.name }}"
+        namespace: "{{ ansible_operator_meta.namespace }}"
+        conditions:
+          - type: MCPUpdated
+            status: "False"
+            reason: UpdateFailed
+            message: MachineConfigPools was not successfully updated.
+            lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
+
+  always:
+    - name: Set MCPUpdated Variable
+      ansible.builtin.set_fact:
+        MCPUpdated: "{{ (ansible_failed_result is not defined) | ternary('true', 'false') }}"

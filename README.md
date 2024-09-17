@@ -137,18 +137,19 @@ spec:
 
 #### MutexRunConfigs
 
-1. Upon creation/modification, the existence as well as validation status of each rule and target is confirmed.
-2. If all validation is successful, each target MachineConfigPool has `spec.paused` set to `true`.
-3. If all target pools have been updated successfully, each node is updated to include a label for each rule with the following format:
-    * `mutexrule.openshift-optional.skrzypek.io/{{MutexRule_Name}}.{{MutexRule_Namespace}}`
-4. If every node and pool has been updated per (2) and (3), the provided canary pool is modified to exclude nodes with labels provided by step (2).
-5. If all target pools and target nodes have been updated successfully, the existence of an upgrade is queried. An upgrade is available if the following is true:
+1. Upon creation/modification, the existence as well as validation status of each rule, target, and canary pool is confirmed.
+2. If valid, the existence of an upgrade is queried. An upgrade is available if the following is true:
     * The `status.history` of the `cluster` ClusterVersion equals `Completed`
     * The `release-image-version` of any worker node is less than the `spec.desiredUpdate.version` of the `cluster` ClusterVersion.
+3. If an update exists, each target MachineConfigPool has `spec.paused` set to `true`.
+4. If each pool is paused, each node is updated to include a label for each rule with the following format:
+    * `mutexrule.openshift-optional.skrzypek.io/{{MutexRule_Name}}.{{MutexRule_Namespace}}`
+5. If labels have been applied, the provided canary pool is modified to exclude nodes with labels provided by step (4).
 6. Assuming steps (2-5) have completed successfully, then the process for running jobs and updating nodes begins. The process per node is as follows:
     * Launch each K8S job sequentially
     * Remove the current node's rule labels
     * Wait until the `release-image-version` of the node matches the `spec.desiredUpdate.version` of the `cluster` ClusterVersion
+7. If the update succeeds, all machine config pools are unpaused and all match expressions are removed.
 
 ## Permissions Granted
 
@@ -169,4 +170,3 @@ In addition to the permissions required to operate the included CRDs, the follow
 
 ## Additional Information
 For additional information refer to the [GitHub Repository](https://github.com/shpwrck/openshift-node-upgrade-mutex-operator)
-

@@ -82,6 +82,7 @@ increment:
 .PHONY: document
 document:
 	yq -i '.spec.description=load_str("./docs/USAGE.md")' config/manifests/bases/openshift-node-upgrade-mutex-operator.clusterserviceversion.yaml
+	cat docs/* > README.md
 
 .PHONY: run
 ANSIBLE_ROLES_PATH?="$(shell pwd)/roles"

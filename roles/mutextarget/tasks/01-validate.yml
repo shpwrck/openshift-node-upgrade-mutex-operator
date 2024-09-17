@@ -31,6 +31,9 @@
         kind: MutexTarget
         name: "{{ ansible_operator_meta.name }}"
         namespace: "{{ ansible_operator_meta.namespace }}"
+        replace: true
+        status:
+          nodes: []
         conditions:
           - type: ValidConfig
             status: "False"

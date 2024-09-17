@@ -14,30 +14,35 @@
         query: "resources[0].metadata.labels.keys(@) | [?starts_with(@,'mutexrule')]"
 
     - name: Get Rule Details
-      kubernetes.core.k8s_info:
-        api_version: "openshift-optional.skrzypek.io/v1alpha1"
-        kind: MutexRule
-        name: "{{ item | split('/') | last | split('.') | first }}"
-        namespace: "{{ item | split('/') | last | split('.') | last }}"
-      register: nodeMutexRules
-      loop: "{{ mutexRuleList }}"
-
-    - name: Split Mutex Rules By Type
       ansible.builtin.set_fact:
-        k8sMutexRules: "{{ nodeMutexRules | community.general.json_query(k8sQuery) }}"
+        nodeMutexRulesItem: "{{ mutexRules | community.general.json_query(query) }}"
       vars:
-        k8sQuery: "results[?resources[?spec.type=='kubernetes']]"
+        itemName: "{{ item | split('/') | last | split('.') | first }}"
+        itemNamespace: "{{ item | split('/') | last | split('.') | last }}"
+        query: "results[?resources[?metadata.name=='{{ itemName }}' && metadata.namespace=='{{ itemNamespace }}']]"
+      loop: "{{ mutexRuleList }}"
+      register: nodeMutexRulesResults
 
-    - name: Add Node Variable To Job
-      ansible.utils.update_fact:
-        updates:
-          - path: "k8sMutexRules[{{loopIndex}}].resources[0].spec.jobSpec.template.spec.containers[0].env"
+    - name: Set List
+      ansible.builtin.set_fact:
+        nodeMutexRules: "{{ nodeMutexRulesResults.results | map(attribute='ansible_facts.nodeMutexRulesItem') | list | flatten(2) }}"
+
+    - name: Stage Job Updates
+      ansible.builtin.set_fact:
+        update_list: "{{ update_list + update }}"
+      loop: "{{ nodeMutexRules }}"
+      loop_control:
+        index_var: loopIndex
+      vars:
+        update_list: []
+        update:
+          - path: "nodeMutexRules[{{loopIndex}}].resources[0].spec.jobSpec.template.spec.containers[0].env"
             value:
               - name: NODE_NAME
                 value: "{{ targetNode }}"
               - name: MUTEX_RULE
-                value: "{{ k8sMutexRules[loopIndex].resources[0].metadata.name }}"
-          - path: "k8sMutexRules[{{loopIndex}}].resources[0].spec.jobSpec.template.spec.affinity"
+                value: "{{ nodeMutexRules[loopIndex].resources[0].metadata.name }}"
+          - path: "nodeMutexRules[{{loopIndex}}].resources[0].spec.jobSpec.template.spec.affinity"
             value:
               nodeAffinity:
                 requiredDuringSchedulingIgnoredDuringExecution:
@@ -47,25 +52,26 @@
                       operator: NotIn
                       values:
                       - "{{ targetNode }}"
+
+    - name: Commit Job Updates
+      ansible.utils.update_fact:
+        updates: "{{ update_list }}"
       register: updatedK8sMutexRules
-      loop: "{{ k8sMutexRules }}"
-      loop_control:
-        index_var: loopIndex
 
     - name: Launch K8s Jobs
       kubernetes.core.k8s:
         api_version: "batch/v1"
         kind: Job
-        generate_name: "{{ item.k8sMutexRules[0].resources[0].spec.jobName }}-"
-        namespace: "{{ item.k8sMutexRules[0].resources[0].spec.jobNamespace }}"
+        generate_name: "{{ item.resources[0].spec.jobName }}-"
+        namespace: "{{ item.resources[0].spec.jobNamespace }}"
         definition:
-          spec: "{{ item.k8sMutexRules[0].resources[0].spec.jobSpec }}"
+          spec: "{{ item.resources[0].spec.jobSpec }}"
         state: present
         wait: true
         wait_condition:
           status: "True"
           type: "Complete"
-      loop: "{{ updatedK8sMutexRules.results }}"
+      loop: "{{ updatedK8sMutexRules.nodeMutexRules }}"
 
     - name: Report Job Run Finish
       operator_sdk.util.k8s_status:
@@ -104,7 +110,7 @@
         kind: Node
         name: "{{ targetNode }}"
       register: actual_version
-      until: desired_version == actual_version.resources[0].metadata.labels['machineconfiguration.openshift.io/release-image-version']
+      until: desired_version == ( actual_version.resources[0].metadata.labels['machineconfiguration.openshift.io/release-image-version'] | default('0.0.0') )
       retries: 100
       delay: 60
 

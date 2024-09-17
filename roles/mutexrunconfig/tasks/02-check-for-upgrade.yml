@@ -33,7 +33,9 @@
       ansible.builtin.set_fact:
         version_skew: "true"
       loop: "{{ worker_node_version }}"
-      when: item is version( desired_version, 'lt', version_type='semver' )
+      when:
+      - desired_version | length > 0
+      - item is version( desired_version, 'lt', version_type='semver' )
 
     - name: Determine state of upgrade
       ansible.builtin.set_fact:
@@ -42,7 +44,8 @@
 
     - name: Set Worker Nodes Upgradeable
       ansible.builtin.set_fact:
-        UpgradeAvailable: "{{ (version_skew is defined and controlplane_ready is defined) | ternary('True', 'False') }}"
+        UpgradeAvailable: "{{ version_skew is defined }}"
+        UpgradeReady: "{{ (version_skew is defined and controlplane_ready is defined) | ternary('True', 'False') }}"
 
     - name: Report Upgrade Exists
       operator_sdk.util.k8s_status:
@@ -51,10 +54,10 @@
         name: "{{ ansible_operator_meta.name }}"
         namespace: "{{ ansible_operator_meta.namespace }}"
         conditions:
-          - type: UpgradeAvailable
-            status: "{{ UpgradeAvailable | ternary('True','False') }}"
-            reason: "{{ UpgradeAvailable | ternary('UpgradeAvailable','UpgradeUnavailable') }}"
-            message: "{{ UpgradeAvailable | ternary('An upgrade is available','An upgrade is not available') }}"
+          - type: UpgradeReady
+            status: "{{ UpgradeReady | ternary('True','False') }}"
+            reason: "{{ UpgradeReady | ternary('UpgradeReady','UpgradeNotReady') }}"
+            message: "{{ UpgradeReady | ternary('An upgrade is available','An upgrade is not available') }}"
             lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
 
     - name: Report Upgrade Check Success

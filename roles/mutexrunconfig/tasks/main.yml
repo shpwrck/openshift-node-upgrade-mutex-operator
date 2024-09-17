@@ -1,104 +1,76 @@
 ---
-# Registers:
-# - mutexRules
-# - mutexTargets
-# - ConfigValidated
-# Dependencies:
-# -
 - name: Validate
   ansible.builtin.include_tasks: 01-validate.yml
 
-# Registers:
-# - machineConfigPoolList
-# - TargetPoolsPaused
-# Dependencies:
-# - mutexTargets
-# - ConfigValidated
-- name: Pause Pools
-  ansible.builtin.include_tasks: 02-pause-machine-config-pools.yml
-  when:
-    - ConfigValidated
-
-# Registers:
-# - targetNodeList
-# - labelMatrix
-# - MutexRulesApplied
-# Dependencies:
-# - mutexRules
-# - mutexTargets
-# - ConfigValidated
-# - TargetPoolsPaused
-- name: Apply Labels
-  ansible.builtin.include_tasks: 03-apply-mutex-rules-as-labels.yml
-  when:
-    - ConfigValidated
-    - TargetPoolsPaused
-
-# Registers:
-# - matchExpressionsList
-# - CanaryUpdated
-# Dependencies:
-# - mutexRules
-# - ConfigValidated
-# - TargetPoolsPaused
-# - MutexRulesApplied
-- name: Update Canary MachineConfigPool
-  ansible.builtin.include_tasks: 04-modify_canarymachineconfigpool.yml
-  when:
-    - ConfigValidated
-    - TargetPoolsPaused
-    - MutexRulesApplied
-
-# Registers:
-# - version
-# - desired_version
-# - version_history
-# - nodes
-# - worker_node_version
-# - version_skew
-# - controlplane_ready
-# - UpgradabilityChecked
-# - UpgradeAvailable
-# Dependencies:
-# - ConfigValidated
-# - TargetPoolsPaused
-# - MutexRulesApplied
-# - CanaryUpdated
-
 - name: Check For Upgrade
-  ansible.builtin.include_tasks: 05-check-for-upgrade.yml
+  ansible.builtin.include_tasks: 02-check-for-upgrade.yml
   when:
     - ConfigValidated
+
+- name: Pause Pools
+  ansible.builtin.include_tasks: 03-pause-machine-config-pools.yml
+  vars:
+    pausedBool: true
+  when:
+    - ConfigValidated
+    - UpgradabilityChecked
+    - UpgradeAvailable
+
+- name: Apply Labels
+  ansible.builtin.include_tasks: 04-apply-mutex-rules-as-labels.yml
+  when:
+    - ConfigValidated
+    - UpgradabilityChecked
+    - UpgradeAvailable
+    - TargetPoolsPaused
+
+- name: Update Canary MachineConfigPool
+  ansible.builtin.include_tasks: 05-modify-machineconfigpool.yml
+  vars:
+    setExpressions: true
+  when:
+    - ConfigValidated
+    - UpgradabilityChecked
+    - UpgradeAvailable
     - TargetPoolsPaused
     - MutexRulesApplied
-    - CanaryUpdated
 
-# Registers:
-# - nodeResource
-# - mutexRuleList
-# - nodeMutexRules
-# - k8sMutexRules
-# - updatedK8sMutexRules
-# - jsonPatch
-# - actual_version
-# - JobRun
-# Dependencies:
-# - targetNodeList
-# - ConfigValidated
-# - TargetPoolsPaused
-# - MutexRulesApplied
-# - CanaryUpdated
-# - UpgradabilityChecked
-# - UpgradeAvailable
 - name: Run Job
-  ansible.builtin.include_tasks: 06-execute_jobs.yml
+  ansible.builtin.include_tasks: 06-execute-jobs.yml
   loop: "{{ targetNodeList }}"
   loop_control:
     extended: true
     loop_var: targetNode
   when:
     - ConfigValidated
+    - UpgradabilityChecked
+    - UpgradeReady
     - TargetPoolsPaused
     - MutexRulesApplied
-    - CanaryUpdated
-    - UpgradabilityChecked and UpgradeAvailable
+    - MCPUpdated
+
+- name: UnPause
+  ansible.builtin.include_tasks: 03-pause-machine-config-pools.yml
+  vars:
+    pausedBool: false
+  when:
+    - ConfigValidated
+    - UpgradabilityChecked
+    - UpgradeReady
+    - TargetPoolsPaused
+    - MutexRulesApplied
+    - MCPUpdated
+    - JobRun
+
+- name: Remove MCP Expressions
+  ansible.builtin.include_tasks: 05-modify-machineconfigpool.yml
+  vars:
+    setExpressions: false
+  when:
+    - ConfigValidated
+    - UpgradabilityChecked
+    - UpgradeReady
+    - TargetPoolsPaused
+    - MutexRulesApplied
+    - MCPUpdated
+    - JobRun

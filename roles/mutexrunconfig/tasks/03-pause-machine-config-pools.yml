@@ -15,7 +15,7 @@
           metadata:
             name: "{{ item }}"
           spec:
-            paused: True
+            paused: "{{ pausedBool }}"
         wait: yes
       loop: "{{ machineConfigPoolList }}"
 
@@ -28,8 +28,8 @@
         conditions:
           - type: TargetPoolsPaused
             status: "True"
-            reason: "PauseSucceeded"
-            message: "All target Machine Config Pools have been paused"
+            reason: "Paused"
+            message: "All target Machine Config Pools are paused"
             lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
 
   rescue:
@@ -42,8 +42,8 @@
         conditions:
           - type: TargetPoolsPaused
             status: "False"
-            reason: "PauseFailed"
-            message: "All target Machine Config Pools have not been paused"
+            reason: "NotPaused"
+            message: "All target Machine Config Pools are not paused"
             lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
 
   always:

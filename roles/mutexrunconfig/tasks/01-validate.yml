@@ -33,6 +33,15 @@
         that: item.resources[0].status.conditions[0].status == "True"
       loop: "{{ mutexTargets.results }}"
 
+    - name: Gather Canary
+      kubernetes.core.k8s_info:
+        api_version: "machineconfiguration.openshift.io/v1"
+        kind: MachineConfigPool
+        name: "{{ _openshift_optional_skrzypek_io_mutexrunconfig_spec.canary.name }}"
+      failed_when:
+        - canaryPool.resources == []
+      register: canaryPool
+
     - name: Report Configuration Results
       operator_sdk.util.k8s_status:
         api_version: "openshift-optional.skrzypek.io/v1alpha1"
@@ -42,8 +51,8 @@
         conditions:
           - type: ConfigValidated
             status: "True"
-            reason: MutexFetchSucceeded
-            message: MutexRules and MutexTargets were successfully fetched.
+            reason: FetchSucceeded
+            message: Canary, MutexRules, and MutexTargets were successfully fetched.
             lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
 
   rescue:
@@ -56,8 +65,8 @@
         conditions:
           - type: ConfigValidated
             status: "False"
-            reason: MutexFetchFailed
-            message: MutexRules and MutexTargets were not successfully fetched.
+            reason: FetchFailed
+            message: Canary, MutexRules, MutexTargets were not successfully fetched.
             lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
 
   always:
