@@ -130,6 +130,8 @@ entries:
   replaces: openshift-node-upgrade-mutex-operator.v0.2.12
 - name: openshift-node-upgrade-mutex-operator.v0.2.14
   replaces: openshift-node-upgrade-mutex-operator.v0.2.13
+- name: openshift-node-upgrade-mutex-operator.v0.2.15
+  replaces: openshift-node-upgrade-mutex-operator.v0.2.14
 - name: openshift-node-upgrade-mutex-operator.v0.2.2
   replaces: openshift-node-upgrade-mutex-operator.v0.2.1
 - name: openshift-node-upgrade-mutex-operator.v0.2.3
@@ -2125,6 +2127,38 @@ properties:
   value:
     packageName: openshift-node-upgrade-mutex-operator
     version: 0.2.14
+relatedImages:
+- image: gcr.io/kubebuilder/kube-rbac-proxy:v0.15.0
+  name: ""
+- image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator-bundle:v0.2.14
+  name: ""
+- image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator:0.2.14
+  name: ""
+schema: olm.bundle
+---
+image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator-bundle:v0.2.15
+name: openshift-node-upgrade-mutex-operator.v0.2.15
+package: openshift-node-upgrade-mutex-operator
+properties:
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: MutexRule
+    version: v1alpha1
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: MutexRunConfig
+    version: v1alpha1
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: MutexTarget
+    version: v1alpha1
+- type: olm.package
+  value:
+    packageName: openshift-node-upgrade-mutex-operator
+    version: 0.2.15
 - type: olm.csv.metadata
   value:
     annotations:
@@ -2225,7 +2259,7 @@ properties:
       categories: OpenShift Optional
       certified: "false"
       containerImage: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator
-      createdAt: "2024-09-17T15:56:20Z"
+      createdAt: "2024-10-02T19:18:56Z"
       description: |
         This software injects required operations into the worker node upgrade process.
       features.operators.openshift.io/cnf: "false"
@@ -2438,12 +2472,12 @@ properties:
       name: Jason Skrzypek
       url: https://github.com/shpwrck
 relatedImages:
-- image: gcr.io/kubebuilder/kube-rbac-proxy:v0.15.0
+- image: gcr.io/kubebuilder/kube-rbac-proxy@sha256:d8cc6ffb98190e8dd403bfe67ddcb454e6127d32b87acc237b3e5240f70a20fb
+  name: kube-rbac-proxy
+- image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator-bundle:v0.2.15
   name: ""
-- image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator-bundle:v0.2.14
-  name: ""
-- image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator:0.2.14
-  name: ""
+- image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator@sha256:e6340c97d066e7a507e0a1f3d43473e19d37ff78485d8b0c4832cf1d8f94ed29
+  name: manager
 schema: olm.bundle
 ---
 image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator-bundle:v0.2.2
