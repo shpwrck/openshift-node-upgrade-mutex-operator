@@ -10,7 +10,7 @@
         kind: "Job"
         name: "{{ _openshift_optional_skrzypek_io_mutexrule_spec.jobName }}"
         namespace: "{{ _openshift_optional_skrzypek_io_mutexrule_spec.jobNamespace }}"
-        definition: 
+        definition:
           spec: "{{ _openshift_optional_skrzypek_io_mutexrule_spec.jobSpec }}"
         state: absent
         validate:

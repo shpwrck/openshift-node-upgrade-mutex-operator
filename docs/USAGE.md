@@ -49,8 +49,8 @@ kind: MutexRule
 metadata:
   name: k8s-example
 spec:
-  jobName: "Job Name" # Jobs will be run with this prefix name
-  jobNamespace: "Job Namespace" # Jobs will be run in this namespace
+  jobName: "example" # Jobs will be run with this prefix name
+  jobNamespace: "node-upgrade-mutex-operator" # Jobs will be run in this namespace
   jobSpec: # Accepts full 'batch/v1' job spec
     selector: {}
     template:
@@ -59,8 +59,8 @@ spec:
       spec:
         containers:
         - command:
-          - /bin/sh
           - sleep
+          args:
           - "30"
           image: ubi9/toolbox
           name: mutex

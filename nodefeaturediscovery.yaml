@@ -4,13 +4,19 @@ metadata:
   name: nfd-instance
   namespace: openshift-nfd
 spec:
+  enableTaints: false
+  instance: ''
   operand:
-    image: >-
-      registry.redhat.io/openshift4/ose-node-feature-discovery
+    image: 'registry.redhat.io/openshift4/ose-node-feature-discovery-rhel9@sha256:00208889a98c5b767e201bd1427be07edd4388271d82f09bbe393a545e94ac42'
+    imagePullPolicy: IfNotPresent
     servicePort: 12000
+  prunerOnDelete: false
+  topologyUpdater: false
   workerConfig:
     configData: |
+      sources:
+        hooksEnabled: true
       core:
-        sleepInterval: 60s
-        featureSources:
-          - "local"
+        sleepInterval: 10s
+        sources:
+        - local

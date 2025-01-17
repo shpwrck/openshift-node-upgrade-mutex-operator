@@ -10,10 +10,10 @@
 
     - name: Set MCP Facts
       ansible.builtin.set_fact:
-        desired_version: "{{ version | community.general.json_query(dv_query) }}"
+        desired_image: "{{ version | community.general.json_query(di_query) }}"
         version_history: "{{ version | community.general.json_query(vh_query) }}"
       vars:
-        dv_query: 'resources[*].spec.desiredUpdate.version | [0]'
+        di_query: 'resources[*].spec.desiredUpdate.image | [0]'
         vh_query: 'resources[*].status.history[0].state | [0]'
 
     - name: Gather Node Info
@@ -29,13 +29,39 @@
         query: >-
           resources[?(metadata.labels."node-role.kubernetes.io/worker"=='')].metadata.labels."machineconfiguration.openshift.io/release-image-version"
 
+    - name: Creates Temp Directory
+      ansible.builtin.file:
+        path: "/tmp/{{ desired_image }}"
+        state: directory
+        recurse: "true"
+
+    - name: Get Desired Version from Desired Image
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/oc
+          - image
+          - extract
+          - "{{ desired_image }}"
+          - --file
+          - /release-manifests/release-metadata
+          - --confirm
+      register: oc_output
+      changed_when: oc_output.rc == 0
+      failed_when: oc_output.rc != 0
+
+    - name: Set Desired Version
+      ansible.builtin.set_fact:
+        desired_version: "{{ item | from_json | community.general.json_query('version') }}"
+      with_file:
+        - "release-metadata"
+
     - name: Compare 'desired_version' to 'worker_node_version' for each worker node
       ansible.builtin.set_fact:
         version_skew: "true"
       loop: "{{ worker_node_version }}"
       when:
-      - desired_version | length > 0
-      - item is version( desired_version, 'lt', version_type='semver' )
+        - desired_version | length > 0
+        - item is version( desired_version, 'lt', version_type='semver' )
 
     - name: Determine state of upgrade
       ansible.builtin.set_fact:
@@ -55,9 +81,9 @@
         namespace: "{{ ansible_operator_meta.namespace }}"
         conditions:
           - type: UpgradeReady
-            status: "{{ UpgradeReady | ternary('True','False') }}"
-            reason: "{{ UpgradeReady | ternary('UpgradeReady','UpgradeNotReady') }}"
-            message: "{{ UpgradeReady | ternary('An upgrade is available','An upgrade is not available') }}"
+            status: "{{ UpgradeReady | ternary('True', 'False') }}"
+            reason: "{{ UpgradeReady | ternary('UpgradeReady', 'UpgradeNotReady') }}"
+            message: "{{ UpgradeReady | ternary('An upgrade is available', 'An upgrade is not available') }}"
             lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
 
     - name: Report Upgrade Check Success

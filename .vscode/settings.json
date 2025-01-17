@@ -1,0 +1,9 @@
+{
+    "ansible.ansible.path": "ansible",
+    "ansible.ansibleNavigator.path": "ansible-navigator",
+    "ansible.validation.lint.path": "ansible-lint",
+    "ansible.executionEnvironment.enabled": false,
+    "ansible.executionEnvironment.pull.policy": "missing",
+    "ansible.executionEnvironment.containerEngine": "auto",
+    "ansible.python.interpreterPath": "/bin/python"
+}

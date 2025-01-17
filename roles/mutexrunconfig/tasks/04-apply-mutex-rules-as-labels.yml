@@ -4,12 +4,12 @@
     - name: Create Node List
       ansible.builtin.set_fact:
         targetNodeList: "{{ mutexTargets | community.general.json_query(query) | flatten | unique }}"
-      vars: 
+      vars:
         query: results[*].resources[*].status.nodes[*]
 
     - name: Create Label Matrix
       ansible.builtin.set_fact:
-        labelMatrix: "{{ [ (labelMatrix | default([])) ,[{ 'node': item[0], 'labels': {'mutexrule.openshift-optional.skrzypek.io/' + item[1].name + '.' + item[1].namespace: ''}}]] | community.general.lists_mergeby('node', recursive=true) }}"
+        labelMatrix: "{{ [(labelMatrix | default([])), [{'node': item[0], 'labels': {'mutexrule.openshift-optional.skrzypek.io/' + item[1].name + '.' + item[1].namespace: ''}}]] | community.general.lists_mergeby('node', recursive=true) }}"
       loop: "{{ targetNodeList | product( _openshift_optional_skrzypek_io_mutexrunconfig_spec.mutexRules ) }}"
 
     - name: Label Nodes

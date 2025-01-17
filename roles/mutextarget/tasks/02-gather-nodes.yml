@@ -25,7 +25,7 @@
 
     - name: Set Cummulative Nodes
       ansible.builtin.set_fact:
-        AllNodes: "{{ (AllNodes | default([])) + ( Nodes | community.general.json_query('resources[*].metadata.name') ) | unique }}"
+        AllNodes: "{{ (AllNodes | default([])) + (Nodes | community.general.json_query('resources[*].metadata.name')) | unique }}"
 
     - name: Report Configuration Results
       operator_sdk.util.k8s_status:
@@ -33,7 +33,7 @@
         kind: MutexTarget
         name: "{{ ansible_operator_meta.name }}"
         namespace: "{{ ansible_operator_meta.namespace }}"
-        replace_lists: True
+        replace_lists: true
         status:
           nodes: "{{ AllNodes }}"
         conditions:

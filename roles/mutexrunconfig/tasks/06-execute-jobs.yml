@@ -36,22 +36,22 @@
       vars:
         update_list: []
         update:
-          - path: "nodeMutexRules[{{loopIndex}}].resources[0].spec.jobSpec.template.spec.containers[0].env"
+          - path: "nodeMutexRules[{{ loopIndex }}].resources[0].spec.jobSpec.template.spec.containers[0].env"
             value:
               - name: NODE_NAME
                 value: "{{ targetNode }}"
               - name: MUTEX_RULE
                 value: "{{ nodeMutexRules[loopIndex].resources[0].metadata.name }}"
-          - path: "nodeMutexRules[{{loopIndex}}].resources[0].spec.jobSpec.template.spec.affinity"
+          - path: "nodeMutexRules[{{ loopIndex }}].resources[0].spec.jobSpec.template.spec.affinity"
             value:
               nodeAffinity:
                 requiredDuringSchedulingIgnoredDuringExecution:
                   nodeSelectorTerms:
-                  - matchExpressions:
-                    - key: kubernetes.io/hostname
-                      operator: NotIn
-                      values:
-                      - "{{ targetNode }}"
+                    - matchExpressions:
+                        - key: kubernetes.io/hostname
+                          operator: NotIn
+                          values:
+                            - "{{ targetNode }}"
 
     - name: Commit Job Updates
       ansible.utils.update_fact:
@@ -94,7 +94,7 @@
 
     - name: Set JSON_Patch Fact
       ansible.builtin.set_fact:
-        jsonPatch: "{{ jsonPatch + [{'op': 'remove','path': '/metadata/labels/' + (item | regex_replace('/','~1')) }] }}"
+        jsonPatch: "{{ jsonPatch + [{'op': 'remove', 'path': '/metadata/labels/' + (item | regex_replace('/', '~1')) }] }}"
       loop: "{{ mutexRuleList }}"
 
     - name: Remove Mutex Labels
@@ -142,7 +142,7 @@
             message: An upgrade is not available.
             lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
       when:
-      - ansible_loop.last
+        - ansible_loop.last
 
   rescue:
     - name: Report Job Run Failure

@@ -16,7 +16,7 @@
             name: "{{ item }}"
           spec:
             paused: "{{ pausedBool }}"
-        wait: yes
+        wait: true
       loop: "{{ machineConfigPoolList }}"
 
     - name: Report Paused
