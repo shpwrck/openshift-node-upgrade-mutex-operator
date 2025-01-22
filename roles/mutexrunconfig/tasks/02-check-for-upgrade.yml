@@ -45,6 +45,7 @@
           - --file
           - /release-manifests/release-metadata
           - --confirm
+          - "--insecure={{ _openshift_optional_skrzypek_io_mutexrunconfig_spec.skipTLSVerify | lower }}"
       register: oc_output
       changed_when: oc_output.rc == 0
       failed_when: oc_output.rc != 0

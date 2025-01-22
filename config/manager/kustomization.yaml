@@ -5,4 +5,4 @@ kind: Kustomization
 images:
 - name: controller
   newName: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator
-  newTag: 0.2.34
+  newTag: 0.2.38

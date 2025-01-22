@@ -48,6 +48,10 @@ spec:
             description: 'Spec defines the desired state of MutexRunConfig'
             type: object
             properties:
+              skipTLSVerify:
+                description: 'Skip tls verification on desired-image for update'
+                type: boolean
+                default: false
               canary:
                 description: 'Information pertaining to the **existing** machineConfigPool in which upgrades can occur'
                 type: object

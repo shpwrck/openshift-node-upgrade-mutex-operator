@@ -9,9 +9,5 @@
 
 ## Work Remaining
 
-- Update CRD OpenAPI Validation
-- Update Examples
-- Create Instructions
 - Automate Release Process
 - Update This Document
-

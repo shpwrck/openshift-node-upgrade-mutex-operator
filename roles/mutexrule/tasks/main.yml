@@ -1,3 +1,13 @@
 ---
+- name: Reset status
+  operator_sdk.util.k8s_status:
+    api_version: "openshift-optional.skrzypek.io/v1alpha1"
+    kind: MutexRule
+    name: "{{ ansible_operator_meta.name }}"
+    namespace: "{{ ansible_operator_meta.namespace }}"
+    replace: true
+    replace_lists: true
+    conditions: []
+
 - name: Validate
   ansible.builtin.include_tasks: 01-validate.yml

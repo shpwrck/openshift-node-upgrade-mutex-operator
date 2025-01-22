@@ -9,12 +9,8 @@
 
 ## Work Remaining
 
-- Update CRD OpenAPI Validation
-- Update Examples
-- Create Instructions
 - Automate Release Process
 - Update This Document
-
 ## Introduction
 
 This operator injects required operations in the form of a Kubernetes job into the worker node upgrade process using MachineConfigPools. In short, when provided a list of operations (`MutexRules`) and a list of MachineConfigPools (`MutexTargets`) , the OpenShift Node Upgrade Mutex Operator will execute each operation for a given target, enable updates for the given target by modifying it's MachineConfigPool membership, and wait until the node has been upgraded before proceeding onto subsequent operations and targets.
@@ -41,7 +37,7 @@ Applying the example below will create a compatible canary pool:
 apiVersion: machineconfiguration.openshift.io/v1
 kind: MachineConfigPool
 metadata:
-  name: canary-example
+  name: canary
 spec:
   machineConfigSelector:
     matchLabels:
@@ -112,6 +108,7 @@ kind: MutexRunConfig
 metadata:
   name: example
 spec:
+  skipTLSVerify: false # Defaults to false if omitted
   canary:
     name: canary # Name of unpaused machineconfigpool to modify
   mutexRules: # List of existing mutexRules
