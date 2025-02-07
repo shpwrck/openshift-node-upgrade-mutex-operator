@@ -22,12 +22,12 @@
         kind: Node
       register: nodes
 
-    - name: Set Worker Node Version Facts
+    - name: Set Node Version Facts
       ansible.builtin.set_fact:
-        worker_node_version: "{{ nodes | community.general.json_query(query) }}"
+        node_version: "{{ nodes | community.general.json_query(query) }}"
       vars:
         query: >-
-          resources[?(metadata.labels."node-role.kubernetes.io/worker"=='')].metadata.labels."machineconfiguration.openshift.io/release-image-version"
+          resources[?!(metadata.labels."node-role.kubernetes.io/master"=='')].metadata.labels."machineconfiguration.openshift.io/release-image-version"
 
     - name: Creates Temp Directory
       ansible.builtin.file:
@@ -56,10 +56,10 @@
       with_file:
         - "release-metadata"
 
-    - name: Compare 'desired_version' to 'worker_node_version' for each worker node
+    - name: Compare 'desired_version' to 'node_version' for each worker node
       ansible.builtin.set_fact:
         version_skew: "true"
-      loop: "{{ worker_node_version }}"
+      loop: "{{ node_version }}"
       when:
         - desired_version | length > 0
         - item is version( desired_version, 'lt', version_type='semver' )

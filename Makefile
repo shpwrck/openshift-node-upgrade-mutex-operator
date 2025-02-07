@@ -186,6 +186,7 @@ bundle: kustomize operator-sdk ## Generate bundle manifests and metadata, then v
 	$(OPERATOR_SDK) generate kustomize manifests -q
 	cd config/manager && $(KUSTOMIZE) edit set image controller=$(IMG)
 	$(KUSTOMIZE) build config/manifests | $(OPERATOR_SDK) generate bundle $(BUNDLE_GEN_FLAGS) --output-dir ./bundles/$(VERSION)
+	yq eval-all -i '. as $$item ireduce ({}; . * $$item )' bundles/$(VERSION)/metadata/annotations.yaml custom-annotations.yaml
 	$(OPERATOR_SDK) bundle validate ./bundles/$(VERSION)
 
 .PHONY: bundle-build
@@ -255,4 +256,8 @@ catalog-push-file: ## Push the file based catalog
 .PHONY: latest
 latest:
 	docker tag $(CATALOG_IMG)-file $(IMAGE_TAG_BASE)-catalog:latest
+	docker tag $(BUNDLE_IMG) $(IMAGE_TAG_BASE)-bundle:latest
+	docker tag $(IMAGE_TAG_BASE):$(VERSION) $(IMAGE_TAG_BASE):latest
 	docker push $(IMAGE_TAG_BASE)-catalog:latest
+	docker push $(IMAGE_TAG_BASE)-bundle:latest
+	docker push $(IMAGE_TAG_BASE):latest

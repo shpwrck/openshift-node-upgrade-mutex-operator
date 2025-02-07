@@ -11,3 +11,11 @@
 
 - Automate Release Process
 - Update This Document
+
+## Requirements for `make`
+
+- yq binary
+- operator-sdk binary
+- opm binary
+- registry.redhat.com credentials
+- quay.io credentials

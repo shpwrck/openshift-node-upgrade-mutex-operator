@@ -1,0 +1,3 @@
+annotations:
+    #OpenShift
+    com.redhat.openshift.versions: v4.14

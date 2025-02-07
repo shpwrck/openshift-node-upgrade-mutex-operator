@@ -11,7 +11,14 @@
 
 - Automate Release Process
 - Update This Document
-## Introduction
+
+## Requirements for `make`
+
+- yq binary
+- operator-sdk binary
+- opm binary
+- registry.redhat.com credentials
+- quay.io credentials## Introduction
 
 This operator injects required operations in the form of a Kubernetes job into the worker node upgrade process using MachineConfigPools. In short, when provided a list of operations (`MutexRules`) and a list of MachineConfigPools (`MutexTargets`) , the OpenShift Node Upgrade Mutex Operator will execute each operation for a given target, enable updates for the given target by modifying it's MachineConfigPool membership, and wait until the node has been upgraded before proceeding onto subsequent operations and targets.
 
