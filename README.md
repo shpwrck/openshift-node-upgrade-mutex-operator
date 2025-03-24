@@ -10,7 +10,6 @@
 ## Work Remaining
 
 - Automate Release Process
-- Update This Document
 
 ## Requirements for `make`
 
@@ -18,7 +17,16 @@
 - operator-sdk binary
 - opm binary
 - registry.redhat.com credentials
-- quay.io credentials## Introduction
+- quay.io credentials
+
+## Updating Public Operator Hubs
+
+- Make Release Candidate
+- Fork appropriate hub repository
+  - [Community](https://github.com/k8s-operatorhub/community-operators)
+  - [Red Hat](https://github.com/redhat-openshift-ecosystem/community-operators-prod)
+- Clone the appropriate fork
+- Copy the contents of `bundles` into `operators/openshift-node-upgrade-mutex-operator/`## Introduction
 
 This operator injects required operations in the form of a Kubernetes job into the worker node upgrade process using MachineConfigPools. In short, when provided a list of operations (`MutexRules`) and a list of MachineConfigPools (`MutexTargets`) , the OpenShift Node Upgrade Mutex Operator will execute each operation for a given target, enable updates for the given target by modifying it's MachineConfigPool membership, and wait until the node has been upgraded before proceeding onto subsequent operations and targets.
 
@@ -72,6 +80,20 @@ spec:
   jobName: "example" # Jobs will be run with this prefix name
   jobNamespace: "node-upgrade-mutex-operator" # Jobs will be run in this namespace
   jobSpec: # Accepts full 'batch/v1' job spec
+    selector: {}
+    template:
+      metadata:
+        name: mutex
+      spec:
+        containers:
+        - command:
+          - sleep
+          args:
+          - "30"
+          image: ubi9/toolbox
+          name: mutex
+        restartPolicy: Never
+  cleanUpJobSpec: # Accepts full 'batch/v1' job spec (Optional)
     selector: {}
     template:
       metadata:
@@ -153,6 +175,7 @@ spec:
     * Launch each K8S job sequentially
     * Remove the current node's rule labels
     * Wait until the `release-image-version` of the node matches the `spec.desiredUpdate.version` of the `cluster` ClusterVersion
+    * Launch each K8S cleanup job sequentially
 7. If the update succeeds, all machine config pools are unpaused and all match expressions are removed.
 
 ## Permissions Granted

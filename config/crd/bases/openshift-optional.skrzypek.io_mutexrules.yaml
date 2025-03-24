@@ -57,6 +57,11 @@ spec:
                 description: |
                   Schema available here: 'https://github.com/kubernetes/kubernetes/blob/master/api/openapi-spec/v3/apis__batch__v1_openapi.json#L320'
                 x-kubernetes-preserve-unknown-fields: true
+              cleanUpJobSpec:
+                type: object
+                description: |
+                  Schema available here: 'https://github.com/kubernetes/kubernetes/blob/master/api/openapi-spec/v3/apis__batch__v1_openapi.json#L320'
+                x-kubernetes-preserve-unknown-fields: true
               type:
                 type: string
                 description: |

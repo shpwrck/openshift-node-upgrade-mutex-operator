@@ -1,7 +1,7 @@
 ---
 - name: Configuration Validation Block
   block:
-    - name: Confirm K8S
+    - name: Confirm Valid K8s jobSpec
       kubernetes.core.k8s:
         host: "{{ _openshift_optional_skrzypek_io_mutexrule_spec.host | default('https://kubernetes.default.svc') }}"
         ca_cert: "{{ _openshift_optional_skrzypek_io_mutexrule_spec.ca_cert | default('/run/secrets/kubernetes.io/serviceaccount/ca.crt') }}"
@@ -18,6 +18,26 @@
           strict: true
       register: k8s_validation
       when: _openshift_optional_skrzypek_io_mutexrule_spec.type == "kubernetes"
+
+    - name: Confirm Valid K8s cleanUpJobSpec
+      kubernetes.core.k8s:
+        host: "{{ _openshift_optional_skrzypek_io_mutexrule_spec.host | default('https://kubernetes.default.svc') }}"
+        ca_cert: "{{ _openshift_optional_skrzypek_io_mutexrule_spec.ca_cert | default('/run/secrets/kubernetes.io/serviceaccount/ca.crt') }}"
+        client_key: "{{ _openshift_optional_skrzypek_io_mutexrule_spec.ca_cert | default('/run/secrets/kubernetes.io/serviceaccount/token') }}"
+        api_version: "batch/v1"
+        kind: "Job"
+        name: "cleanup-{{ _openshift_optional_skrzypek_io_mutexrule_spec.jobName }}"
+        namespace: "{{ _openshift_optional_skrzypek_io_mutexrule_spec.jobNamespace }}"
+        definition:
+          spec: "{{ _openshift_optional_skrzypek_io_mutexrule_spec.cleanUpJobSpec }}"
+        state: absent
+        validate:
+          fail_on_error: true
+          strict: true
+      register: k8s_validation
+      when:
+      - _openshift_optional_skrzypek_io_mutexrule_spec.type == "kubernetes"
+      - _openshift_optional_skrzypek_io_mutexrule_spec.cleanUpJobSpec is defined
 
     - name: Report Configuration Results
       operator_sdk.util.k8s_status:

@@ -65,6 +65,20 @@ spec:
           image: ubi9/toolbox
           name: mutex
         restartPolicy: Never
+  cleanUpJobSpec: # Accepts full 'batch/v1' job spec (Optional)
+    selector: {}
+    template:
+      metadata:
+        name: mutex
+      spec:
+        containers:
+        - command:
+          - sleep
+          args:
+          - "30"
+          image: ubi9/toolbox
+          name: mutex
+        restartPolicy: Never
   type: kubernetes
 ```
 
@@ -133,6 +147,7 @@ spec:
     * Launch each K8S job sequentially
     * Remove the current node's rule labels
     * Wait until the `release-image-version` of the node matches the `spec.desiredUpdate.version` of the `cluster` ClusterVersion
+    * Launch each K8S cleanup job sequentially
 7. If the update succeeds, all machine config pools are unpaused and all match expressions are removed.
 
 ## Permissions Granted

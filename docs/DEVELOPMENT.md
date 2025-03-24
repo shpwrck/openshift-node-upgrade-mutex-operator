@@ -10,7 +10,6 @@
 ## Work Remaining
 
 - Automate Release Process
-- Update This Document
 
 ## Requirements for `make`
 
@@ -19,3 +18,12 @@
 - opm binary
 - registry.redhat.com credentials
 - quay.io credentials
+
+## Updating Public Operator Hubs
+
+- Make Release Candidate
+- Fork appropriate hub repository
+  - [Community](https://github.com/k8s-operatorhub/community-operators)
+  - [Red Hat](https://github.com/redhat-openshift-ecosystem/community-operators-prod)
+- Clone the appropriate fork
+- Copy the contents of `bundles` into `operators/openshift-node-upgrade-mutex-operator/`

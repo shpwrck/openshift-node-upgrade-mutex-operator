@@ -114,6 +114,21 @@
       retries: 100
       delay: 60
 
+    - name: Launch K8s Clean Up Jobs
+      kubernetes.core.k8s:
+        api_version: "batch/v1"
+        kind: Job
+        generate_name: "cleanup-{{ item.resources[0].spec.jobName }}-"
+        namespace: "{{ item.resources[0].spec.jobNamespace }}"
+        definition:
+          spec: "{{ item.resources[0].spec.cleanUpJobSpec }}"
+        state: present
+        wait: true
+        wait_condition:
+          status: "True"
+          type: "Complete"
+      loop: "{{ updatedK8sMutexRules.nodeMutexRules }}"
+
     - name: Report Upgrade Finish
       operator_sdk.util.k8s_status:
         api_version: "openshift-optional.skrzypek.io/v1alpha1"
