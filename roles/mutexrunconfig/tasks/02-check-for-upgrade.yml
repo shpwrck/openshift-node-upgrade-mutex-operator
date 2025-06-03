@@ -1,7 +1,7 @@
 ---
 - name: Upgrade Check Block
   block:
-    - name: Gather ClusterVerion Info
+    - name: Gather ClusterVersion Info
       kubernetes.core.k8s_info:
         api_version: "config.openshift.io/v1"
         kind: ClusterVersion
@@ -29,22 +29,16 @@
         query: >-
           resources[?!(metadata.labels."node-role.kubernetes.io/master"=='')].metadata.labels."machineconfiguration.openshift.io/release-image-version"
 
-    - name: Creates Temp Directory
-      ansible.builtin.file:
-        path: "/tmp/{{ desired_image }}"
-        state: directory
-        recurse: "true"
-
     - name: Get Desired Version from Desired Image
       ansible.builtin.command:
         argv:
           - /usr/bin/oc
-          - image
-          - extract
+          - adm
+          - release
+          - info
           - "{{ desired_image }}"
-          - --file
-          - /release-manifests/release-metadata
-          - --confirm
+          - -o
+          - jsonpath={$.metadata.version}
           - "--insecure={{ _openshift_optional_skrzypek_io_mutexrunconfig_spec.skipTLSVerify | lower }}"
       register: oc_output
       changed_when: oc_output.rc == 0
@@ -52,9 +46,7 @@
 
     - name: Set Desired Version
       ansible.builtin.set_fact:
-        desired_version: "{{ item | from_json | community.general.json_query('version') }}"
-      with_file:
-        - "release-metadata"
+        desired_version: "{{ oc_output.stdout }}"
 
     - name: Compare 'desired_version' to 'node_version' for each worker node
       ansible.builtin.set_fact:

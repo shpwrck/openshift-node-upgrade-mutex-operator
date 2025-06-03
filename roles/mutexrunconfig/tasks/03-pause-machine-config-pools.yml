@@ -15,7 +15,7 @@
           metadata:
             name: "{{ item }}"
           spec:
-            paused: "{{ pausedBool }}"
+            paused: "{{ paused_bool }}"
         wait: true
       loop: "{{ machineConfigPoolList }}"
 

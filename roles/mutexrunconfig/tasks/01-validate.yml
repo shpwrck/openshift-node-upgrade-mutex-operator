@@ -1,5 +1,5 @@
 ---
-- name: Validate
+- name: Validate Resources
   block:
     - name: Gather MutexRules
       kubernetes.core.k8s_info:
@@ -67,6 +67,60 @@
             status: "False"
             reason: FetchFailed
             message: Canary, MutexRules, MutexTargets were not successfully fetched.
+            lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
+
+  always:
+    - name: Set Configuration Status
+      ansible.builtin.set_fact:
+        ConfigValidated: "{{ (ansible_failed_result is not defined) | ternary('true', 'false') }}"
+
+- name: Validate Cluster
+  block:
+      - name: Gather API Services
+        kubernetes.core.k8s_info:
+          api_version: "apiregistration.k8s.io/v1"
+          kind: APIService
+        register: APIServices
+
+      - name: Flatten List
+        ansible.builtin.set_fact:
+          serviceConditions: "{{ APIServices | community.general.json_query(query) }}"
+        vars:
+          query: resources[*].status.conditions[*][]
+
+      - name: Identify Failing Services
+        assert:
+          that:
+            - item.status == "True"
+        loop: "{{ serviceConditions }}"
+        when:
+        - item.type == "Available"
+
+      - name: Report Configuration Results
+        operator_sdk.util.k8s_status:
+          api_version: "openshift-optional.skrzypek.io/v1alpha1"
+          kind: MutexRunConfig
+          name: "{{ ansible_operator_meta.name }}"
+          namespace: "{{ ansible_operator_meta.namespace }}"
+          conditions:
+            - type: ClusterStateValidated
+              status: "True"
+              reason: APIServicesUp
+              message: APIService condition Available is True for all APIServices
+              lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
+
+  rescue:
+    - name: Report Invalid Config
+      operator_sdk.util.k8s_status:
+        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        kind: MutexRunConfig
+        name: "{{ ansible_operator_meta.name }}"
+        namespace: "{{ ansible_operator_meta.namespace }}"
+        conditions:
+          - type: ClusterStateValidated
+            status: "False"
+            reason: APIServicesDown
+            message: APIService condition Available is not True for all APIServices
             lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
 
   always:

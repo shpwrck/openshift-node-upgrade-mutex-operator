@@ -13,7 +13,7 @@
       vars:
         query: "resources[0].metadata.labels.keys(@) | [?starts_with(@,'mutexrule')]"
 
-    - name: Get Rule Details
+    - name: Get Rule Details (from labels)
       ansible.builtin.set_fact:
         nodeMutexRulesItem: "{{ mutexRules | community.general.json_query(query) }}"
       vars:
@@ -23,11 +23,11 @@
       loop: "{{ mutexRuleList }}"
       register: nodeMutexRulesResults
 
-    - name: Set List
+    - name: Set List (flattened)
       ansible.builtin.set_fact:
         nodeMutexRules: "{{ nodeMutexRulesResults.results | map(attribute='ansible_facts.nodeMutexRulesItem') | list | flatten(2) }}"
 
-    - name: Stage Job Updates
+    - name: Stage Job Updates (inject variables)
       ansible.builtin.set_fact:
         update_list: "{{ update_list + update }}"
       loop: "{{ nodeMutexRules }}"
@@ -94,7 +94,7 @@
 
     - name: Set JSON_Patch Fact
       ansible.builtin.set_fact:
-        jsonPatch: "{{ jsonPatch + [{'op': 'remove', 'path': '/metadata/labels/' + (item | regex_replace('/', '~1')) }] }}"
+        jsonPatch: "{{ jsonPatch + [{'op': 'remove', 'path': '/metadata/labels/' + (item | regex_replace('/', '~1'))}] }}"
       loop: "{{ mutexRuleList }}"
 
     - name: Remove Mutex Labels
@@ -114,6 +114,38 @@
       retries: 100
       delay: 60
 
+    - name: Stage CleanUp Job Updates (inject variables)
+      ansible.builtin.set_fact:
+        clean_up_update_list: "{{ update_list + update }}"
+      when: nodeMutexRules[{{ loopIndex }}].resources[0].spec.cleanUpJobSpec is defined
+      loop: "{{ nodeMutexRules }}"
+      loop_control:
+        index_var: loopIndex
+      vars:
+        update_list: []
+        update:
+          - path: "nodeMutexRules[{{ loopIndex }}].resources[0].spec.cleanUpJobSpec.template.spec.containers[0].env"
+            value:
+              - name: NODE_NAME
+                value: "{{ targetNode }}"
+              - name: MUTEX_RULE
+                value: "{{ nodeMutexRules[loopIndex].resources[0].metadata.name }}"
+          - path: "nodeMutexRules[{{ loopIndex }}].resources[0].spec.cleanUpJobSpec.template.spec.affinity"
+            value:
+              nodeAffinity:
+                requiredDuringSchedulingIgnoredDuringExecution:
+                  nodeSelectorTerms:
+                    - matchExpressions:
+                        - key: kubernetes.io/hostname
+                          operator: NotIn
+                          values:
+                            - "{{ targetNode }}"
+
+    - name: Commit Clean Up Job Updates
+      ansible.utils.update_fact:
+        updates: "{{ clean_up_update_list }}"
+      register: updatedK8sMutexCleanUpRules
+
     - name: Launch K8s Clean Up Jobs
       kubernetes.core.k8s:
         api_version: "batch/v1"
@@ -127,7 +159,8 @@
         wait_condition:
           status: "True"
           type: "Complete"
-      loop: "{{ updatedK8sMutexRules.nodeMutexRules }}"
+      loop: "{{ updatedK8sMutexCleanUpRules.nodeMutexRules }}"
+      when: item.resources[0].spec.cleanUpJobSpec is defined
 
     - name: Report Upgrade Finish
       operator_sdk.util.k8s_status:
@@ -166,7 +199,6 @@
         kind: MutexRunConfig
         name: "{{ ansible_operator_meta.name }}"
         namespace: "{{ ansible_operator_meta.namespace }}"
-        when: ansible_failed_task.name == 'Launch K8s Jobs'
         conditions:
           - type: JobRun
             status: "False"
@@ -175,6 +207,7 @@
               Jobs for {{ targetNode }} have run not successfully.
               Node is {{ ansible_loop.index }} of {{ ansible_loop.length }}
             lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
+      when: ansible_failed_task.name == 'Launch K8s Jobs'
 
     - name: Report Upgrade Failure
       operator_sdk.util.k8s_status:
@@ -182,7 +215,6 @@
         kind: MutexRunConfig
         name: "{{ ansible_operator_meta.name }}"
         namespace: "{{ ansible_operator_meta.namespace }}"
-        when: ansible_failed_task.name == 'Wait Until Node Version Matches Desired Version'
         conditions:
           - type: NodeUpgrade
             status: "False"
@@ -191,6 +223,7 @@
               Upgrade for {{ targetNode }} has run not successfully.
               Node is {{ ansible_loop.index }} of {{ ansible_loop.length }}
             lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
+      when: ansible_failed_task.name == 'Wait Until Node Version Matches Desired Version'
 
     - name: Break Loop
       ansible.builtin.fail:

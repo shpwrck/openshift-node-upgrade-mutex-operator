@@ -12,7 +12,11 @@ bin
 *.swp
 *.swo
 *~
-.vscode
+.vscode/
+
+# ansible
+.ansible/
 
 # Bundles and Catalogs
 bundles/
+

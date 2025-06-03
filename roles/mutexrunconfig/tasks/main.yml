@@ -20,11 +20,10 @@
 - name: Pause Pools
   ansible.builtin.include_tasks: 03-pause-machine-config-pools.yml
   vars:
-    pausedBool: true
+    paused_bool: true
   when:
     - ConfigValidated
-    - UpgradabilityChecked
-    - UpgradeAvailable
+    - (not UpgradabilityChecked) or (UpgradabilityChecked and UpgradeAvailable)
 
 - name: Apply Labels
   ansible.builtin.include_tasks: 04-apply-mutex-rules-as-labels.yml
@@ -37,7 +36,7 @@
 - name: Update Canary MachineConfigPool
   ansible.builtin.include_tasks: 05-modify-machineconfigpool.yml
   vars:
-    setExpressions: true
+    set_expressions: true
   when:
     - ConfigValidated
     - UpgradabilityChecked
@@ -62,7 +61,7 @@
 - name: UnPause
   ansible.builtin.include_tasks: 03-pause-machine-config-pools.yml
   vars:
-    pausedBool: false
+    paused_bool: false
   when:
     - ConfigValidated
     - UpgradabilityChecked
@@ -75,7 +74,7 @@
 - name: Remove MCP Expressions
   ansible.builtin.include_tasks: 05-modify-machineconfigpool.yml
   vars:
-    setExpressions: false
+    set_expressions: false
   when:
     - ConfigValidated
     - UpgradabilityChecked

@@ -32,6 +32,9 @@ spec:
   nodeSelector:
     matchLabels:
       node-role.kubernetes.io/worker: ''
+    matchExpressions:
+      - key: 'isCanary'
+        operator: Exists
   paused: false
 ```
 

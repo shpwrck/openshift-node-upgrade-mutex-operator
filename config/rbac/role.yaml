@@ -84,6 +84,14 @@ rules:
       - patch
       - update
       - watch
+  - apiGroups:
+      - "apiregistration.k8s.io"
+    resources:
+      - apiservices
+    verbs:
+      - get
+      - list
+      - watch
   ##
   ## Rules for openshift-optional.skrzypek.io/v1alpha1, Kind: MutexRule
   ##

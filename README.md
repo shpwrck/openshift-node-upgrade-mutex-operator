@@ -26,7 +26,8 @@
   - [Community](https://github.com/k8s-operatorhub/community-operators)
   - [Red Hat](https://github.com/redhat-openshift-ecosystem/community-operators-prod)
 - Clone the appropriate fork
-- Copy the contents of `bundles` into `operators/openshift-node-upgrade-mutex-operator/`## Introduction
+- Copy the contents of `bundles` into `operators/openshift-node-upgrade-mutex-operator/`
+## Introduction
 
 This operator injects required operations in the form of a Kubernetes job into the worker node upgrade process using MachineConfigPools. In short, when provided a list of operations (`MutexRules`) and a list of MachineConfigPools (`MutexTargets`) , the OpenShift Node Upgrade Mutex Operator will execute each operation for a given target, enable updates for the given target by modifying it's MachineConfigPool membership, and wait until the node has been upgraded before proceeding onto subsequent operations and targets.
 
@@ -60,6 +61,9 @@ spec:
   nodeSelector:
     matchLabels:
       node-role.kubernetes.io/worker: ''
+    matchExpressions:
+      - key: 'isCanary'
+        operator: Exists
   paused: false
 ```
 
