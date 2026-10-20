@@ -1,203 +1,229 @@
-## To Install The Operator
+# OpenShift Node Upgrade Mutex Operator
 
-1. Install NFD
-2. Create an NFD Instance
-3. Create `machineconfig.yaml`
-4. Create `catalogsource.yaml`
-5. Install OpenShift Node Upgrade Mutex Operator through OperatorHub
-6. Create MutexRule, MutexTarget, and MutexRunConfig
+During an OpenShift update, the Machine Config Operator (MCO) updates the nodes of each MachineConfigPool on its own schedule, `maxUnavailable` nodes at a time. It has no hook for work that must happen around each node.
 
-## Work Remaining
+This operator takes over the order. It updates target nodes **one at a time** and runs your **Jobs before and after each node**: move a workload away, check that a quorum is healthy, take a backup, or tell an external system that a node is going away and coming back.
 
-- Automate Release Process
+It is an Ansible operator built with the [Operator SDK](https://sdk.operatorframework.io/) and needs OpenShift 4.14 or later.
 
-## Requirements for `make`
+## How it works
 
-- yq binary
-- operator-sdk binary
-- opm binary
-- registry.redhat.com credentials
-- quay.io credentials
+You describe the work with three custom resources:
 
-## Updating Public Operator Hubs
-
-- Make Release Candidate
-- Fork appropriate hub repository
-  - [Community](https://github.com/k8s-operatorhub/community-operators)
-  - [Red Hat](https://github.com/redhat-openshift-ecosystem/community-operators-prod)
-- Clone the appropriate fork
-- Copy the contents of `bundles` into `operators/openshift-node-upgrade-mutex-operator/`
-## Introduction
-
-This operator injects required operations in the form of a Kubernetes job into the worker node upgrade process using MachineConfigPools. In short, when provided a list of operations (`MutexRules`) and a list of MachineConfigPools (`MutexTargets`) , the OpenShift Node Upgrade Mutex Operator will execute each operation for a given target, enable updates for the given target by modifying it's MachineConfigPool membership, and wait until the node has been upgraded before proceeding onto subsequent operations and targets.
-
-## Dependencies
-
-### Release Version Label
-
-In order to confirm the successful upgrade of each target node, the NFD Operator is used to generate a version feature on every worker node. In order to proceed through given targets, each node must have this label
-`'machineconfiguration.openshift.io/release-image-version'` with a key providing the semantic version of this node (e.g. `'4.16.4'`)
-
-There are several ways to accomplish this, but an example MachineConfig has been provided [here](https://github.com/shpwrck/openshift-node-upgrade-mutex-operator/blob/main/machineconfig.yaml).
-
-### Canary Machine Config Pool
-
-In addition to node labels, a MachineConfigPool that will be used to accomodate targets subject to upgrades must be provided matching the following criteria:
-* selects only worker nodes
-* is not paused
-
-Applying the example below will create a compatible canary pool:
-
-```yaml
----
-apiVersion: machineconfiguration.openshift.io/v1
-kind: MachineConfigPool
-metadata:
-  name: canary
-spec:
-  machineConfigSelector:
-    matchLabels:
-      machineconfiguration.openshift.io/role: worker
-  nodeSelector:
-    matchLabels:
-      node-role.kubernetes.io/worker: ''
-    matchExpressions:
-      - key: 'isCanary'
-        operator: Exists
-  paused: false
+```mermaid
+flowchart LR
+    RC[MutexRunConfig] -- mutexRules --> R[MutexRule]
+    RC -- mutexTargets --> T[MutexTarget]
+    RC -- canary.name --> C[(canary<br/>MachineConfigPool)]
+    T -- machineConfigPools --> P[(target<br/>MachineConfigPools)]
+    P --> N[nodes]
+    R -- jobSpec / cleanUpJobSpec --> J[a Job per node,<br/>before and after its update]
 ```
 
-## Usage / Custom Resources Definitions
+| Resource | What it holds |
+| --- | --- |
+| `MutexRule` | A Job to run before each node is updated (`jobSpec`) and, optionally, one to run after it (`cleanUpJobSpec`). |
+| `MutexTarget` | The MachineConfigPools whose nodes are updated one at a time. Its status lists the nodes, in update order. |
+| `MutexRunConfig` | The rules, the targets and the canary pool. Its status shows the rollout. Create one per cluster; if there are more, only the oldest runs. |
 
-#### MutexRule:
+When the cluster starts an update, the rollout goes like this:
 
-A resource storing a single rule referring to a template for a Kubernetes job to be created.
-This resource **does not** modify existing resources.
+```mermaid
+sequenceDiagram
+    autonumber
+    participant CV as ClusterVersion
+    participant Op as Mutex operator
+    participant TP as Target pools
+    participant CP as Canary pool
+    participant MCO as Machine Config Operator
+    participant Job as MutexRule Jobs
 
-```yaml
----
-apiVersion: nodeupgrade.redhat-na-ssa.github.io/v1alpha1
-kind: MutexRule
-metadata:
-  name: k8s-example
-spec:
-  jobName: "example" # Jobs will be run with this prefix name
-  jobNamespace: "node-upgrade-mutex-operator" # Jobs will be run in this namespace
-  jobSpec: # Accepts full 'batch/v1' job spec
-    selector: {}
-    template:
-      metadata:
-        name: mutex
-      spec:
-        containers:
-        - command:
-          - sleep
-          args:
-          - "30"
-          image: ubi9/toolbox
-          name: mutex
-        restartPolicy: Never
-  cleanUpJobSpec: # Accepts full 'batch/v1' job spec (Optional)
-    selector: {}
-    template:
-      metadata:
-        name: mutex
-      spec:
-        containers:
-        - command:
-          - sleep
-          args:
-          - "30"
-          image: ubi9/toolbox
-          name: mutex
-        restartPolicy: Never
-  type: kubernetes
+    CV->>Op: desired version changes
+    Op->>TP: pause, and hold out nodes labeled release
+    Op->>CP: select only nodes labeled release
+    Note over CV,MCO: the control plane updates as usual
+    CV->>Op: update Completed, MCO has rendered the new version
+    loop every target node, one at a time
+        Op->>Job: run each rule's pre-update Job, wait for success
+        Op->>CP: label the node release=true, so it joins the canary pool
+        MCO->>CP: update the node (drain, reboot)
+        Op->>Op: wait until the node runs the new version
+        Op->>Job: run each rule's post-update Job, wait for success
+    end
+    Op->>TP: remove the release labels, restore selectors, unpause
 ```
 
-#### MutexTarget:
+Each node moves through these phases, which the MutexRunConfig reports in `status.nodes`:
 
-A resource storing a set of MachineConfigPools to pause and incrementally upgrade.
-This resource **does not** modify existing resources.
-
-```yaml
----
-apiVersion: nodeupgrade.redhat-na-ssa.github.io/v1alpha1
-kind: MutexTarget
-metadata:
-  name: worker-example
-spec:
-  machineConfigPools:
-    - worker # Name of existing machineconfigpool
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> UpToDate
+    UpToDate --> Pending: the cluster starts an update
+    Pending --> PreUpdate: the node's turn
+    PreUpdate --> Updating: pre-update Jobs succeeded,<br/>node released to the canary pool
+    Updating --> PostUpdate: node runs the new version
+    PostUpdate --> Complete: post-update Jobs succeeded
 ```
 
-#### MutexRunConfig:
+The operator decides what the next step is from what it finds on the cluster each time it reconciles: pools, nodes, rendered MachineConfigs, Jobs, and its own annotations on nodes. Nothing is kept in memory, so a restarted operator picks up where the last one stopped.
 
-A resource that references existing MutexRules and MutexTargets as well as an existing MachineConfigPool that will allow members to be upgraded. Every rule defined in the `mutexRules` list will be added as a mandatory task to every node that is a member of the each MachineConfigPool defined in the `mutexTargets` list.
-This resource **does** modify existing resources.
+### What the operator changes
 
-```yaml
-apiVersion: nodeupgrade.redhat-na-ssa.github.io/v1alpha1
-kind: MutexRunConfig
-metadata:
-  name: example
-spec:
-  skipTLSVerify: false # Defaults to false if omitted
-  canary:
-    name: canary # Name of unpaused machineconfigpool to modify
-  mutexRules: # List of existing mutexRules
-    - name: k8s-example
-      namespace: node-upgrade-mutex-operator
-  mutexTargets: # List of existing mutexTargets
-    - name: worker-example
-      namespace: node-upgrade-mutex-operator
+| Object | Change | When |
+| --- | --- | --- |
+| Target pools | `spec.paused: true` and a `nodeupgrade.redhat-na-ssa.github.io/release DoesNotExist` term in `spec.nodeSelector` | From the start of an update until all target nodes are done. Pools that were already paused stay paused afterwards. |
+| Canary pool | `spec.nodeSelector` becomes `nodeupgrade.redhat-na-ssa.github.io/release: "true"`; the original is saved in an annotation | Same |
+| Target node | Label `nodeupgrade.redhat-na-ssa.github.io/release=true` | From its update until the rollout ends |
+| Target node | Annotations `nodeupgrade.redhat-na-ssa.github.io/{phase,target-version,run-config,pre-update-complete,post-update-complete}` | Kept as a record of the last rollout. Deleting the MutexRunConfig removes them. |
+| Your namespace | Jobs named `<jobName>-xxxxx` and `cleanup-<jobName>-xxxxx` | One per rule, node and stage. They are never deleted by the operator. |
+
+## Installing
+
+### From OperatorHub
+
+The operator is published as **OpenShift Node Upgrade Mutex Operator** in the community catalog. Install it from **Operators > OperatorHub** in the console.
+
+### From this repository
+
+```shell
+make deploy IMG=ghcr.io/redhat-na-ssa/openshift-node-upgrade-mutex-operator:0.3.0
 ```
 
-## Procedure
+To try a release that has not reached OperatorHub yet, create the CatalogSource in [`sample-manifests/catalogsource.yaml`](sample-manifests/catalogsource.yaml) and install the operator from it.
 
-#### MutexRule
+### Upgrading from 0.2.x
 
-1. Upon creation/modification, the schema of each K8s rule is validated.
-2. Status is updated to indicate valid or invalid configuration.
+Version 0.3.0 changed the API group from `openshift-optional.skrzypek.io` to `nodeupgrade.redhat-na-ssa.github.io` and no longer needs the Node Feature Discovery operator or the `00-release-image-version` MachineConfig. Recreate your MutexRules, MutexTargets and MutexRunConfig with the new group, then remove the old resources, CRDs and the NFD setup if nothing else uses them. Do this between cluster updates.
 
-#### MutexTargets
+## Using it
 
-1. Upon creation/modification, the existence of each target is validated.
-2. Status is updated to indicate valid or invalid configuration.
-3. The nodes assigned to each target are added to the status field `nodes`.
+1. **Create a canary pool.** It must render the same MachineConfigs as your target pools, select no nodes, and not be paused. Start from [`sample-manifests/canary-machineconfigpool.yaml`](sample-manifests/canary-machineconfigpool.yaml).
 
-#### MutexRunConfigs
+   If a target pool has MachineConfigs of its own (an infra pool, for example), select those in the canary pool too. Otherwise its nodes get a second update when they return to their pool at the end of the rollout.
 
-1. Upon creation/modification, the existence as well as validation status of each rule, target, and canary pool is confirmed.
-2. If valid, the existence of an upgrade is queried. An upgrade is available if the following is true:
-    * The `status.history` of the `cluster` ClusterVersion equals `Completed`
-    * The `release-image-version` of any worker node is less than the `spec.desiredUpdate.version` of the `cluster` ClusterVersion.
-3. If an update exists, each target MachineConfigPool has `spec.paused` set to `true`.
-4. If each pool is paused, each node is updated to include a label for each rule with the following format:
-    * `mutexrule.nodeupgrade.redhat-na-ssa.github.io/{{MutexRule_Name}}.{{MutexRule_Namespace}}`
-5. If labels have been applied, the provided canary pool is modified to exclude nodes with labels provided by step (4).
-6. Assuming steps (2-5) have completed successfully, then the process for running jobs and updating nodes begins. The process per node is as follows:
-    * Launch each K8S job sequentially
-    * Remove the current node's rule labels
-    * Wait until the `release-image-version` of the node matches the `spec.desiredUpdate.version` of the `cluster` ClusterVersion
-    * Launch each K8S cleanup job sequentially
-7. If the update succeeds, all machine config pools are unpaused and all match expressions are removed.
+2. **Create a namespace for the Jobs** and give the Jobs' service account whatever access the Jobs need. The operator creates no RBAC for them.
 
-## Permissions Granted
+3. **Create MutexRules.** For example:
 
-In addition to the permissions required to operate the included CRDs, the following access is granted to the operator's service account.
+   ```yaml
+   apiVersion: nodeupgrade.redhat-na-ssa.github.io/v1alpha1
+   kind: MutexRule
+   metadata:
+     name: database
+     namespace: node-upgrade-mutex-operator
+   spec:
+     jobName: database          # Jobs are named database-xxxxx and cleanup-database-xxxxx
+     jobNamespace: node-upgrade-mutex-jobs
+     jobSpec:                   # any batch/v1 JobSpec
+       backoffLimit: 2
+       template:
+         spec:
+           serviceAccountName: database-maintenance
+           restartPolicy: Never
+           containers:
+             - name: step-down
+               image: registry.example.com/db-tools:1.4
+               command: ["db-tool", "step-down", "--node", "$(NODE_NAME)"]
+     cleanUpJobSpec:            # optional
+       template:
+         spec:
+           serviceAccountName: database-maintenance
+           restartPolicy: Never
+           containers:
+             - name: rejoin
+               image: registry.example.com/db-tools:1.4
+               command: ["db-tool", "wait-healthy", "--node", "$(NODE_NAME)"]
+   ```
 
-| Resource | Permissions |
-| :---: | :---: |
-| Jobs | Create & Read |
-| Nodes | Read & Update |
-| ClusterVersion | Read |
-| MachineConfigPools | Read & Update |
+   The operator checks each Job template with a server-side dry run and sets the `Valid` condition. The Jobs it creates get these environment variables in every container and init container:
 
-## Notes
+   | Variable | Value |
+   | --- | --- |
+   | `NODE_NAME` | The node being updated |
+   | `TARGET_VERSION` | The OpenShift version it is being updated to |
+   | `MUTEX_RULE` | The MutexRule's name |
+   | `MUTEX_STAGE` | `pre-update` or `post-update` |
 
-* This operator was built using the operator-sdk's ansible plugin and therefore has all of the inherited capabilities and restrictions.
-* This operator has undergone minimal testing and should not be run in production environments without acknowledging the risks.
-* This operator is currently alpha and subject to change based on requirements.
+   The operator also adds a `metadata.name NotIn [<node>]` node affinity term, so a Job never runs on the node it is about. The rest of your affinity, node selector and tolerations are kept.
 
-## Additional Information
-For additional information refer to the [GitHub Repository](https://github.com/shpwrck/openshift-node-upgrade-mutex-operator)
+4. **Create a MutexTarget** naming the pools to update one node at a time. The master pool cannot be a target.
+
+   ```yaml
+   apiVersion: nodeupgrade.redhat-na-ssa.github.io/v1alpha1
+   kind: MutexTarget
+   metadata:
+     name: workers
+     namespace: node-upgrade-mutex-operator
+   spec:
+     machineConfigPools:
+       - worker
+   ```
+
+5. **Create the MutexRunConfig.** Rules run in the order listed. Targets are updated in the order listed, and nodes within a pool by name. `namespace` defaults to the MutexRunConfig's namespace.
+
+   ```yaml
+   apiVersion: nodeupgrade.redhat-na-ssa.github.io/v1alpha1
+   kind: MutexRunConfig
+   metadata:
+     name: rollout
+     namespace: node-upgrade-mutex-operator
+   spec:
+     canary:
+       name: canary
+     mutexRules:
+       - name: database
+     mutexTargets:
+       - name: workers
+   ```
+
+6. **Update the cluster as usual**, from the console or with `oc adm upgrade`. Follow the rollout with:
+
+   ```shell
+   oc get mutexrunconfig -n node-upgrade-mutex-operator -w
+   oc get mutexrunconfig rollout -n node-upgrade-mutex-operator -o jsonpath='{.status}' | jq
+   ```
+
+## Status and troubleshooting
+
+The MutexRunConfig has three conditions:
+
+| Condition | Meaning |
+| --- | --- |
+| `ConfigValid` | The rules and targets exist and are `Valid`, and the canary pool is usable. The message lists what is wrong. |
+| `Progressing` | `True` while a rollout runs. The reason says what the operator waits for. |
+| `Degraded` | `True` when the rollout is stuck and needs you. |
+
+| `Progressing` reason | What is happening |
+| --- | --- |
+| `Idle`, `RolloutComplete` | Nothing to do. |
+| `PausingPools` | An update has started; target pools are being paused. |
+| `WaitingForControlPlane` | Waiting for the ClusterVersion update to complete. |
+| `WaitingForCanary` | Waiting for the MCO to render the new version for the canary pool. |
+| `WaitingForNodes` | A target node is already being updated by the MCO (for example, it started before the pools were paused). |
+| `WaitingForCluster` | An APIService is unavailable; the next node waits until it is back. |
+| `RunningPreUpdateJobs`, `RunningPostUpdateJobs` | A rule's Job runs for the current node. |
+| `UpdatingNode` | The current node is in the canary pool, being updated. |
+| `NodeComplete`, `Finishing` | A node is done; the rollout moves on or wraps up. |
+| `Blocked` | See the `Degraded` condition. |
+
+| `Degraded` reason | What to do |
+| --- | --- |
+| `JobFailed` | Fix the cause, then delete the failed Job; the operator runs it again. To skip a rule for that node instead, add the rule (`<namespace>/<name>`) to the node's `nodeupgrade.redhat-na-ssa.github.io/pre-update-complete` (or `post-update-complete`) annotation, comma separated. |
+| `NodeDegraded`, `CanaryDegraded` | The MCO cannot update the node. Fix it as you would any MCO problem; the rollout continues on its own. |
+| `InvalidConfig` | A rule, target or the canary pool became invalid during a rollout. Fix it and the rollout continues. |
+| `Conflict` | More than one MutexRunConfig exists. The oldest one runs; delete the others. |
+| `PoolMembership` | A node matches two custom pools. The MCO cannot update it either. |
+| `ApplyFailed` | A patch or Job creation failed; the message has the API error. The operator retries every 30 seconds. |
+
+**To stop a rollout**, delete the MutexRunConfig. The operator removes the release labels and its annotations, restores the pool selectors and unpauses the pools it paused. The MCO then updates any remaining nodes the normal way, `maxUnavailable` at a time.
+
+## Limitations
+
+* One node at a time, across all targets. A cluster with many workers takes as long to update as the slowest node times the number of nodes.
+* Updated nodes stay in the canary pool until the whole rollout ends.
+* Windows nodes and the master pool are not handled.
+
+## Development
+
+See [docs/development.md](docs/development.md) for the layout of the code, running the operator locally, the tests, and how releases reach OperatorHub.
