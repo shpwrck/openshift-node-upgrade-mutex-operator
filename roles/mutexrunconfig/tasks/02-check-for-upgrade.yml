@@ -39,7 +39,7 @@
           - "{{ desired_image }}"
           - -o
           - jsonpath={$.metadata.version}
-          - "--insecure={{ _openshift_optional_skrzypek_io_mutexrunconfig_spec.skipTLSVerify | lower }}"
+          - "--insecure={{ _nodeupgrade_redhat_na_ssa_github_io_mutexrunconfig_spec.skipTLSVerify | lower }}"
       register: oc_output
       changed_when: oc_output.rc == 0
       failed_when: oc_output.rc != 0
@@ -68,7 +68,7 @@
 
     - name: Report Upgrade Exists
       operator_sdk.util.k8s_status:
-        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        api_version: "nodeupgrade.redhat-na-ssa.github.io/v1alpha1"
         kind: MutexRunConfig
         name: "{{ ansible_operator_meta.name }}"
         namespace: "{{ ansible_operator_meta.namespace }}"
@@ -81,7 +81,7 @@
 
     - name: Report Upgrade Check Success
       operator_sdk.util.k8s_status:
-        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        api_version: "nodeupgrade.redhat-na-ssa.github.io/v1alpha1"
         kind: MutexRunConfig
         name: "{{ ansible_operator_meta.name }}"
         namespace: "{{ ansible_operator_meta.namespace }}"
@@ -95,7 +95,7 @@
   rescue:
     - name: Report Upgrade Check Failure
       operator_sdk.util.k8s_status:
-        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        api_version: "nodeupgrade.redhat-na-ssa.github.io/v1alpha1"
         kind: MutexRunConfig
         name: "{{ ansible_operator_meta.name }}"
         namespace: "{{ ansible_operator_meta.namespace }}"

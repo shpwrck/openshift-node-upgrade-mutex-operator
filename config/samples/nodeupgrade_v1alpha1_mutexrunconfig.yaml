@@ -1,4 +1,4 @@
-apiVersion: openshift-optional.skrzypek.io/v1alpha1
+apiVersion: nodeupgrade.redhat-na-ssa.github.io/v1alpha1
 kind: MutexRunConfig
 metadata:
   labels:

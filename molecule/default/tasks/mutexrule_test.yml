@@ -1,5 +1,5 @@
 ---
-- name: Create the openshift-optional.skrzypek.io/v1alpha1.MutexRule
+- name: Create the nodeupgrade.redhat-na-ssa.github.io/v1alpha1.MutexRule
   k8s:
     state: present
     namespace: '{{ namespace }}'
@@ -10,7 +10,7 @@
       type: Successful
       status: "True"
   vars:
-    cr_file: 'openshift-optional_v1alpha1_mutexrule.yaml'
+    cr_file: 'nodeupgrade_v1alpha1_mutexrule.yaml'
 
 - name: Add assertions here
   assert:

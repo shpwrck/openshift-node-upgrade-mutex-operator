@@ -1,20 +1,20 @@
 ---
 - version: v1alpha1
-  group: openshift-optional.skrzypek.io
+  group: nodeupgrade.redhat-na-ssa.github.io
   kind: MutexRule
   role: mutexrule
   reconcilePeriod: 10m
   manageStatus: False
 
 - version: v1alpha1
-  group: openshift-optional.skrzypek.io
+  group: nodeupgrade.redhat-na-ssa.github.io
   kind: MutexTarget
   role: mutextarget
   reconcilePeriod: 10m
   manageStatus: False
 
 - version: v1alpha1
-  group: openshift-optional.skrzypek.io
+  group: nodeupgrade.redhat-na-ssa.github.io
   kind: MutexRunConfig
   role: mutexrunconfig
   reconcilePeriod: 10m

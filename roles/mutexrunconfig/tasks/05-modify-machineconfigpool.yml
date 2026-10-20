@@ -6,14 +6,14 @@
         matchExpressionsListCanary: >
           {{
           matchExpressionsListCanary | default([]) +
-          [{'key': 'mutexrule.openshift-optional.skrzypek.io/' + item.name + '.' + item.namespace, 'operator': 'DoesNotExist'}]
+          [{'key': 'mutexrule.nodeupgrade.redhat-na-ssa.github.io/' + item.name + '.' + item.namespace, 'operator': 'DoesNotExist'}]
           }}
         matchExpressionsListTargetPool: >
           {{
           matchExpressionsListTargetPool | default([]) +
-          [{'key': 'mutexrule.openshift-optional.skrzypek.io/' + item.name + '.' + item.namespace, 'operator': 'Exists'}]
+          [{'key': 'mutexrule.nodeupgrade.redhat-na-ssa.github.io/' + item.name + '.' + item.namespace, 'operator': 'Exists'}]
           }}
-      loop: "{{ _openshift_optional_skrzypek_io_mutexrunconfig_spec.mutexRules }}"
+      loop: "{{ _nodeupgrade_redhat_na_ssa_github_io_mutexrunconfig_spec.mutexRules }}"
       when: set_expressions
 
     - name: Build Expressions List
@@ -27,7 +27,7 @@
     - name: Update Canary NodeSelector
       kubernetes.core.k8s:
         state: patched
-        name: "{{ _openshift_optional_skrzypek_io_mutexrunconfig_spec.canary.name }}"
+        name: "{{ _nodeupgrade_redhat_na_ssa_github_io_mutexrunconfig_spec.canary.name }}"
         kind: "MachineConfigPool"
         api_version: "machineconfiguration.openshift.io/v1"
         definition:
@@ -49,7 +49,7 @@
 
     - name: Report MCP Updated
       operator_sdk.util.k8s_status:
-        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        api_version: "nodeupgrade.redhat-na-ssa.github.io/v1alpha1"
         kind: MutexRunConfig
         name: "{{ ansible_operator_meta.name }}"
         namespace: "{{ ansible_operator_meta.namespace }}"
@@ -63,7 +63,7 @@
   rescue:
     - name: Report MCP Not Updated
       operator_sdk.util.k8s_status:
-        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        api_version: "nodeupgrade.redhat-na-ssa.github.io/v1alpha1"
         kind: MutexRunConfig
         name: "{{ ansible_operator_meta.name }}"
         namespace: "{{ ansible_operator_meta.namespace }}"

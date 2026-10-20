@@ -47,7 +47,7 @@ This resource **does not** modify existing resources.
 
 ```yaml
 ---
-apiVersion: openshift-optional.skrzypek.io/v1alpha1
+apiVersion: nodeupgrade.redhat-na-ssa.github.io/v1alpha1
 kind: MutexRule
 metadata:
   name: k8s-example
@@ -92,7 +92,7 @@ This resource **does not** modify existing resources.
 
 ```yaml
 ---
-apiVersion: openshift-optional.skrzypek.io/v1alpha1
+apiVersion: nodeupgrade.redhat-na-ssa.github.io/v1alpha1
 kind: MutexTarget
 metadata:
   name: worker-example
@@ -107,7 +107,7 @@ A resource that references existing MutexRules and MutexTargets as well as an ex
 This resource **does** modify existing resources.
 
 ```yaml
-apiVersion: openshift-optional.skrzypek.io/v1alpha1
+apiVersion: nodeupgrade.redhat-na-ssa.github.io/v1alpha1
 kind: MutexRunConfig
 metadata:
   name: example
@@ -144,7 +144,7 @@ spec:
     * The `release-image-version` of any worker node is less than the `spec.desiredUpdate.version` of the `cluster` ClusterVersion.
 3. If an update exists, each target MachineConfigPool has `spec.paused` set to `true`.
 4. If each pool is paused, each node is updated to include a label for each rule with the following format:
-    * `mutexrule.openshift-optional.skrzypek.io/{{MutexRule_Name}}.{{MutexRule_Namespace}}`
+    * `mutexrule.nodeupgrade.redhat-na-ssa.github.io/{{MutexRule_Name}}.{{MutexRule_Namespace}}`
 5. If labels have been applied, the provided canary pool is modified to exclude nodes with labels provided by step (4).
 6. Assuming steps (2-5) have completed successfully, then the process for running jobs and updating nodes begins. The process per node is as follows:
     * Launch each K8S job sequentially

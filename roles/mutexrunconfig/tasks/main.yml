@@ -1,7 +1,7 @@
 ---
 - name: Reset status
   operator_sdk.util.k8s_status:
-    api_version: "openshift-optional.skrzypek.io/v1alpha1"
+    api_version: "nodeupgrade.redhat-na-ssa.github.io/v1alpha1"
     kind: MutexRunConfig
     name: "{{ ansible_operator_meta.name }}"
     namespace: "{{ ansible_operator_meta.namespace }}"

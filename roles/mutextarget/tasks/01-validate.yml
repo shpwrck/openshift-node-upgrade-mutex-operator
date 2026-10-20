@@ -6,14 +6,14 @@
         api_version: "machineconfiguration.openshift.io/v1"
         kind: MachineConfigPool
         name: "{{ item }}"
-      loop: "{{ _openshift_optional_skrzypek_io_mutextarget_spec.machineConfigPools }}"
+      loop: "{{ _nodeupgrade_redhat_na_ssa_github_io_mutextarget_spec.machineConfigPools }}"
       failed_when:
         - machineConfigPools.resources == []
       register: machineConfigPools
 
     - name: Report Configuration Results
       operator_sdk.util.k8s_status:
-        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        api_version: "nodeupgrade.redhat-na-ssa.github.io/v1alpha1"
         kind: MutexTarget
         name: "{{ ansible_operator_meta.name }}"
         namespace: "{{ ansible_operator_meta.namespace }}"
@@ -27,7 +27,7 @@
   rescue:
     - name: Report Invalid Config
       operator_sdk.util.k8s_status:
-        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        api_version: "nodeupgrade.redhat-na-ssa.github.io/v1alpha1"
         kind: MutexTarget
         name: "{{ ansible_operator_meta.name }}"
         namespace: "{{ ansible_operator_meta.namespace }}"

@@ -12,10 +12,10 @@
         labelMatrix: >
           {{
           [(labelMatrix | default([])),
-          [{'node': item[0], 'labels': {'mutexrule.openshift-optional.skrzypek.io/' + item[1].name + '.' + item[1].namespace: ''}}]]
+          [{'node': item[0], 'labels': {'mutexrule.nodeupgrade.redhat-na-ssa.github.io/' + item[1].name + '.' + item[1].namespace: ''}}]]
           | community.general.lists_mergeby('node', recursive=true)
           }}
-      loop: "{{ targetNodeList | product(_openshift_optional_skrzypek_io_mutexrunconfig_spec.mutexRules) }}"
+      loop: "{{ targetNodeList | product(_nodeupgrade_redhat_na_ssa_github_io_mutexrunconfig_spec.mutexRules) }}"
 
     - name: Label Nodes
       kubernetes.core.k8s:
@@ -29,7 +29,7 @@
 
     - name: Report Applied
       operator_sdk.util.k8s_status:
-        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        api_version: "nodeupgrade.redhat-na-ssa.github.io/v1alpha1"
         kind: MutexRunConfig
         name: "{{ ansible_operator_meta.name }}"
         namespace: "{{ ansible_operator_meta.namespace }}"
@@ -43,7 +43,7 @@
   rescue:
     - name: Report Not Applied
       operator_sdk.util.k8s_status:
-        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        api_version: "nodeupgrade.redhat-na-ssa.github.io/v1alpha1"
         kind: MutexRunConfig
         name: "{{ ansible_operator_meta.name }}"
         namespace: "{{ ansible_operator_meta.namespace }}"

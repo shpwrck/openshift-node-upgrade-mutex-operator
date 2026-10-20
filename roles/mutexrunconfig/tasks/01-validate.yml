@@ -3,11 +3,11 @@
   block:
     - name: Gather MutexRules
       kubernetes.core.k8s_info:
-        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        api_version: "nodeupgrade.redhat-na-ssa.github.io/v1alpha1"
         kind: MutexRule
         name: "{{ item.name }}"
         namespace: "{{ item.namespace | default(ansible_operator_meta.namespace) }}"
-      loop: "{{ _openshift_optional_skrzypek_io_mutexrunconfig_spec.mutexRules }}"
+      loop: "{{ _nodeupgrade_redhat_na_ssa_github_io_mutexrunconfig_spec.mutexRules }}"
       failed_when:
         - mutexRules.resources == []
       register: mutexRules
@@ -19,11 +19,11 @@
 
     - name: Gather MutexTargets
       kubernetes.core.k8s_info:
-        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        api_version: "nodeupgrade.redhat-na-ssa.github.io/v1alpha1"
         kind: MutexTarget
         name: "{{ item.name }}"
         namespace: "{{ item.namespace | default(ansible_operator_meta.namespace) }}"
-      loop: "{{ _openshift_optional_skrzypek_io_mutexrunconfig_spec.mutexTargets }}"
+      loop: "{{ _nodeupgrade_redhat_na_ssa_github_io_mutexrunconfig_spec.mutexTargets }}"
       failed_when:
         - mutexTargets.resources == []
       register: mutexTargets
@@ -37,14 +37,14 @@
       kubernetes.core.k8s_info:
         api_version: "machineconfiguration.openshift.io/v1"
         kind: MachineConfigPool
-        name: "{{ _openshift_optional_skrzypek_io_mutexrunconfig_spec.canary.name }}"
+        name: "{{ _nodeupgrade_redhat_na_ssa_github_io_mutexrunconfig_spec.canary.name }}"
       failed_when:
         - canaryPool.resources == []
       register: canaryPool
 
     - name: Report Configuration Results
       operator_sdk.util.k8s_status:
-        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        api_version: "nodeupgrade.redhat-na-ssa.github.io/v1alpha1"
         kind: MutexRunConfig
         name: "{{ ansible_operator_meta.name }}"
         namespace: "{{ ansible_operator_meta.namespace }}"
@@ -58,7 +58,7 @@
   rescue:
     - name: Report Invalid Config
       operator_sdk.util.k8s_status:
-        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        api_version: "nodeupgrade.redhat-na-ssa.github.io/v1alpha1"
         kind: MutexRunConfig
         name: "{{ ansible_operator_meta.name }}"
         namespace: "{{ ansible_operator_meta.namespace }}"
@@ -98,7 +98,7 @@
 
       - name: Report Configuration Results
         operator_sdk.util.k8s_status:
-          api_version: "openshift-optional.skrzypek.io/v1alpha1"
+          api_version: "nodeupgrade.redhat-na-ssa.github.io/v1alpha1"
           kind: MutexRunConfig
           name: "{{ ansible_operator_meta.name }}"
           namespace: "{{ ansible_operator_meta.namespace }}"
@@ -112,7 +112,7 @@
   rescue:
     - name: Report Invalid Config
       operator_sdk.util.k8s_status:
-        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        api_version: "nodeupgrade.redhat-na-ssa.github.io/v1alpha1"
         kind: MutexRunConfig
         name: "{{ ansible_operator_meta.name }}"
         namespace: "{{ ansible_operator_meta.namespace }}"

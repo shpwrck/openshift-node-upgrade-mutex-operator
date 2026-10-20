@@ -93,10 +93,10 @@ rules:
       - list
       - watch
   ##
-  ## Rules for openshift-optional.skrzypek.io/v1alpha1, Kind: MutexRule
+  ## Rules for nodeupgrade.redhat-na-ssa.github.io/v1alpha1, Kind: MutexRule
   ##
   - apiGroups:
-      - openshift-optional.skrzypek.io
+      - nodeupgrade.redhat-na-ssa.github.io
     resources:
       - mutexrules
       - mutexrules/status
@@ -110,10 +110,10 @@ rules:
       - update
       - watch
   ##
-  ## Rules for openshift-optional.skrzypek.io/v1alpha1, Kind: MutexTarget
+  ## Rules for nodeupgrade.redhat-na-ssa.github.io/v1alpha1, Kind: MutexTarget
   ##
   - apiGroups:
-      - openshift-optional.skrzypek.io
+      - nodeupgrade.redhat-na-ssa.github.io
     resources:
       - mutextargets
       - mutextargets/status
@@ -127,10 +127,10 @@ rules:
       - update
       - watch
   ##
-  ## Rules for openshift-optional.skrzypek.io/v1alpha1, Kind: MutexRunConfig
+  ## Rules for nodeupgrade.redhat-na-ssa.github.io/v1alpha1, Kind: MutexRunConfig
   ##
   - apiGroups:
-      - openshift-optional.skrzypek.io
+      - nodeupgrade.redhat-na-ssa.github.io
     resources:
       - mutexrunconfigs
       - mutexrunconfigs/status

@@ -12,7 +12,7 @@ metadata:
   name: mutexrunconfig-editor-role
 rules:
 - apiGroups:
-  - openshift-optional.skrzypek.io
+  - nodeupgrade.redhat-na-ssa.github.io
   resources:
   - mutexrunconfigs
   verbs:
@@ -24,7 +24,7 @@ rules:
   - update
   - watch
 - apiGroups:
-  - openshift-optional.skrzypek.io
+  - nodeupgrade.redhat-na-ssa.github.io
   resources:
   - mutexrunconfigs/status
   verbs:
