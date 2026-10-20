@@ -1,0 +1,11 @@
+# Serve /metrics over HTTPS on :8443, authenticated and authorized through
+# the API server (replaces kube-rbac-proxy).
+- op: add
+  path: /spec/template/spec/containers/0/args/0
+  value: --metrics-bind-address=:8443
+- op: add
+  path: /spec/template/spec/containers/0/args/0
+  value: --metrics-secure
+- op: add
+  path: /spec/template/spec/containers/0/args/0
+  value: --metrics-require-rbac

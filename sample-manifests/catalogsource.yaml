@@ -1,14 +1,12 @@
----
+# Installs a build from this repository instead of the community catalog,
+# for example to try a release before it reaches OperatorHub.
 apiVersion: operators.coreos.com/v1alpha1
 kind: CatalogSource
 metadata:
-  name: skrzypek-io
+  name: node-upgrade-mutex-operator
   namespace: openshift-marketplace
 spec:
-  displayName: Skrzypek Operators
-  image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator-catalog:latest
-  publisher: Jason Skrzypek
+  displayName: Node Upgrade Mutex Operator (GitHub builds)
+  publisher: redhat-na-ssa
   sourceType: grpc
-  updateStrategy:
-    registryPoll:
-      interval: 1m
+  image: ghcr.io/redhat-na-ssa/openshift-node-upgrade-mutex-operator-catalog:v0.3.0

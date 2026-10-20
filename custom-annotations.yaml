@@ -1,3 +1,4 @@
+# Merged into bundle/metadata/annotations.yaml by `make bundle`.
 annotations:
-    #OpenShift
-    com.redhat.openshift.versions: v4.14
+  # The oldest OpenShift version the bundle is offered on.
+  com.redhat.openshift.versions: v4.14
