@@ -15,67 +15,84 @@ spec:
   scope: Namespaced
   versions:
   - name: v1alpha1
-    additionalPrinterColumns:
-    - name: Machine Config Pools
-      type: string
-      description: List of target Machine Config Pools
-      jsonPath: .spec.machineConfigPools
-    - name: Nodes
-      type: string
-      description: List of target Nodes
-      jsonPath: .status.nodes
-    schema:
-      openAPIV3Schema:
-        description: 'MutexTarget is the Schema for the mutextargets API'
-        properties:
-          apiVersion:
-            description: 'APIVersion defines the versioned schema of this representation
-              of an object. Servers should convert recognized schemas to the latest
-              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
-            type: string
-          kind:
-            description: 'Kind is a string value representing the REST resource this
-              object represents. Servers may infer this from the endpoint the client
-              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
-            type: string
-          metadata:
-            type: object
-          spec:
-            description: Spec defines the desired state of MutexTarget
-            type: object
-            properties:
-              machineConfigPools:
-                description: 'A list of machineConfigPool resources to gather node membership and apply mutex rules to.'
-                type: array
-                items:
-                  type: string
-          status:
-            description: 'Status defines the observed state of MutexRule'
-            properties:
-              nodes:
-                description: 'A list of all nodes belonging to specified Machine Config Pools'
-                type: array
-                items:
-                  description: "Node Name"
-                  type: string
-              conditions:
-                items:
-                  properties:
-                    lastTransitionTime:
-                      type: string
-                    message:
-                      type: string
-                    reason:
-                      type: string
-                    status:
-                      type: string
-                    type:
-                      type: string
-                  type: object
-                type: array
-            type: object
-        type: object
     served: true
     storage: true
     subresources:
       status: {}
+    additionalPrinterColumns:
+    - name: Pools
+      type: string
+      jsonPath: .spec.machineConfigPools
+    - name: Valid
+      type: string
+      jsonPath: .status.conditions[?(@.type=="Valid")].status
+    - name: Age
+      type: date
+      jsonPath: .metadata.creationTimestamp
+    schema:
+      openAPIV3Schema:
+        description: MutexTarget names the MachineConfigPools whose nodes are updated one at a time.
+        type: object
+        required:
+        - spec
+        properties:
+          apiVersion:
+            type: string
+          kind:
+            type: string
+          metadata:
+            type: object
+          spec:
+            type: object
+            required:
+            - machineConfigPools
+            properties:
+              machineConfigPools:
+                type: array
+                minItems: 1
+                items:
+                  type: string
+                  minLength: 1
+                description: Names of existing MachineConfigPools. The master pool cannot be a target.
+          status:
+            type: object
+            properties:
+              observedGeneration:
+                type: integer
+                format: int64
+                description: The metadata.generation that the operator last reconciled.
+              nodes:
+                type: array
+                items:
+                  type: string
+                description: Nodes that belong to the pools, in update order.
+              conditions:
+                description: Conditions describe the latest observations of the resource.
+                type: array
+                x-kubernetes-list-type: map
+                x-kubernetes-list-map-keys:
+                - type
+                items:
+                  type: object
+                  required:
+                  - type
+                  - status
+                  properties:
+                    type:
+                      type: string
+                      description: Type of the condition.
+                    status:
+                      type: string
+                      enum:
+                      - 'True'
+                      - 'False'
+                      - Unknown
+                    reason:
+                      type: string
+                      description: A CamelCase reason for the last transition.
+                    message:
+                      type: string
+                      description: A human readable explanation.
+                    lastTransitionTime:
+                      type: string
+                      format: date-time

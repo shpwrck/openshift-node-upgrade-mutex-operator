@@ -15,95 +15,136 @@ spec:
   scope: Namespaced
   versions:
   - name: v1alpha1
-    additionalPrinterColumns:
-    - name: Canary
-      type: string
-      description: Name of Canary Machine Config Pool
-      jsonPath: .spec.canary.name
-    - name: Rules
-      type: string
-      description: List of Mutex Rules
-      jsonPath: .spec.mutexRules
-    - name: Targets
-      type: string
-      description: List of Mutex Targets
-      jsonPath: .spec.mutexTargets
-    schema:
-      openAPIV3Schema:
-        description: 'MutexRunConfig is the Schema for the mutexrunconfigs API'
-        properties:
-          apiVersion:
-            description: 'APIVersion defines the versioned schema of this representation
-              of an object. Servers should convert recognized schemas to the latest
-              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
-            type: string
-          kind:
-            description: 'Kind is a string value representing the REST resource this
-              object represents. Servers may infer this from the endpoint the client
-              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
-            type: string
-          metadata:
-            type: object
-          spec:
-            description: 'Spec defines the desired state of MutexRunConfig'
-            type: object
-            properties:
-              skipTLSVerify:
-                description: 'Skip tls verification on desired-image for update'
-                type: boolean
-                default: false
-              canary:
-                description: 'Information pertaining to the **existing** machineConfigPool in which upgrades can occur'
-                type: object
-                properties:
-                  name:
-                    description: 'Name of an existing machineConfigPool not included in any mutexTargets'
-                    type: string
-              mutexRules:
-                description: 'Information pertaining to the **existing** mutexRules'
-                type: array
-                items:
-                  type: object
-                  properties:
-                    name:
-                      description: 'Name of an existing mutexRule resource'
-                      type: string
-                    namespace:
-                      description: 'Namespace of an existing mutexRule resource'
-                      type: string
-              mutexTargets:
-                description: 'Information pertaining to the **existing** mutexTargets'
-                type: array
-                items:
-                  type: object
-                  properties:
-                    name:
-                      description: 'Name of an existing mutexRule resource'
-                      type: string
-                    namespace:
-                      description: 'Namespace of an existing mutexTarget resource'
-                      type: string
-          status:
-            description: 'Status defines the observed state of MutexRule'
-            properties:
-              conditions:
-                items:
-                  properties:
-                    lastTransitionTime:
-                      type: string
-                    message:
-                      type: string
-                    reason:
-                      type: string
-                    status:
-                      type: string
-                    type:
-                      type: string
-                  type: object
-                type: array
-            type: object
-        type: object
     served: true
     storage: true
     subresources:
       status: {}
+    additionalPrinterColumns:
+    - name: Canary
+      type: string
+      jsonPath: .spec.canary.name
+    - name: Target Version
+      type: string
+      jsonPath: .status.targetVersion
+    - name: Current Node
+      type: string
+      jsonPath: .status.currentNode
+    - name: Status
+      type: string
+      jsonPath: .status.conditions[?(@.type=="Progressing")].reason
+    - name: Age
+      type: date
+      jsonPath: .metadata.creationTimestamp
+    schema:
+      openAPIV3Schema:
+        description: MutexRunConfig rolls each OpenShift update through the target nodes one node at a time, running the MutexRules'
+          Jobs around each node.
+        type: object
+        required:
+        - spec
+        properties:
+          apiVersion:
+            type: string
+          kind:
+            type: string
+          metadata:
+            type: object
+          spec:
+            type: object
+            required:
+            - canary
+            - mutexTargets
+            properties:
+              canary:
+                type: object
+                required:
+                - name
+                description: The pool nodes are updated in.
+                properties:
+                  name:
+                    type: string
+                    minLength: 1
+                    description: An existing, unpaused MachineConfigPool that selects no nodes and is not a target.
+              mutexRules:
+                type: array
+                items: &id001
+                  type: object
+                  required:
+                  - name
+                  properties:
+                    name:
+                      type: string
+                      minLength: 1
+                    namespace:
+                      type: string
+                      description: Defaults to the namespace of the MutexRunConfig.
+                default: []
+                description: MutexRules whose Jobs run for every node, in this order.
+              mutexTargets:
+                type: array
+                items: *id001
+                minItems: 1
+                description: MutexTargets whose nodes are updated, in this order.
+          status:
+            type: object
+            properties:
+              observedGeneration:
+                type: integer
+                format: int64
+                description: The metadata.generation that the operator last reconciled.
+              targetVersion:
+                type: string
+                description: The OpenShift version being rolled out.
+              currentNode:
+                type: string
+                description: The node being updated, if any.
+              nodes:
+                type: array
+                description: Every target node and where it stands.
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    phase:
+                      type: string
+                      enum:
+                      - Pending
+                      - PreUpdate
+                      - Updating
+                      - PostUpdate
+                      - Complete
+                      - UpToDate
+                    version:
+                      type: string
+                      description: The OpenShift version the node runs.
+              conditions:
+                description: Conditions describe the latest observations of the resource.
+                type: array
+                x-kubernetes-list-type: map
+                x-kubernetes-list-map-keys:
+                - type
+                items:
+                  type: object
+                  required:
+                  - type
+                  - status
+                  properties:
+                    type:
+                      type: string
+                      description: Type of the condition.
+                    status:
+                      type: string
+                      enum:
+                      - 'True'
+                      - 'False'
+                      - Unknown
+                    reason:
+                      type: string
+                      description: A CamelCase reason for the last transition.
+                    message:
+                      type: string
+                      description: A human readable explanation.
+                    lastTransitionTime:
+                      type: string
+                      format: date-time

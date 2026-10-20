@@ -1,0 +1,23 @@
+# A canary pool for the operator: nodes are updated in this pool, one at a
+# time.
+apiVersion: machineconfiguration.openshift.io/v1
+kind: MachineConfigPool
+metadata:
+  name: canary
+spec:
+  # Render the worker MachineConfigs, so a node leaves the canary pool with
+  # exactly the configuration its worker pool has. If you target a custom
+  # pool with MachineConfigs of its own (infra, for example), select those
+  # MachineConfigs here too.
+  machineConfigSelector:
+    matchExpressions:
+      - key: machineconfiguration.openshift.io/role
+        operator: In
+        values:
+          - worker
+  # Selects no nodes. During a rollout the operator points this selector at
+  # the node being updated, and restores it afterwards.
+  nodeSelector:
+    matchLabels:
+      node-role.kubernetes.io/canary: ""
+  paused: false

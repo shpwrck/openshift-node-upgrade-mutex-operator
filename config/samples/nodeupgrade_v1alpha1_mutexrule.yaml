@@ -1,27 +1,33 @@
 apiVersion: nodeupgrade.redhat-na-ssa.github.io/v1alpha1
 kind: MutexRule
 metadata:
-  labels:
-    app.kubernetes.io/name: mutexrule
-    app.kubernetes.io/instance: mutexrule-sample
-    app.kubernetes.io/part-of: openshift-node-upgrade-mutex-operator
-    app.kubernetes.io/managed-by: kustomize
-    app.kubernetes.io/created-by: openshift-node-upgrade-mutex-operator
   name: mutexrule-sample
 spec:
   jobName: example
   jobNamespace: node-upgrade-mutex-operator
+  # Runs before each node is released for its update.
   jobSpec:
-    selector: {}
+    backoffLimit: 2
     template:
-      metadata:
-        name: mutex
       spec:
-        containers:
-        - command:
-          - sleep
-          - "20"
-          image: ubi9/toolbox
-          name: mutex
         restartPolicy: Never
-  type: kubernetes
+        containers:
+          - name: before
+            image: registry.access.redhat.com/ubi9/ubi-minimal
+            command:
+              - sh
+              - -c
+              - echo "Getting $NODE_NAME ready for OpenShift $TARGET_VERSION"
+  # Runs after the node has been updated.
+  cleanUpJobSpec:
+    backoffLimit: 2
+    template:
+      spec:
+        restartPolicy: Never
+        containers:
+          - name: after
+            image: registry.access.redhat.com/ubi9/ubi-minimal
+            command:
+              - sh
+              - -c
+              - echo "$NODE_NAME now runs OpenShift $TARGET_VERSION"

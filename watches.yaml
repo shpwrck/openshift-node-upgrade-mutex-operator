@@ -1,22 +1,33 @@
 ---
+# markUnsafe keeps Ansible from evaluating Jinja found in the resources
+# (a Job command may well contain "{{").
 - version: v1alpha1
   group: nodeupgrade.redhat-na-ssa.github.io
   kind: MutexRule
   role: mutexrule
-  reconcilePeriod: 10m
-  manageStatus: False
+  reconcilePeriod: 5m
+  manageStatus: false
+  markUnsafe: true
 
 - version: v1alpha1
   group: nodeupgrade.redhat-na-ssa.github.io
   kind: MutexTarget
   role: mutextarget
-  reconcilePeriod: 10m
-  manageStatus: False
+  reconcilePeriod: 5m
+  manageStatus: false
+  markUnsafe: true
 
+# The run config watches no OpenShift objects, so it polls: every minute
+# while idle, and as the role asks (requeue_after) while a rollout runs.
 - version: v1alpha1
   group: nodeupgrade.redhat-na-ssa.github.io
   kind: MutexRunConfig
   role: mutexrunconfig
-  reconcilePeriod: 10m
-  manageStatus: False
-#+kubebuilder:scaffold:watch
+  reconcilePeriod: 1m
+  manageStatus: false
+  markUnsafe: true
+  finalizer:
+    name: nodeupgrade.redhat-na-ssa.github.io/finalizer
+    vars:
+      mutexrunconfig_deleting: true
+# +kubebuilder:scaffold:watch
