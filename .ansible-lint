@@ -1,0 +1,11 @@
+---
+profile: production
+exclude_paths:
+  - .github/
+  - bin/
+  - bundle/
+  - catalog/
+  - config/
+  - sample-manifests/
+  - tests/
+  - .venv/

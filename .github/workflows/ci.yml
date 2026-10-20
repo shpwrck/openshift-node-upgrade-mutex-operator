@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-dev.txt
+      - run: ansible-galaxy collection install -r requirements.yml
+      - run: make lint
+
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install pytest
+      - run: make test-unit
+
+  bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build the manifests
+        run: |
+          make kustomize
+          bin/kustomize-* build config/default > /dev/null
+      - name: Generate and validate the OLM bundle
+        run: make bundle
+
+  e2e:
+    needs: [lint, unit]
+    runs-on: ubuntu-latest
+    env:
+      IMG: localhost/openshift-node-upgrade-mutex-operator:e2e
+      JOB_IMAGE: docker.io/library/busybox:1.37.0
+      NAMESPACE: openshift-node-upgrade-mutex-operator-system
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install kubernetes pytest pyyaml
+      - uses: helm/kind-action@v1
+        with:
+          cluster_name: e2e
+      - name: Build the operator and load images into kind
+        run: |
+          make docker-build IMG=$IMG
+          docker pull $JOB_IMAGE
+          kind load docker-image --name e2e $IMG $JOB_IMAGE
+      - name: Deploy the operator
+        run: |
+          make deploy IMG=$IMG
+          kubectl -n $NAMESPACE rollout status deployment/openshift-node-upgrade-mutex-operator-controller-manager --timeout=5m
+      - name: Run the end-to-end test
+        env:
+          E2E_JOB_IMAGE: ${{ env.JOB_IMAGE }}
+          E2E_JOB_NODE_SELECTOR: '{"kubernetes.io/hostname": "e2e-control-plane"}'
+          E2E_RESTART_COMMAND: kubectl -n ${{ env.NAMESPACE }} delete pod -l control-plane=controller-manager --wait=false
+        run: make test-e2e
+      - name: Show what happened
+        if: failure()
+        run: |
+          kubectl -n $NAMESPACE logs deployment/openshift-node-upgrade-mutex-operator-controller-manager --tail=-1 || true
+          kubectl get mutexrules,mutextargets,mutexrunconfigs -A -o yaml || true
+          kubectl get nodes,machineconfigpools -o yaml || true
+          kubectl get jobs,pods -A || true
