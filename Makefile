@@ -12,6 +12,8 @@ CHANNELS ?= alpha
 DEFAULT_CHANNEL ?= alpha
 BUNDLE_GEN_FLAGS ?= -q --overwrite --version $(VERSION) --channels=$(CHANNELS) --default-channel=$(DEFAULT_CHANNEL)
 PACKAGE ?= openshift-node-upgrade-mutex-operator
+# Extra opm flags, such as --use-http to read the bundle from a plain-HTTP registry.
+OPM_FLAGS ?=
 CSV_BASE = config/manifests/bases/$(PACKAGE).clusterserviceversion.yaml
 
 CONTAINER_TOOL ?= docker
@@ -119,11 +121,12 @@ bundle-push: ## Push the bundle image.
 catalog: opm ## Generate a file-based catalog with the pushed bundle BUNDLE_IMG, for test installs.
 	rm -rf catalog && mkdir -p catalog/$(PACKAGE)
 	$(OPM) init $(PACKAGE) --default-channel=$(DEFAULT_CHANNEL) --output=yaml > catalog/$(PACKAGE)/index.yaml
-	$(OPM) render $(BUNDLE_IMG) --output=yaml >> catalog/$(PACKAGE)/index.yaml
+	$(OPM) render $(OPM_FLAGS) $(BUNDLE_IMG) --output=yaml >> catalog/$(PACKAGE)/index.yaml
 	printf -- '---\nschema: olm.channel\npackage: %s\nname: %s\nentries:\n  - name: %s.v%s\n' \
 		$(PACKAGE) $(DEFAULT_CHANNEL) $(PACKAGE) $(VERSION) >> catalog/$(PACKAGE)/index.yaml
 	$(OPM) validate catalog
-	$(OPM) generate dockerfile catalog
+	$(OPM) generate dockerfile catalog \
+		--base-image=quay.io/operator-framework/opm:$(OPM_VERSION) --builder-image=quay.io/operator-framework/opm:$(OPM_VERSION)
 
 .PHONY: catalog-build
 catalog-build: ## Build the catalog image.

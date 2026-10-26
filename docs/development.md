@@ -71,7 +71,7 @@ E2E_JOB_NODE_SELECTOR='{"kubernetes.io/hostname": "e2e-control-plane"}' make tes
 
 Instead of building an image, you can run the operator from your working tree with `make run` in another terminal (with the Python requirements and collections installed). Set `E2E_RESTART_COMMAND` to a command that restarts the operator to also test that a new operator process resumes a rollout; CI deletes the operator pod.
 
-CI (`.github/workflows/ci.yml`) runs the linters, the unit tests, `make bundle` (which validates the OLM bundle) and the end-to-end test on kind for every pull request.
+CI (`.github/workflows/ci.yml`) runs the linters, the unit tests and `make bundle` (which validates the OLM bundle) for every pull request. It runs the end-to-end test on kind twice: once with the operator deployed by `make deploy`, and once installed by OLM from the bundle and a catalog, the way OperatorHub installs it.
 
 ### On OpenShift
 

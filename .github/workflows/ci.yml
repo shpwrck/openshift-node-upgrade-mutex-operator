@@ -42,12 +42,27 @@ jobs:
         run: make bundle
 
   e2e:
+    name: e2e (${{ matrix.install }})
     needs: [lint, unit]
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # `make deploy`, as in docs/development.md.
+          - install: kustomize
+            namespace: openshift-node-upgrade-mutex-operator-system
+          # The bundle and catalog through OLM, the way OperatorHub installs it.
+          - install: olm
+            namespace: operators
     env:
-      IMG: localhost/openshift-node-upgrade-mutex-operator:e2e
+      IMG: localhost:5000/openshift-node-upgrade-mutex-operator:e2e
+      BUNDLE_IMG: localhost:5000/openshift-node-upgrade-mutex-operator-bundle:e2e
+      CATALOG_IMG: localhost:5000/openshift-node-upgrade-mutex-operator-catalog:e2e
       JOB_IMAGE: docker.io/library/busybox:1.37.0
-      NAMESPACE: openshift-node-upgrade-mutex-operator-system
+      NAMESPACE: ${{ matrix.namespace }}
+      DEPLOYMENT: openshift-node-upgrade-mutex-operator-controller-manager
+      OLM_VERSION: 0.46.0
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -57,15 +72,62 @@ jobs:
       - uses: helm/kind-action@v1
         with:
           cluster_name: e2e
-      - name: Build the operator and load images into kind
+          registry: true
+      # kind-action lets the node pull kind-registry:5000 images. The images
+      # are named localhost:5000/..., which Docker and opm reach over plain
+      # HTTP without extra setup, so point that name at the registry too.
+      - name: Let kind pull localhost:5000 images
         run: |
-          make docker-build IMG=$IMG
+          docker exec e2e-control-plane mkdir -p /etc/containerd/certs.d/localhost:5000
+          echo '[host."http://kind-registry:5000"]' \
+            | docker exec -i e2e-control-plane cp /dev/stdin /etc/containerd/certs.d/localhost:5000/hosts.toml
+      - name: Push the operator image and load the Job image into kind
+        run: |
+          make docker-build docker-push
           docker pull $JOB_IMAGE
-          kind load docker-image --name e2e $IMG $JOB_IMAGE
+          kind load docker-image --name e2e $JOB_IMAGE
       - name: Deploy the operator
+        if: matrix.install == 'kustomize'
+        run: make deploy
+      - name: Build the bundle and catalog
+        if: matrix.install == 'olm'
         run: |
-          make deploy IMG=$IMG
-          kubectl -n $NAMESPACE rollout status deployment/openshift-node-upgrade-mutex-operator-controller-manager --timeout=5m
+          make bundle bundle-build bundle-push
+          make catalog catalog-build catalog-push OPM_FLAGS=--use-http
+      - name: Install OLM and subscribe to the operator
+        if: matrix.install == 'olm'
+        run: |
+          make operator-sdk
+          bin/operator-sdk-* olm install --version $OLM_VERSION
+          kubectl apply -f - <<EOF
+          apiVersion: operators.coreos.com/v1alpha1
+          kind: CatalogSource
+          metadata:
+            name: e2e
+            namespace: olm
+          spec:
+            sourceType: grpc
+            image: $CATALOG_IMG
+          ---
+          apiVersion: operators.coreos.com/v1alpha1
+          kind: Subscription
+          metadata:
+            name: openshift-node-upgrade-mutex-operator
+            namespace: $NAMESPACE
+          spec:
+            name: openshift-node-upgrade-mutex-operator
+            channel: alpha
+            source: e2e
+            sourceNamespace: olm
+          EOF
+          for i in $(seq 60); do
+            CSV=$(kubectl -n $NAMESPACE get subscription openshift-node-upgrade-mutex-operator -o jsonpath='{.status.installedCSV}')
+            [ -n "$CSV" ] && break
+            sleep 5
+          done
+          kubectl -n $NAMESPACE wait csv/$CSV --for=jsonpath='{.status.phase}'=Succeeded --timeout=5m
+      - name: Wait for the operator
+        run: kubectl -n $NAMESPACE rollout status deployment/$DEPLOYMENT --timeout=5m
       - name: Run the end-to-end test
         env:
           E2E_JOB_IMAGE: ${{ env.JOB_IMAGE }}
@@ -75,7 +137,9 @@ jobs:
       - name: Show what happened
         if: failure()
         run: |
-          kubectl -n $NAMESPACE logs deployment/openshift-node-upgrade-mutex-operator-controller-manager --tail=-1 || true
+          kubectl -n $NAMESPACE logs deployment/$DEPLOYMENT --tail=-1 || true
+          kubectl get catalogsources,subscriptions,installplans,clusterserviceversions -A -o wide || true
+          kubectl -n $NAMESPACE get subscriptions,clusterserviceversions -o yaml || true
           kubectl get mutexrules,mutextargets,mutexrunconfigs -A -o yaml || true
           kubectl get nodes,machineconfigpools -o yaml || true
           kubectl get jobs,pods -A || true
