@@ -42,7 +42,7 @@ were wiped and rejoined it as RHCOS workers. The old `hub` and `spoke` clusters 
   - `*.apps.sage.k8socp.com`
   - `api-int.sage.k8socp.com` (added 2026-10-27, required by the workers)
 
-  All three point to 172.16.10.11. Edit them only through the UniFi UI; the local Network API needs a UniFi login, which isn't stored here.
+  All three point to 172.16.10.11. Edit them only through the UniFi UI; the local Network API needs a UniFi login, which isn't stored here. The old `api.{hub,spoke}`/`*.apps.{hub,spoke}` records were deleted by the owner on 2026-10-27, and both now return NXDOMAIN.
 - **Ingress:** the default router is HostNetwork and stays on sage. `ingresses.config/cluster` has `status.defaultPlacement=ControlPlane`, so it is pinned to the control plane without any IngressController patch, and `*.apps` traffic for workloads on hub and spoke enters through sage. Sage's pod-network throughput to the workers measured about 1 Gbit/s, against about 2 Gbit/s between hub and spoke.
 - **Storage:** storage classes `truenas-nfs` and `truenas-iscsi` (the default) from the truenas-csi operator: CR `truenascsis.csi.truenas.io/truenas`, credentials in secret `truenas-csi/truenas-api-credentials`.
   - The driver is pinned to **v1.4.0**: `spec.driverImage: quay.io/truenas_solutions/truenas-csi:v1.4.0@sha256:fb669f220d1eea7c04f34757d2f3f414a702f4ae111c82bb65fa9e3280d33819`, for both the controller Deployment and the node DaemonSet on all three nodes.
@@ -116,7 +116,7 @@ Use this to reinstall or add an MS-01 worker. The scripts are in `scripts/`, and
   - **Fix:** all components were pinned to the v1.4.0 digest.
   - **Re-verified:** a dynamic `truenas-nfs` RWX PVC and a `truenas-iscsi` RWO PVC (ext4 on `/dev/sdX`), each mounted, written and read from a pod on sage, hub and spoke. The PVs were deleted afterwards, and there were no leftover VolumeAttachments.
   - **Health check:** `oc --context sage -n truenas-csi get pods -o wide`, then a PVC test pod with an `fsGroup` on the node in question.
-- **Hub reset itself once, at 2026-10-27 18:58:14Z, about 17 minutes after it joined.**
+- **Hub has a known hardware fault: occasional spontaneous resets.** The owner confirms it reset like this before the consolidation too, so it is not caused by the cluster or this procedure. Suspect a faulty component, the NVMe first. Hub's Kingston NV3 is a different controller and firmware variant (`SDQ00103`) from spoke's (`ERFK1N.3`), and it has logged more unsafe shutdowns (80 against 54). One reset was observed at 2026-10-27 18:58:14Z, about 17 minutes after hub joined:
   - The journal is cut mid-stream with no shutdown sequence. There's no panic text and no pstore, MCE or BERT record. The node auto-rebooted and rejoined in under 1 minute.
   - Side effect: one corrupted image layer (`readlink …/overlay/l: invalid argument` on `ubi9/ubi`). It was fixed with `crictl rmi` and a re-pull. Check for the same after any future unclean reset (`CreateContainerError` with that message).
   - The `EDAC igen6 … IBECC MEMORY ERROR` lines at boot appear on every boot of both MS-01s, clean ones included, with error counters at 0. They're harmless.
@@ -151,16 +151,13 @@ Use this to reinstall or add an MS-01 worker. The scripts are in `scripts/`, and
   2. `helm uninstall` the two `acm-managed-cluster-*` releases while the clusters were still alive (`keepOnUninstall=false`).
   3. Check that the ManagedClusters and their namespaces were gone.
 
-  The objects came from Terraform in github.com/shpwrck/istio-scale-tests (`terraform/platform`). Rerunning that Terraform will recreate hub/spoke ManagedClusters that point at dead API URLs, so remove them from its tfvars before the next apply.
+  The objects came from Terraform in github.com/shpwrck/istio-scale-tests (`terraform/platform`). Rerunning that Terraform will recreate hub/spoke ManagedClusters that point at dead API URLs. The owner decided no change to that repo is needed.
 - **TrueNAS CSI upgraded to v1.4.0, pinned by tag@digest** (the user's choice over pinning everyone back to v0.1.0). It removes the mixed-version topology split. It also replaced a v0.1.0 controller that had restarted 580 times in 76 days. Never go back to `:latest` + `IfNotPresent`, because every new node pulls whatever `latest` is that day. Upgrade by changing the digest in the CR deliberately.
 - **TrueNAS cleanup before the wipe.** The image-registry PVCs on hub and spoke (`Delete` reclaim, `truenas-nfs`) were removed (`managementState=Removed`, then the PVC deleted), so the CSI driver deleted their datasets rather than orphaning them.
 - **Hub's first install failed. What happened:**
   - **Boot 1** died inside the first-boot root rebuild (`ignition-ostree-transposefs-autosave-xfs`, which reformats XFS roots that grow past about 400 allocation groups). That was after `mkfs`, before the restore. The proof: the root was empty with `agcount=4` dated 16:23, and the firstboot flag and keyfiles were still in `/boot`.
   - **Boot 2** (after a power cycle) reran Ignition over the empty root and stopped in `ostree-prepare-root`.
-  - The kernel death itself was not captured. A chunked discard of the never-trimmed drive later took 1 s on both drives, which argues against a slow full-disk discard as the trigger.
-  - Candidates:
-    - `console=ttyS2` was the **last** console (making it `/dev/console`) while AMT SOL was disabled;
-    - the same hub-only hardware reset seen at 18:58:14Z.
+  - The kernel death itself was not captured. A chunked discard of the never-trimmed drive later took 1 s on both drives, which argues against a slow full-disk discard as the trigger. Given the owner-confirmed history of spontaneous resets on hub, the most likely cause is the same hardware fault, possibly made worse by `console=ttyS2` being the **last** console (making it `/dev/console`) while AMT SOL was disabled.
   - **Mitigations now standard:** `tty0` last; AMT SOL and KVM enabled and attached during the install; a chunked `blkdiscard` of the old root before install. With those in place, both hub's reinstall and spoke's install succeeded first time.
 - **Rejected alternatives:**
   - IDE-R/USB-R ISO boot. It needs AMT redirection, and the large ISO is slow over the relay. The GRUB `user.cfg` trick was faster.
@@ -172,9 +169,12 @@ Use this to reinstall or add an MS-01 worker. The scripts are in `scripts/`, and
 - **Day 2:** `oc --context sage get nodes,mcp,co`. Any node CSR that stays Pending more than a few minutes (only after node reinstalls or certificate expiry) is approved with `oc --context sage adm certificate approve`, after checking its CN is `system:node:<node>`.
 - **Reinstall or add a worker:** follow Re-run step by step and keep SOL or KVM open. If the gate says NO-GO, reboot and fix the input; never skip the gate. Record anything new in this file, in the same commit as any script change.
 - **Upgrades:** the worker pool follows normal MCO rollout one node at a time. The single control plane means API downtime during sage's own reboot. This repo's `openshift-node-upgrade-mutex-operator` is meant to sequence exactly these reboots.
-- **Open items, in priority order:**
-  1. Watch hub for further spontaneous resets.
-  2. Delete the stale UniFi records `api.hub`, `*.apps.hub`, `api.spoke` and `*.apps.spoke`. Keep the UniFi client names `hub`/`spoke`: they point at AMT.
-  3. Revoke hub's and spoke's TrueNAS API keys if they differ from sage's.
-  4. Archive the old hub (`4331cb00-…`) and spoke (`88d1a668-…`) cluster IDs in OCM.
-  5. Drop hub/spoke from the istio-scale-tests Terraform and GitOps inputs, or point the mesh ApplicationSets at the consolidated cluster.
+- **Open items:**
+  1. **Hub hardware:** expect occasional abrupt resets until the faulty part is found and replaced; the NVMe is the first suspect. Don't pin anything that can't tolerate abrupt node loss to hub. After each reset, check for `CreateContainerError … overlay/l: invalid argument` and remove the affected image with `crictl rmi`. If the NVMe is swapped, reinstall hub with Re-run: the new disk has a new by-id, so update `disk-by-id`.
+  2. Revoke hub's and spoke's old TrueNAS API keys if they differ from sage's.
+- **Closed on 2026-10-27 by the owner:**
+  - Stale UniFi records deleted. The UniFi client names `hub`/`spoke` were kept: they point at AMT.
+  - Old hub (`4331cb00-…`) and spoke (`88d1a668-…`) cluster IDs archived in OCM.
+- **Not needed, per the owner:**
+  - Changes to istio-scale-tests. Remember that re-running its Terraform recreates the hub/spoke ManagedClusters.
+  - Turning AMT redirection back off. It stays enabled, and SOL is one of the nodes' consoles.
