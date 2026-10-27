@@ -1,0 +1,9 @@
+[connection]
+id=Wired connection 1
+uuid=8935ad05-9e57-30b6-a499-329097b1756d
+type=ethernet
+controller=bond0
+interface-name=enp2s0f0
+port-type=bond
+
+[ethernet]

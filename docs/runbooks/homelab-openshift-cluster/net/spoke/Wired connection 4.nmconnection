@@ -1,0 +1,19 @@
+[connection]
+id=Wired connection 4
+uuid=63c82f0f-9071-3658-b211-c74c74902d0d
+type=ethernet
+autoconnect=false
+autoconnect-priority=-999
+interface-name=enp89s0
+timestamp=1777298616
+
+[ethernet]
+
+[ipv4]
+method=auto
+
+[ipv6]
+addr-gen-mode=default
+method=auto
+
+[proxy]
