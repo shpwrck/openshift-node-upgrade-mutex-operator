@@ -19,10 +19,12 @@ description.
 | CSV `containerImage` annotation | CSV base | `quay.io/jskrzypek/openshift-node-upgrade-mutex-operator` (no tag) | The operator image in the new registry, with a tag. `make bundle` does not update this field. |
 | Image registry | `.envrc` `IMAGE_TAG_BASE` | `quay.io/jskrzypek/openshift-node-upgrade-mutex-operator` | The new registry. The Makefile default is the placeholder `example.com/...`, which `make release` refuses. |
 | Manager image | `config/manager/kustomization.yaml` `images[controller]` | `quay.io/jskrzypek/openshift-node-upgrade-mutex-operator:0.2.66` | The new registry. `make bundle` and `make deploy` rewrite it on every run, so it only matters for a plain `kustomize build`. |
-| Sample CatalogSource | `sample-manifests/catalogsource.yaml` | name `skrzypek-io`, display name and publisher of the original author, image `quay.io/jskrzypek/...-catalog:latest`, `registryPoll.interval: 1m` | A neutral name and publisher, the new catalog image with a pinned tag, and a poll interval of 10 minutes or more. A 1-minute poll starts a catalog pod every minute. |
-| Released bundle images | `catalog-template.yaml` (124 references) and `catalog/openshift-node-upgrade-mutex-operator/catalog.yaml` (1116) | `quay.io/jskrzypek/...-bundle@...` and the related images of every released version | Either mirror the images to the new registry (`skopeo copy --all` keeps the digests), rewrite the references in the template and run `make catalog-render`, or keep them as published history. Either way the old images must stay pullable while clusters use catalogs that point at them. |
+| Released bundle images | `catalog-template.yaml` and `catalog/openshift-node-upgrade-mutex-operator/catalog.yaml` | The template lists the 124 released bundles as `quay.io/jskrzypek/...-bundle@sha256:...`. The rendered catalog has 496 `quay.io/jskrzypek/...` references: 248 to the bundle images (each bundle's `image` and its `relatedImages` entry) and 248 to the operator image (each CSV's `containerImage` annotation and its `relatedImages` entry). It also has 620 `github.com/shpwrck` URLs, 372 copies of the original author's name and 124 of the author's e-mail. | Either mirror the bundle images to the new registry (`skopeo copy --all` keeps the digests), rewrite the 124 references in the template and run `make catalog-render`, or keep them as published history. The rewrite changes only the 248 bundle-image references. The operator-image references, the URLs, the name and the e-mail are read from inside the published bundle images, so they stay unless those bundles are rebuilt and republished. Either way the old images, the operator images among them, must stay pullable while clusters use catalogs that point at them. |
 | Community catalogs | `operators/openshift-node-upgrade-mutex-operator/` in [k8s-operatorhub/community-operators](https://github.com/k8s-operatorhub/community-operators) and [redhat-openshift-ecosystem/community-operators-prod](https://github.com/redhat-openshift-ecosystem/community-operators-prod) | The package is published there with the original author as reviewer | Update the package's `ci.yaml` reviewers in both repositories. |
 | Role metadata | `roles/*/meta/main.yml` | `license: NOASSERTION` | The license you choose (see below). |
+
+Apart from the API group (below), nothing in `sample-manifests/` (the sample CatalogSource included) or in the
+Makefile defaults has to change: they already use neutral names and `example.com/...` placeholders.
 
 ### The API group: breaking to change
 
@@ -49,8 +51,14 @@ release. The longer the group is published, the more users it breaks.
   `NOASSERTION` until one is chosen. Add the file, update `roles/*/meta/main.yml`, and mention it in the docs.
 * **API group.** See above.
 * **Registry and digests.** Choose the registry, mirror the published images, and decide whether releases record
-  bundles by digest in the catalog (`make catalog-add BUNDLE_REF=<repo>@sha256:...`).
+  bundles by digest in the catalog. `make release` records them by tag; pinning by digest takes the step-by-step
+  sequence under "Releasing" in `docs/DEVELOPMENT.md`, which passes the pushed bundle's digest to `make catalog-add`.
 * **Version.** `.envrc` is at 0.3.0, because 0.2.67 and 0.2.68 are already published.
+* **The 0.2.x to 0.3.0 upgrade.** `make release` publishes 0.3.0 in `alpha` as the upgrade of 0.2.68, so 0.2.x
+  installs with `Automatic` approval take it unattended. 0.3.0 drops `SingleNamespace`, reconciles only CRs in the
+  operator namespace, and its CRDs validate fields that 0.2.x accepted freely. The release notes for 0.3.0 should
+  point to [Upgrading from 0.2.x](USAGE.md#upgrading-from-02x) in `docs/USAGE.md`, which is also in the CSV
+  description. Publishing 0.3.0 in a new channel instead, so that 0.2.x users opt in, is the alternative.
 * **Job namespaces.** `MutexRule.spec.jobNamespace` accepts any namespace, and the Jobs can use any ServiceAccount
   there. Only users who can write in the operator namespace can use it. An allow-list, or a namespaced Role for Jobs,
   would narrow it.
@@ -72,9 +80,14 @@ RBAC. None of these has MCO, so before relying on it, run on a non-production Op
 2. A real upgrade with at least two target nodes. Check that the pools are paused before MCO reaches them, that each
    node moves into the canary only after its Jobs, that MCO upgrades it there, and that nodes go back to their pool
    at the end without another reboot.
-3. Aborting by deleting a MutexRunConfig in the middle of a run, and a restart of the operator pod mid-run.
+3. Aborting by deleting a MutexRunConfig in the middle of a run, and a restart of the operator pod mid-run. With two
+   MutexRunConfigs, check that the second waits until the first has finished its nodes, and that deleting the
+   waiting one also waits (USAGE, "One MutexRunConfig at a time").
 4. A failing Job, a Job that times out, and a node that never reports the new version: `Degraded=True`, the pools
    stay paused, and the next reconcile retries.
 5. The `release-image-version` label example in `sample-manifests/` (MachineConfig and NFD) on a current release.
-6. `operator-sdk scorecard` against the bundle, and scraping the HTTPS metrics endpoint with the `metrics-reader`
-   role.
+6. `operator-sdk scorecard` against the bundle, and scraping the HTTPS metrics endpoint with the
+   `openshift-node-upgrade-mutex-operator-metrics-reader` ClusterRole bound to the scraper (see the binding example
+   in the Permissions section of `docs/USAGE.md`).
+7. An OLM upgrade from 0.2.68 to 0.3.0 with CRs in the operator namespace, following "Upgrading from 0.2.x" in
+   `docs/USAGE.md`.

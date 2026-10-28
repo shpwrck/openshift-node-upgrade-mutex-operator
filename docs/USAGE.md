@@ -136,6 +136,66 @@ refuses.
 of the references in a MutexRunConfig. They default to the MutexRunConfig's namespace. A reference to another namespace
 fails validation.
 
+### Upgrading from 0.2.x
+
+0.3.0 is published in the `alpha` channel as the upgrade of 0.2.68, with `skipRange: <0.3.0`, so every 0.2.x
+Subscription is offered it. The common install needs no changes: the operator in its own namespace (for example
+`node-upgrade-mutex-operator`, through the console, which creates an `OwnNamespace` OperatorGroup) with every
+MutexRule, MutexTarget and MutexRunConfig in that same namespace keeps working, as long as the CRs pass the new
+schemas (step 3 below). Three changes can break other installs:
+
+* **Only CRs in the operator namespace are reconciled.** 0.2.x reconciled CRs in every namespace. 0.3.0 installed
+  `OwnNamespace` no longer watches CRs in other namespaces, and their status keeps its 0.2.x values, so nothing shows
+  that they stopped working. At the next OpenShift upgrade MCO upgrades their pools without pausing them or running
+  their Jobs. References to MutexRules or MutexTargets in another namespace now fail validation.
+* **`SingleNamespace` is no longer supported.** With an OperatorGroup whose `spec.targetNamespaces` names a namespace
+  other than its own, the 0.3.0 CSV fails with reason `UnsupportedOperatorGroup`, and 0.2.x keeps running.
+* **The CRDs now validate their fields.** Before OLM upgrades a CRD it checks every existing CR against the new schema.
+  If one does not pass, the InstallPlan fails with `error validating existing CRs against new CRD's schema`, names the
+  CR, and 0.2.x keeps running. Every kind needs `spec`. A MutexRule needs `jobName`, a DNS-1123 label of at most 52
+  characters, and `jobSpec`; `jobNamespace`, when set, must be a DNS-1123 label. A MutexTarget needs at least one
+  pool. A MutexRunConfig needs `canary.name` and at least one rule and one target reference, each with a `name`; rule
+  names (at most 61 characters) and every reference `namespace` must be DNS-1123 labels.
+
+Before you approve 0.3.0:
+
+1. Set the Subscription to manual approval, so OLM waits for you. With `Automatic` approval it installs 0.3.0 as soon
+   as the catalog serves it:
+
+   ```sh
+   oc patch subscription <name> -n <operator namespace> --type=merge -p '{"spec":{"installPlanApproval":"Manual"}}'
+   ```
+
+2. Upgrade only when no OpenShift upgrade is in progress and no 0.2.x run is half done. 0.2.x has no finalizer and does
+   not record what it changed, so 0.3.0 can neither finish nor undo a 0.2.x run. No target pool should be paused,
+   except by you, and this must print nothing:
+
+   ```sh
+   oc get nodes,mcp -o yaml | grep 'mutexrule.openshift-optional.skrzypek.io/'
+   ```
+
+   If it prints labels or `matchExpressions`, let the run finish, or put the pools' original `matchExpressions` back,
+   remove the labels and unpause the pools by hand.
+3. List the CRs in all namespaces, and check each one against the schema rules above:
+
+   ```sh
+   oc get mutexrules,mutextargets,mutexrunconfigs -A
+   ```
+
+   Recreate every CR that is outside the operator namespace inside it, with references that leave out `namespace`,
+   then delete the old one.
+4. If the OperatorGroup targets another namespace (`SingleNamespace`), make it `OwnNamespace`. OLM also retries a
+   0.3.0 CSV that has already failed with `UnsupportedOperatorGroup` once the OperatorGroup changes:
+
+   ```sh
+   oc patch operatorgroup <name> -n <operator namespace> --type=merge -p '{"spec":{"targetNamespaces":["<operator namespace>"]}}'
+   ```
+
+5. Approve the InstallPlan. Afterwards `oc get mutexrunconfig -n <operator namespace>` must show every
+   MutexRunConfig as `Validated` `True`. Fix any that is not before the next OpenShift upgrade: 0.3.0 checks more
+   than 0.2.x did (see [Reconcile procedure](#reconcile-procedure)), and a MutexRunConfig that fails validation pauses
+   nothing.
+
 ## Custom resources
 
 All three kinds are `openshift-optional.skrzypek.io/v1alpha1`, namespaced, and in the `numo` category, so
@@ -336,6 +396,24 @@ its spec changes, when one of its Jobs in its own namespace changes, and every 1
 nodes or pools are picked up at the next 10-minute reconcile. Status is merged condition by condition, so progress
 survives a restart of the operator.
 
+### One MutexRunConfig at a time
+
+The operator reconciles MutexRunConfigs one at a time (`--max-concurrent-reconciles=1`, set in
+`config/manager/manager.yaml` and applied per kind). While one MutexRunConfig works through its nodes, no other
+MutexRunConfig is reconciled: their 10-minute reconciles, their retries and their finalizers wait until that
+reconcile returns, and their status is not updated in the meantime. MutexRules and MutexTargets are reconciled by
+workers of their own and are not held up. In practice:
+
+* Several MutexRunConfigs upgrade their nodes one after another, so an upgrade of several pools takes the sum of
+  their runs. A MutexRunConfig that has already paused its pools keeps them paused while it waits, so none of its
+  nodes is upgraded without its Jobs.
+* A MutexRunConfig that is created or changed during another one's run is validated, and its pools are paused, only
+  after that run ends.
+* Deleting a MutexRunConfig while another one works through its nodes takes effect only after that whole run. To
+  abort sooner, use the manual steps in [Recovery](#recovery).
+* Do not start another OpenShift upgrade while a MutexRunConfig is still working through its nodes. Until that run
+  ends, the other MutexRunConfigs do not notice the new upgrade and do not pause their pools.
+
 ### Retries
 
 ansible-operator counts every failed task as a failed reconcile, even one the role handles and reports in a
@@ -378,9 +456,14 @@ restore before the object goes away. It puts back the saved node selectors, remo
 unpauses the pools that this MutexRunConfig paused. **MCO then upgrades the remaining nodes without running their
 Jobs.** Delete MutexRunConfigs before you uninstall the operator, or the finalizer cannot run.
 
-A delete does not interrupt a reconcile that is already running. The operator finishes the node it is working on (its
-Jobs, up to `timeoutSeconds` each, and the wait for the new version, up to 2 hours), skips the remaining nodes and
-then runs the finalizer. Use the manual steps below if that is too long to wait.
+A delete does not interrupt a reconcile that is already running. If the deleted MutexRunConfig is the one working
+through its nodes, the operator finishes the node it is working on (its Jobs, up to `timeoutSeconds` each, and the
+wait for the new version, up to 2 hours), skips the remaining nodes and then runs the finalizer. If another
+MutexRunConfig is working through its nodes, the finalizer waits until that whole run has ended (see
+[One MutexRunConfig at a time](#one-mutexrunconfig-at-a-time)). Use the manual steps below if that is too long to
+wait. While another MutexRunConfig is running, apply them only to the deleted MutexRunConfig's own pools and to the
+nodes in its MutexTargets' `status.nodes`: the running one's pools carry the same `original-match-expressions`
+annotation, and a MutexRule both of them use labels the running one's nodes too.
 
 If the operator is gone or cannot run, do the same by hand, in this order:
 
@@ -439,8 +522,21 @@ The operator's ServiceAccount gets exactly these permissions (`config/rbac/role.
 For leader election it also gets `coordination.k8s.io` `leases` (all verbs) and `events` (create, patch) in its own
 namespace (`config/rbac/leader_election_role.yaml`). With an `AllNamespaces` install, OLM grants these namespaced
 permissions cluster-wide and adds get, list and watch on `namespaces`. The operator has no access to Secrets,
-ConfigMaps, Pods or workloads. Metrics are served over HTTPS on port 8443. Bind the `metrics-reader` ClusterRole to
-whoever scrapes them.
+ConfigMaps, Pods or workloads.
+
+**Metrics.** The manager serves `/metrics` over HTTPS on port 8443, behind the Service
+`openshift-node-upgrade-mutex-operator-metrics-service` in the operator namespace. A scrape must send a bearer token
+whose identity may `get` the `/metrics` URL. The ClusterRole `openshift-node-upgrade-mutex-operator-metrics-reader`
+grants that. Bind it to the ServiceAccount that scrapes, for example:
+
+```sh
+oc create clusterrolebinding mutex-operator-metrics-reader \
+  --clusterrole=openshift-node-upgrade-mutex-operator-metrics-reader \
+  --serviceaccount=<scraper-namespace>:<scraper-serviceaccount>
+```
+
+The binding is accepted even when the ClusterRole name is wrong, and every scrape then gets `403 Forbidden`, so copy
+the name exactly.
 
 **Who controls the operator.** Anyone who can create or edit MutexRules, MutexTargets or MutexRunConfigs **in the
 operator namespace** can pause MachineConfigPools, relabel nodes, and run Jobs in any namespace with any ServiceAccount
@@ -454,10 +550,15 @@ aggregated roles for these CRDs in every namespace. That is why CRs outside the 
 * Every target node needs the `release-image-version` label, which the operator does not maintain.
 * Nodes are handled one at a time, so a large pool takes as long as its slowest Jobs plus one node upgrade per node.
   An upgraded node stays in the canary pool until the end of the run.
+* MutexRunConfigs are reconciled one at a time. With several of them, the pools are upgraded one MutexRunConfig after
+  another, so plan the maintenance window for the sum of their runs. While one works through its nodes, the others
+  are not reconciled at all (see [One MutexRunConfig at a time](#one-mutexrunconfig-at-a-time)).
 * A node that does not report the new version within 2 hours stops the run with the pools paused.
 * A failure is retried with a backoff of up to about 17 minutes, and a failed Job is started again on each retry.
-* Deleting a MutexRunConfig takes effect only after the node in progress is finished.
-* Changes to ClusterVersion, nodes and pools are noticed at the next reconcile, at most 10 minutes later.
+* Deleting a MutexRunConfig takes effect only after the node in progress is finished, or, while another
+  MutexRunConfig works through its nodes, after that whole run.
+* Changes to ClusterVersion, nodes and pools are noticed at the next reconcile: at most 10 minutes later, unless
+  another MutexRunConfig is working through its nodes.
 * `spec.jobNamespace` can be any namespace, and the Jobs can use any ServiceAccount in it. See the permissions section.
 * MutexRule names must not contain `.`.
 * `spec.skipTLSVerify` is deprecated and has no effect.

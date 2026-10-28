@@ -1,5 +1,9 @@
 ---
 # ansible-lint settings for the molecule playbooks, which the root
 # .ansible-lint excludes. Run from the repository root:
-#   ansible-lint -c molecule/.ansible-lint molecule/
+#   ansible-lint -c molecule/.ansible-lint --project-dir . molecule/
+# --project-dir . keeps the repository root as the project, so ansible-lint
+# installs ./requirements.yml (kubernetes.core) into ./.ansible/collections.
+# Without it the project is molecule/, and kubernetes.core only resolves if
+# it is already installed somewhere else, such as ~/.ansible/collections.
 profile: production

@@ -116,7 +116,9 @@ lint: ## Lint roles/, the tests, the samples and the build YAML (needs yamllint 
 	yamllint -c hack/yamllint.yaml roles/ playbooks/ watches.yaml requirements.yml .ansible-lint hack/ .github/ \
 		molecule/ config/samples/ config/testing/ config/scorecard/ sample-manifests/ tests/
 	ansible-lint roles/
-	ansible-lint -c molecule/.ansible-lint molecule/
+	@# Without --project-dir, ansible-lint takes molecule/ (the directory of -c) as the
+	@# project, does not install ./requirements.yml and cannot resolve kubernetes.core.
+	ansible-lint -c molecule/.ansible-lint --project-dir . molecule/
 
 ##@ Build
 
@@ -228,7 +230,8 @@ CATALOG_FILE ?= $(CATALOG_DIR)/$(PACKAGE_NAME)/catalog.yaml
 CATALOG_MIGRATE_LEVEL ?= bundle-object-to-csv-metadata
 CATALOG_IMG ?= $(IMAGE_TAG_BASE)-catalog:v$(VERSION)
 # BUNDLE_REF is the bundle image recorded in the catalog by `make catalog-add`.
-# Set it to a digest reference (<repo>@sha256:...) to pin the release by digest.
+# Set it to a digest reference (<repo>@sha256:...) of the bundle you pushed to
+# pin it by digest. `make release` cannot: see docs/DEVELOPMENT.md (Releasing).
 BUNDLE_REF ?= $(BUNDLE_IMG)
 # CATALOG_SKIP_RANGE lets clusters on any older version upgrade straight to
 # VERSION instead of walking every replaces edge. Set it empty to only add the
@@ -269,9 +272,16 @@ release-check: yq ## Refuse to release to the placeholder registry or a VERSION 
 	@YQ=$(YQ) hack/catalog-add.sh --check $(CATALOG_TEMPLATE) $(PACKAGE_NAME) $(CATALOG_CHANNEL) $(VERSION) $(BUNDLE_REF)
 
 # The steps run one after another (also under make -j). The operator image is
-# pushed before `bundle` so USE_IMAGE_DIGESTS=true can resolve it.
+# pushed before `bundle` so USE_IMAGE_DIGESTS=true can resolve it. The bundle
+# is recorded in the catalog by tag: every `make bundle` writes a new createdAt,
+# so its digest is only known after this target pushes it. A BUNDLE_REF other
+# than BUNDLE_IMG would record a different bundle, so it is refused before
+# anything is pushed.
 .PHONY: release
 release: release-check ## Build and push operator, bundle and catalog images for VERSION and update the catalog.
+	@[ "$(BUNDLE_REF)" = "$(BUNDLE_IMG)" ] || { \
+		echo "error: make release records the bundle it pushes, $(BUNDLE_IMG), and cannot use BUNDLE_REF=$(BUNDLE_REF)."; \
+		echo "To record the bundle by digest, follow 'Releasing' in docs/DEVELOPMENT.md."; exit 1; }
 	$(MAKE) docker-build docker-push
 	$(MAKE) bundle
 	$(MAKE) bundle-build bundle-push
