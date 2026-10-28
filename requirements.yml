@@ -1,16 +1,17 @@
 ---
+# Collections installed into the operator image (see Dockerfile).
+# Keep this list to what roles/ actually uses:
+#   ansible.utils      - update_fact
+#   operator_sdk.util  - k8s_status
+#   kubernetes.core    - k8s, k8s_info, k8s_json_patch
+#   community.general  - json_query (needs the jmespath python package), lists_mergeby
+# All pins support ansible-core 2.18 (ansible-operator v1.42.3 base image).
 collections:
   - name: ansible.utils
-    version: "5.0.0"
+    version: "6.1.1"
   - name: operator_sdk.util
     version: "0.5.0"
   - name: kubernetes.core
-    version: "2.4.0"
-  - name: cloud.common
-    version: "2.1.1"
-  - name: community.docker
-    version: "3.10.3"
+    version: "6.6.0"
   - name: community.general
-    version: "9.1.0"
-  - name: awx.awx
-    version: "24.5.0"
+    version: "12.6.6"

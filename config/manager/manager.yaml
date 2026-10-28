@@ -60,6 +60,9 @@ spec:
       - args:
         - --leader-elect
         - --leader-election-id=openshift-node-upgrade-mutex-operator
+        - --health-probe-bind-address=:6789
+        # One reconcile at a time per kind: MutexRunConfigs that share pools must
+        # not edit the canary MachineConfigPool concurrently.
         - --max-concurrent-reconciles=1
         image: controller:latest
         name: manager

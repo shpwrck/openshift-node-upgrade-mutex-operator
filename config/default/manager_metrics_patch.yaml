@@ -1,0 +1,14 @@
+# JSON6902 patch that serves /metrics from the manager itself over HTTPS on
+# :8443, guarded by TokenReview/SubjectAccessReview (see
+# config/rbac/metrics_auth_role.yaml). The ops only *add* to the args list, so
+# every arg set in config/manager/manager.yaml (including
+# --max-concurrent-reconciles=1) is kept.
+- op: add
+  path: /spec/template/spec/containers/0/args/0
+  value: --metrics-bind-address=:8443
+- op: add
+  path: /spec/template/spec/containers/0/args/0
+  value: --metrics-secure
+- op: add
+  path: /spec/template/spec/containers/0/args/0
+  value: --metrics-require-rbac

@@ -17,6 +17,11 @@ bin
 # ansible
 .ansible/
 
-# Bundles and Catalogs
+# Generated bundles (make bundle writes bundles/<version>/, including its
+# bundle.Dockerfile) and operator-sdk's default output locations
 bundles/
+/bundle/
+/bundle.Dockerfile
 
+# Partial catalog renders
+*.tmp
