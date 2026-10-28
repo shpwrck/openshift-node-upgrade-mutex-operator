@@ -74,7 +74,9 @@ before every run that the canary:
   node that matches two custom pools or `master` and a custom pool, and it moves a node that matches `worker` and one
   custom pool into the custom pool. So when `worker` is not a target pool, the canary must not select the nodes of the
   `worker` pool either: they would move into the canary and be upgraded with it, even while you keep `worker`
-  paused.
+  paused;
+* is not already paused or re-pointed by another MutexRunConfig (its `paused-by` or `modified-by` annotation names
+  another one). The same applies to the target pools.
 
 During a run the canary keeps those of its own `matchExpressions` that every target node already satisfies, for example
 `node-role.kubernetes.io/infra DoesNotExist`. Other expressions, such as the `isCanary Exists` below, are left out for
@@ -264,10 +266,14 @@ Order and timing:
    waits up to 2 hours (120 checks, 60 seconds apart) for the node's `release-image-version` label to show the new
    version.
 3. The cleanup Jobs of the rules that have a `cleanUpJobSpec` then run, in the same order and with the same timeout.
+   Only then does the operator turn to the next node.
 
 When a reconcile is interrupted and started again, the operator looks for a Job with the same `job-key` label. If it
 finds one that has not failed, it waits for it or counts it as done, instead of starting another. A failed Job is not
-reused, so the next reconcile starts a new one, and failed Jobs pile up while a failure is retried. Do not set
+reused, so the next reconcile starts a new one, and failed Jobs pile up while a failure is retried. A released node
+carries the annotation `openshift-optional.skrzypek.io/released-by` until its cleanup Jobs have completed. A retry or
+a restart of the operator therefore resumes that node at the wait and runs its cleanup Jobs (it starts a failed one
+again and waits for one that still runs) before it touches the next node, also when it was the last node. Do not set
 `ttlSecondsAfterFinished` shorter than a run, or a re-entered run will start the Job again; a value of a day or more
 cleans up the failed ones. Jobs in the MutexRunConfig's namespace are owned by it and are garbage-collected when it
 is deleted. Jobs in other namespaces are not.
@@ -277,8 +283,8 @@ is deleted. Jobs in other namespaces are not.
 | Object | Change | Restored |
 | --- | --- | --- |
 | Target MachineConfigPools | `spec.paused: true`, annotation `openshift-optional.skrzypek.io/paused-by: <namespace>/<name>`. Pools that are already paused are left as they are and not annotated. | Unpaused at the end of the run, but only pools whose `paused-by` names this MutexRunConfig. A pool an administrator paused stays paused. |
-| Target and canary MachineConfigPools | `spec.nodeSelector.matchExpressions` changed for the run. The original list is saved as JSON in the annotation `openshift-optional.skrzypek.io/original-match-expressions`. | The saved list is put back and the annotation removed. `matchLabels` is never changed. |
-| Target nodes | Label `mutexrule.openshift-optional.skrzypek.io/<rule>.<namespace>: ""` per MutexRule, only on nodes still behind the new version. | Removed when the node is released, and from any leftover node at the end of the run. |
+| Target and canary MachineConfigPools | `spec.nodeSelector.matchExpressions` changed for the run. The original list is saved as JSON in the annotation `openshift-optional.skrzypek.io/original-match-expressions`, and the annotation `openshift-optional.skrzypek.io/modified-by: <namespace>/<name>` names the MutexRunConfig that changed it. | The saved list is put back on every pool whose `modified-by` names this MutexRunConfig, also when its MutexTarget is gone or someone else paused the pool, and both annotations are removed. `matchLabels` is never changed. |
+| Target nodes | Label `mutexrule.openshift-optional.skrzypek.io/<rule>.<namespace>: ""` per MutexRule and annotation `openshift-optional.skrzypek.io/labelled-by: <namespace>/<name>`, only on nodes still behind the new version. When the node is released, the same patch sets the annotation `openshift-optional.skrzypek.io/released-by: <namespace>/<name>\|<version>`. | The labels and `labelled-by` are removed when the node is released, and at the end of the run from the target nodes and the nodes whose `labelled-by` names this MutexRunConfig. `released-by` is removed once the node's cleanup Jobs have completed, and at the end of the run. |
 | Jobs | Created as described above. | Never deleted by the operator. |
 
 ## Reconcile procedure
@@ -353,13 +359,13 @@ reason or message changes.
 | MutexRunConfig | `ClusterStateValidated` | `True` / `APIServicesUp`, `False` / `APIServicesDown` | Every APIService is `Available`, or the names of those that are not. |
 | MutexRunConfig | `UpgradeChecked` | `True` / `CheckSucceeded`, `False` / `CheckFailed` | The upgrade check ran, or why it could not. |
 | MutexRunConfig | `NodeVersionsKnown` | `True` / `VersionsKnown`, `False` / `VersionLabelMissing` | Every target node has a valid version label, or the nodes that do not. |
-| MutexRunConfig | `UpgradeAvailable` | `True` / `UpgradeAvailable`, `False` / `UpgradeUnavailable`, `False` / `UpgradeFinished` | Whether a target node is behind the target version. |
+| MutexRunConfig | `UpgradeAvailable` | `True` / `UpgradeAvailable`, `False` / `UpgradeUnavailable`, `False` / `UpgradeFinished` | Whether a target node is behind the target version, or was released and still needs its cleanup Jobs. |
 | MutexRunConfig | `UpgradeReady` | `True` / `UpgradeReady`, `False` / `UpgradeNotReady`, `False` / `UpgradeFinished` | Whether nodes can be released: an upgrade is available and the control plane is done. |
 | MutexRunConfig | `TargetPoolsPaused` | `True` / `Paused`, `False` / `NotPaused` | The pools this MutexRunConfig keeps paused, or why pausing failed. |
 | MutexRunConfig | `MutexRulesApplied` | `True` / `ApplySucceeded`, `False` / `ApplyFailed` | The mutex labels are on the nodes that are behind. |
 | MutexRunConfig | `MCPUpdated` | `True` / `UpdateSucceeded`, `False` / `UpdateFailed`, `False` / `SelectorsRestored` | The selectors are changed for the run, or restored. |
 | MutexRunConfig | `JobRun` | `True` / `JobRunSucceeded`, `False` / `JobRunFailed` | The Jobs of the last node succeeded, or which Job failed and why. |
-| MutexRunConfig | `NodeUpgrade` | `True` / `NodeUpgradeSucceeded`, `True` / `NodeAlreadyUpgraded`, `False` / `NodeUpgradeFailed` | The last node processed and its position ("Node is 2 of 5"). |
+| MutexRunConfig | `NodeUpgrade` | `True` / `NodeUpgradeSucceeded`, `True` / `NodeAlreadyUpgraded`, `False` / `NodeUpgradeFailed` | The last node processed and its position ("Node is 2 of 5"). `NodeAlreadyUpgraded`: the node already runs the target version and has no Jobs left, because it was never behind or its Jobs, cleanup included, are done. |
 | MutexRunConfig | `Degraded` | `True` / `PoolsLeftPaused` | A step failed while pools are paused. They stay paused, and the message names the error and how to abort. |
 | MutexRunConfig | `Degraded` | `False` / `RunInProgress`, `False` / `NoPoolsPaused` | A run is in progress, or nothing is paused by this MutexRunConfig. |
 
@@ -376,19 +382,22 @@ then runs the finalizer. Use the manual steps below if that is too long to wait.
 
 If the operator is gone or cannot run, do the same by hand, in this order:
 
-1. Restore the selectors. For each MachineConfigPool that has the `original-match-expressions` annotation:
+1. Restore the selectors. For each MachineConfigPool whose `modified-by` annotation names the MutexRunConfig:
 
    ```sh
-   oc get mcp -o custom-columns='NAME:.metadata.name,PAUSED:.spec.paused,PAUSED-BY:.metadata.annotations.openshift-optional\.skrzypek\.io/paused-by,SAVED:.metadata.annotations.openshift-optional\.skrzypek\.io/original-match-expressions'
-   # put the SAVED JSON back (use [] when it is empty) and drop the annotation:
-   oc patch mcp <pool> --type=merge -p '{"metadata":{"annotations":{"openshift-optional.skrzypek.io/original-match-expressions":null}},"spec":{"nodeSelector":{"matchExpressions":<SAVED JSON>}}}'
+   oc get mcp -o custom-columns='NAME:.metadata.name,PAUSED:.spec.paused,PAUSED-BY:.metadata.annotations.openshift-optional\.skrzypek\.io/paused-by,MODIFIED-BY:.metadata.annotations.openshift-optional\.skrzypek\.io/modified-by,SAVED:.metadata.annotations.openshift-optional\.skrzypek\.io/original-match-expressions'
+   # put the SAVED JSON back (use [] when it is empty) and drop both annotations:
+   oc patch mcp <pool> --type=merge -p '{"metadata":{"annotations":{"openshift-optional.skrzypek.io/original-match-expressions":null,"openshift-optional.skrzypek.io/modified-by":null}},"spec":{"nodeSelector":{"matchExpressions":<SAVED JSON>}}}'
    ```
 
-2. Remove the mutex labels, once per rule:
+2. Remove the mutex labels and the node annotations, on each node whose `labelled-by` or `released-by` annotation
+   names the MutexRunConfig:
 
    ```sh
-   oc get nodes -o name -l 'mutexrule.openshift-optional.skrzypek.io/<rule>.<namespace>'
-   oc label nodes --all 'mutexrule.openshift-optional.skrzypek.io/<rule>.<namespace>-'
+   oc get nodes -o custom-columns='NAME:.metadata.name,LABELLED-BY:.metadata.annotations.openshift-optional\.skrzypek\.io/labelled-by,RELEASED-BY:.metadata.annotations.openshift-optional\.skrzypek\.io/released-by'
+   # once per rule of the MutexRunConfig:
+   oc label node <node> 'mutexrule.openshift-optional.skrzypek.io/<rule>.<namespace>-'
+   oc annotate node <node> openshift-optional.skrzypek.io/labelled-by- openshift-optional.skrzypek.io/released-by-
    ```
 
 3. Unpause the pools whose `paused-by` names the MutexRunConfig:

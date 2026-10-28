@@ -7,8 +7,10 @@
 #                 node joins the canary as soon as its labels are removed.
 # Before a pool's selector is changed for the first time its original
 # matchExpressions are saved, as JSON, in the original-match-expressions
-# annotation; 08-restore.yml puts them back from there. On re-entry 01 reads
-# the saved copy, so the annotation keeps the true original.
+# annotation, and the modified-by annotation records this MutexRunConfig as
+# the owner of the change; 08-restore.yml puts back the selector of every pool
+# carrying its owner value. On re-entry 01 reads the saved copy, so the
+# annotation keeps the true original.
 # MachineConfigPool is a CRD, so these are JSON merge patches: the
 # matchExpressions list is replaced as a whole and matchLabels is untouched.
 - name: Canary Pool Block
@@ -24,6 +26,7 @@
           metadata:
             annotations:
               openshift-optional.skrzypek.io/original-match-expressions: "{{ mutexrunconfig_canary_original_expressions | to_json }}"
+              openshift-optional.skrzypek.io/modified-by: "{{ mutexrunconfig_owner }}"
           spec:
             nodeSelector:
               matchExpressions: "{{ mutexrunconfig_canary_kept_expressions + mutexrunconfig_canary_mutex_expressions }}"
@@ -31,6 +34,7 @@
         (canaryPool.resources[0].spec.nodeSelector.matchExpressions | default([], true))
         != (mutexrunconfig_canary_kept_expressions + mutexrunconfig_canary_mutex_expressions)
         or (canaryPool.resources[0].metadata.annotations | default({}, true))[mutexrunconfig_annotation_original_expressions] is not defined
+        or (canaryPool.resources[0].metadata.annotations | default({}, true))[mutexrunconfig_annotation_modified_by] | default('') != mutexrunconfig_owner
 
     - name: Update TargetPool NodeSelector
       kubernetes.core.k8s:
@@ -43,6 +47,7 @@
           metadata:
             annotations:
               openshift-optional.skrzypek.io/original-match-expressions: "{{ mutexrunconfig_original_expressions[item.item] | to_json }}"
+              openshift-optional.skrzypek.io/modified-by: "{{ mutexrunconfig_owner }}"
           spec:
             nodeSelector:
               matchExpressions: "{{ mutexrunconfig_original_expressions[item.item] + mutexrunconfig_target_mutex_expressions }}"
@@ -53,6 +58,7 @@
         (item.resources[0].spec.nodeSelector.matchExpressions | default([], true))
         != (mutexrunconfig_original_expressions[item.item] + mutexrunconfig_target_mutex_expressions)
         or (item.resources[0].metadata.annotations | default({}, true))[mutexrunconfig_annotation_original_expressions] is not defined
+        or (item.resources[0].metadata.annotations | default({}, true))[mutexrunconfig_annotation_modified_by] | default('') != mutexrunconfig_owner
 
     - name: Report MCP Updated
       operator_sdk.util.k8s_status:

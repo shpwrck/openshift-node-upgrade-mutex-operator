@@ -93,8 +93,9 @@
         label: "{{ item.namespace }}/{{ item.name }}"
       register: mutexrunconfig_finalize_targets
 
-    # The restore also covers pools whose MutexTarget is gone: every pool
-    # carrying this MutexRunConfig's paused-by annotation is included.
+    # The restore also covers pools and nodes whose MutexTarget is gone: it
+    # follows this MutexRunConfig's paused-by and modified-by annotations on
+    # the pools and its labelled-by annotation on the nodes (08-restore.yml).
     - name: Restore Pools And Nodes
       ansible.builtin.include_tasks: 08-restore.yml
       vars:

@@ -19,10 +19,28 @@ mutexrunconfig_label_name_regex: '^(?=.{1,63}$)[A-Za-z0-9]([-A-Za-z0-9_.]*[A-Za-
 # Annotations this role writes on MachineConfigPools.
 # original-match-expressions: JSON copy of spec.nodeSelector.matchExpressions
 #   taken before the first selector change; the restore reads it back.
+# modified-by: owner of that change, written together with
+#   original-match-expressions. The restore puts back the selector of every
+#   pool carrying this MutexRunConfig's owner value, whoever paused the pool
+#   and whether or not its MutexTarget still exists.
 # paused-by: set when this role pauses a pool; only pools carrying it with this
 #   MutexRunConfig's owner value are ever unpaused by the role.
 mutexrunconfig_annotation_original_expressions: "openshift-optional.skrzypek.io/original-match-expressions"
+mutexrunconfig_annotation_modified_by: "openshift-optional.skrzypek.io/modified-by"
 mutexrunconfig_annotation_paused_by: "openshift-optional.skrzypek.io/paused-by"
+
+# Annotations this role writes on target nodes.
+# labelled-by: owner, set together with the mutex labels and removed with
+#   them. The restore removes mutex labels only from the target nodes and from
+#   nodes carrying this owner value, so MutexRunConfigs that share a MutexRule
+#   never remove each other's labels.
+# released-by: '<owner>|<desired version>', set in the same patch that removes
+#   the node's mutex labels and cleared once its cleanup Jobs have completed.
+#   A node carrying it for the desired version was released by this run and
+#   still needs its cleanup Jobs, also after a failure or an operator restart.
+mutexrunconfig_annotation_labelled_by: "openshift-optional.skrzypek.io/labelled-by"
+mutexrunconfig_annotation_released_by: "openshift-optional.skrzypek.io/released-by"
+mutexrunconfig_released_marker: "{{ mutexrunconfig_owner }}|{{ desired_version | default('') }}"
 
 # Label put on every Job the role creates. Its value is a hash of the
 # MutexRunConfig, node, rule, phase and desired version, so a re-entered run

@@ -1,13 +1,32 @@
 ---
 # Labels every target node that is behind desired_version with one mutex label
-# per MutexRule. Nodes already at desired_version are not labelled (they need
-# no jobs), and neither are nodes MCO is already updating through the canary
-# (see 02). This keeps a re-entered run from re-labelling nodes it finished.
+# per MutexRule, and marks it with the labelled-by annotation in the same
+# patch. Nodes already at desired_version are not labelled (they need no
+# jobs), and neither are nodes this run already released for desired_version
+# or nodes MCO is already updating through the canary (see 02). This keeps a
+# re-entered run from re-labelling nodes it released, which would pull them
+# back into a paused pool.
 - name: Node Label Block
   block:
     - name: Create Node List
       ansible.builtin.set_fact:
-        mutexrunconfig_nodes_to_label: "{{ mutexrunconfig_nodes_behind | difference(mutexrunconfig_canary_updating_nodes) }}"
+        mutexrunconfig_nodes_to_label: >-
+          {{ mutexrunconfig_nodes_behind | difference(mutexrunconfig_canary_updating_nodes)
+             | difference(mutexrunconfig_released_nodes) }}
+
+    # Nodes labelled by an earlier reconcile are not patched again.
+    - name: Find Nodes Without Their Labels
+      ansible.builtin.set_fact:
+        mutexrunconfig_nodes_to_patch: >-
+          {%- set ns = namespace(names=[]) -%}
+          {%- for node in nodes.resources | selectattr('metadata.name', 'in', mutexrunconfig_nodes_to_label) -%}
+          {%- set labels = node.metadata.labels | default({}, true) -%}
+          {%- if mutexrunconfig_mutex_labels.keys() | reject('in', labels) | list | length > 0
+                or (node.metadata.annotations | default({}, true))[mutexrunconfig_annotation_labelled_by] | default('') != mutexrunconfig_owner -%}
+          {%- set ns.names = ns.names + [node.metadata.name] -%}
+          {%- endif -%}
+          {%- endfor -%}
+          {{ ns.names }}
 
     - name: Label Nodes
       kubernetes.core.k8s:
@@ -18,7 +37,8 @@
         definition:
           metadata:
             labels: "{{ mutexrunconfig_mutex_labels }}"
-      loop: "{{ mutexrunconfig_nodes_to_label }}"
+            annotations: "{{ {mutexrunconfig_annotation_labelled_by: mutexrunconfig_owner} }}"
+      loop: "{{ mutexrunconfig_nodes_to_patch }}"
 
     - name: Report Applied
       operator_sdk.util.k8s_status:

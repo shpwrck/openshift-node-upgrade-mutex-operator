@@ -195,6 +195,33 @@
           | map(attribute='item') | join(', ') }} were not found.
       when: mutexrunconfig_target_pools.results | selectattr('resources', 'equalto', []) | list | length > 0
 
+    # The restore follows the paused-by and modified-by annotations, so a pool
+    # another MutexRunConfig has paused or re-pointed must not be taken over.
+    - name: Fail On Pools In Use By Another MutexRunConfig
+      ansible.builtin.fail:
+        msg: >-
+          MachineConfigPool(s) {{ mutexrunconfig_pools_in_use }} are in use by another
+          MutexRunConfig. Two MutexRunConfigs must not share a canary or a target pool. If that
+          MutexRunConfig no longer exists, restore the pool by hand as described under Recovery in the
+          documentation, which also removes these annotations.
+      vars:
+        mutexrunconfig_pools_in_use: >-
+          {%- set ns = namespace(found=[]) -%}
+          {%- for pool in canaryPool.resources + (mutexrunconfig_target_pools.results | map(attribute='resources') | flatten(1) | list) -%}
+          {%- set annotations = pool.metadata.annotations | default({}, true) -%}
+          {%- set pool_ns = namespace(marks=[]) -%}
+          {%- for key in [mutexrunconfig_annotation_paused_by, mutexrunconfig_annotation_modified_by] -%}
+          {%- if annotations[key] | default('', true) not in ['', mutexrunconfig_owner] -%}
+          {%- set pool_ns.marks = pool_ns.marks + [key ~ ': ' ~ annotations[key]] -%}
+          {%- endif -%}
+          {%- endfor -%}
+          {%- if pool_ns.marks | length > 0 -%}
+          {%- set ns.found = ns.found + [pool.metadata.name ~ ' (' ~ (pool_ns.marks | join(', ')) ~ ')'] -%}
+          {%- endif -%}
+          {%- endfor -%}
+          {{ ns.found | join(', ') }}
+      when: mutexrunconfig_pools_in_use | length > 0
+
     # The original matchExpressions of a pool: the copy saved in the
     # original-match-expressions annotation during a run, or else the live
     # list (without any expression on a mutex label key).

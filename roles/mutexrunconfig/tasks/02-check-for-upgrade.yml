@@ -12,6 +12,11 @@
 # Fails closed: if any target node has no release-image-version label or a
 # value that is not a semantic version, NodeVersionsKnown=False names the
 # nodes and nothing is paused, labelled or run.
+#
+# A target node that carries this run's released-by annotation for
+# desired_version still needs its cleanup Jobs (it was released, then the
+# reconcile stopped). It keeps the upgrade available, so the run resumes it,
+# even when no target node is behind any more.
 - name: Upgrade Check Block
   block:
     - name: Gather ClusterVersion Info
@@ -47,6 +52,7 @@
       ansible.builtin.set_fact:
         mutexrunconfig_node_versions: {}
         mutexrunconfig_canary_updating_nodes: []
+        mutexrunconfig_released_nodes: []
 
     # A target node that MCO is already updating through the canary pool (its
     # desiredConfig is a rendered canary config that differs from its
@@ -61,6 +67,10 @@
           {{ mutexrunconfig_canary_updating_nodes
              + ([item.metadata.name] if (mutexrunconfig_desired_config.startswith('rendered-' ~ mutexrunconfig_canary_name ~ '-')
                                          and mutexrunconfig_desired_config != mutexrunconfig_current_config) else []) }}
+        mutexrunconfig_released_nodes: >-
+          {{ mutexrunconfig_released_nodes
+             + ([item.metadata.name] if mutexrunconfig_annotations[mutexrunconfig_annotation_released_by] | default('') == mutexrunconfig_released_marker
+                else []) }}
       loop: "{{ nodes.resources | selectattr('metadata.name', 'in', targetNodeList) | list }}"
       loop_control:
         label: "{{ item.metadata.name }}"
@@ -113,8 +123,8 @@
 
     - name: Set Worker Nodes Upgradeable
       ansible.builtin.set_fact:
-        UpgradeAvailable: "{{ mutexrunconfig_nodes_behind | length > 0 }}"
-        UpgradeReady: "{{ mutexrunconfig_nodes_behind | length > 0 and controlplane_ready | bool }}"
+        UpgradeAvailable: "{{ (mutexrunconfig_nodes_behind + mutexrunconfig_released_nodes) | length > 0 }}"
+        UpgradeReady: "{{ (mutexrunconfig_nodes_behind + mutexrunconfig_released_nodes) | length > 0 and controlplane_ready | bool }}"
 
     - name: Report Upgrade Exists
       operator_sdk.util.k8s_status:
@@ -132,7 +142,11 @@
             status: "{{ UpgradeAvailable | ternary('True', 'False') }}"
             reason: "{{ UpgradeAvailable | ternary('UpgradeAvailable', 'UpgradeUnavailable') }}"
             message: >-
-              {{ ('Target node(s) ' ~ (mutexrunconfig_nodes_behind | join(', ')) ~ ' are behind ' ~ desired_version ~ '.')
+              {{ ((('Target node(s) ' ~ (mutexrunconfig_nodes_behind | join(', ')) ~ ' are behind ' ~ desired_version ~ '.')
+                   if mutexrunconfig_nodes_behind | length > 0 else '')
+                  ~ ((' Target node(s) ' ~ (mutexrunconfig_released_nodes | join(', ')) ~ ' were released for '
+                      ~ desired_version ~ ' and still need their cleanup Jobs.')
+                     if mutexrunconfig_released_nodes | length > 0 else '')) | trim
                  if UpgradeAvailable else ('All target nodes run ' ~ desired_version ~ '.') }}
             lastTransitionTime: "{{ mutexrunconfig_now }}"
           - type: UpgradeReady
