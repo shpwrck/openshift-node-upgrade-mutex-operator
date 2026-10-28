@@ -1,85 +1,106 @@
 ---
-- name: Reset status
+# Each reconcile reads the cluster, asks the planner (filter_plugins in
+# roles/mutex_common) for the next step, applies it and reports status. All
+# rollout progress lives on the cluster, so a restarted operator carries on
+# where the last one stopped.
+#
+# The operator also passes the spec fields as variables (mutex_rules,
+# mutex_targets, canary); the role's own variables use the role name as a
+# prefix so they never clash.
+- name: Read the MutexRunConfig
+  ansible.builtin.set_fact:
+    mutexrunconfig_object: "{{ _nodeupgrade_redhat_na_ssa_github_io_mutexrunconfig }}"
+
+- name: Gather cluster state
+  ansible.builtin.import_tasks: gather.yml
+
+- name: Plan the next step
+  ansible.builtin.set_fact:
+    mutexrunconfig_plan: >-
+      {{ mutexrunconfig_object | nodeupgrade_plan(
+           cluster_version=mutexrunconfig_cluster_version.resources | first | default({}),
+           rules=mutexrunconfig_rules.resources,
+           targets=mutexrunconfig_targets.resources,
+           pools=mutexrunconfig_pools.resources,
+           nodes=mutexrunconfig_nodes.resources,
+           machine_configs=mutexrunconfig_machine_configs.results | map(attribute='resources') | flatten,
+           jobs=mutexrunconfig_jobs.resources,
+           api_services=mutexrunconfig_api_services.resources,
+           run_configs=mutexrunconfig_run_configs.resources,
+           deleting=mutexrunconfig_deleting | default(false)) }}
+
+- name: Apply the plan
+  block:
+    # Nodes go first: when a rollout ends, the release labels come off before
+    # the pools are unpaused.
+    - name: Update nodes
+      kubernetes.core.k8s:
+        api_version: v1
+        kind: Node
+        name: "{{ item.name }}"
+        state: patched
+        merge_type: merge
+        definition: "{{ item.patch }}"
+      loop: "{{ mutexrunconfig_plan.node_patches }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Update MachineConfigPools
+      kubernetes.core.k8s:
+        api_version: machineconfiguration.openshift.io/v1
+        kind: MachineConfigPool
+        name: "{{ item.name }}"
+        state: patched
+        merge_type: merge
+        definition: "{{ item.patch }}"
+      loop: "{{ mutexrunconfig_plan.pool_patches }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Create Jobs
+      kubernetes.core.k8s:
+        state: present
+        definition: "{{ item }}"
+      loop: "{{ mutexrunconfig_plan.jobs }}"
+      loop_control:
+        label: "{{ item.metadata.namespace }}/{{ item.metadata.generateName }}"
+
+  rescue:
+    - name: Report the failure
+      operator_sdk.util.k8s_status:
+        api_version: nodeupgrade.redhat-na-ssa.github.io/v1alpha1
+        kind: MutexRunConfig
+        name: "{{ ansible_operator_meta.name }}"
+        namespace: "{{ ansible_operator_meta.namespace }}"
+        conditions:
+          - "{{ mutexrunconfig_object | nodeupgrade_condition('Degraded', true, 'ApplyFailed',
+                ansible_failed_task.name ~ ' failed: ' ~ (ansible_failed_result.msg | default('unknown error'))) }}"
+
+    # A finalizer run must fail, so the finalizer stays until pools and
+    # nodes are restored.
+    - name: Fail the finalizer run
+      ansible.builtin.fail:
+        msg: "Could not restore pools and nodes: {{ ansible_failed_result.msg | default('unknown error') }}"
+      when: mutexrunconfig_deleting | default(false) or mutexrunconfig_object.metadata.deletionTimestamp is defined
+
+    - name: Retry later
+      operator_sdk.util.requeue_after:
+        time: 30s
+
+    - name: Stop here
+      ansible.builtin.meta: end_play
+
+- name: Report status
   operator_sdk.util.k8s_status:
-    api_version: "openshift-optional.skrzypek.io/v1alpha1"
+    api_version: nodeupgrade.redhat-na-ssa.github.io/v1alpha1
     kind: MutexRunConfig
     name: "{{ ansible_operator_meta.name }}"
     namespace: "{{ ansible_operator_meta.namespace }}"
-    replace: true
     replace_lists: true
-    conditions: []
+    status: "{{ mutexrunconfig_plan.status }}"
+    conditions: "{{ mutexrunconfig_plan.conditions }}"
 
-- name: Validate
-  ansible.builtin.include_tasks: 01-validate.yml
-
-- name: Check For Upgrade
-  ansible.builtin.include_tasks: 02-check-for-upgrade.yml
-  when:
-    - ConfigValidated
-
-- name: Pause Pools
-  ansible.builtin.include_tasks: 03-pause-machine-config-pools.yml
-  vars:
-    paused_bool: true
-  when:
-    - ConfigValidated
-    - (not UpgradabilityChecked) or (UpgradabilityChecked and UpgradeAvailable)
-
-- name: Apply Labels
-  ansible.builtin.include_tasks: 04-apply-mutex-rules-as-labels.yml
-  when:
-    - ConfigValidated
-    - UpgradabilityChecked
-    - UpgradeAvailable
-    - TargetPoolsPaused
-
-- name: Update Canary MachineConfigPool
-  ansible.builtin.include_tasks: 05-modify-machineconfigpool.yml
-  vars:
-    set_expressions: true
-  when:
-    - ConfigValidated
-    - UpgradabilityChecked
-    - UpgradeAvailable
-    - TargetPoolsPaused
-    - MutexRulesApplied
-
-- name: Run Job
-  ansible.builtin.include_tasks: 06-execute-jobs.yml
-  loop: "{{ targetNodeList }}"
-  loop_control:
-    extended: true
-    loop_var: targetNode
-  when:
-    - ConfigValidated
-    - UpgradabilityChecked
-    - UpgradeReady
-    - TargetPoolsPaused
-    - MutexRulesApplied
-    - MCPUpdated
-
-- name: UnPause
-  ansible.builtin.include_tasks: 03-pause-machine-config-pools.yml
-  vars:
-    paused_bool: false
-  when:
-    - ConfigValidated
-    - UpgradabilityChecked
-    - UpgradeReady
-    - TargetPoolsPaused
-    - MutexRulesApplied
-    - MCPUpdated
-    - JobRun
-
-- name: Remove MCP Expressions
-  ansible.builtin.include_tasks: 05-modify-machineconfigpool.yml
-  vars:
-    set_expressions: false
-  when:
-    - ConfigValidated
-    - UpgradabilityChecked
-    - UpgradeReady
-    - TargetPoolsPaused
-    - MutexRulesApplied
-    - MCPUpdated
-    - JobRun
+- name: Check back soon
+  operator_sdk.util.requeue_after:
+    time: "{{ mutexrunconfig_plan.requeue_after }}"
+  when: mutexrunconfig_plan.requeue_after

@@ -1,0 +1,11 @@
+apiVersion: nodeupgrade.redhat-na-ssa.github.io/v1alpha1
+kind: MutexRunConfig
+metadata:
+  name: mutexrunconfig-sample
+spec:
+  canary:
+    name: canary
+  mutexRules:
+    - name: mutexrule-sample
+  mutexTargets:
+    - name: mutextarget-sample

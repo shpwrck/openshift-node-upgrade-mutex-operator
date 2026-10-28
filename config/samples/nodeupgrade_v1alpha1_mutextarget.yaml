@@ -1,0 +1,7 @@
+apiVersion: nodeupgrade.redhat-na-ssa.github.io/v1alpha1
+kind: MutexTarget
+metadata:
+  name: mutextarget-sample
+spec:
+  machineConfigPools:
+    - worker

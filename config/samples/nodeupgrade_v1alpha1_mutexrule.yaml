@@ -1,0 +1,33 @@
+apiVersion: nodeupgrade.redhat-na-ssa.github.io/v1alpha1
+kind: MutexRule
+metadata:
+  name: mutexrule-sample
+spec:
+  jobName: example
+  jobNamespace: node-upgrade-mutex-operator
+  # Runs before each node is released for its update.
+  jobSpec:
+    backoffLimit: 2
+    template:
+      spec:
+        restartPolicy: Never
+        containers:
+          - name: before
+            image: registry.access.redhat.com/ubi9/ubi-minimal
+            command:
+              - sh
+              - -c
+              - echo "Getting $NODE_NAME ready for OpenShift $TARGET_VERSION"
+  # Runs after the node has been updated.
+  cleanUpJobSpec:
+    backoffLimit: 2
+    template:
+      spec:
+        restartPolicy: Never
+        containers:
+          - name: after
+            image: registry.access.redhat.com/ubi9/ubi-minimal
+            command:
+              - sh
+              - -c
+              - echo "$NODE_NAME now runs OpenShift $TARGET_VERSION"
