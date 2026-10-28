@@ -51,7 +51,8 @@ release. The longer the group is published, the more users it breaks.
   `NOASSERTION` until one is chosen. Add the file, update `roles/*/meta/main.yml`, and mention it in the docs.
 * **API group.** See above.
 * **Registry and digests.** Choose the registry, mirror the published images, and decide whether releases record
-  bundles by digest in the catalog (`make catalog-add BUNDLE_REF=<repo>@sha256:...`).
+  bundles by digest in the catalog. `make release` records them by tag; pinning by digest takes the step-by-step
+  sequence under "Releasing" in `docs/DEVELOPMENT.md`, which passes the pushed bundle's digest to `make catalog-add`.
 * **Version.** `.envrc` is at 0.3.0, because 0.2.67 and 0.2.68 are already published.
 * **Job namespaces.** `MutexRule.spec.jobNamespace` accepts any namespace, and the Jobs can use any ServiceAccount
   there. Only users who can write in the operator namespace can use it. An allow-list, or a namespaced Role for Jobs,

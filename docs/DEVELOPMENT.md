@@ -112,9 +112,27 @@ upgrade edges of the `alpha` channel. `catalog/openshift-node-upgrade-mutex-oper
    * `catalog-add` makes the bundle the new channel head, with `replaces` set to the old head and `skipRange: <VERSION`;
    * `catalog-render` pulls every bundle image and takes a few minutes;
    * builds and pushes the catalog image, and tags all three images as `:latest`.
-   To record the bundle by digest in the catalog, pass `BUNDLE_REF=<repo>@sha256:...`.
 3. Commit `catalog-template.yaml` and `catalog/`.
 4. Run `make increment` to bump `PATCH` in `.envrc`, then commit it.
+
+`make release` records the bundle in the catalog by tag (`BUNDLE_IMG`) and refuses any other `BUNDLE_REF`. The
+bundle's digest is only known once it is pushed, because every `make bundle` writes a new `createdAt`. To record the
+bundle by digest instead, run the steps of `make release` one at a time and read the digest of the pushed bundle in
+between, for example with skopeo, which uses the podman or docker login:
+
+```sh
+make release-check
+make docker-build docker-push
+make bundle
+make bundle-build bundle-push
+skopeo inspect --format '{{.Digest}}' docker://<IMAGE_TAG_BASE>-bundle:v<VERSION>
+make catalog-add BUNDLE_REF=<IMAGE_TAG_BASE>-bundle@sha256:<digest>
+make catalog-render
+make catalog-build catalog-push
+make latest
+```
+
+Then continue with steps 3 and 4.
 
 To publish in the community catalogs, copy `bundles/<VERSION>/` (`manifests/`, `metadata/` and `tests/`) into
 `operators/openshift-node-upgrade-mutex-operator/<VERSION>/` of a fork of
