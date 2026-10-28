@@ -1,13 +1,114 @@
 ---
-- name: Reset status
+# Reconciles a MutexRunConfig.
+#
+# While an OpenShift upgrade is pending, the target MachineConfigPools are
+# paused and their nodes are labelled with one mutex label per MutexRule. The
+# canary pool is changed to select worker nodes without those labels. Then,
+# one node at a time, the MutexRule Jobs run, the node's labels are removed
+# (so MCO upgrades it through the canary pool), the role waits for the node to
+# report the desired version and runs the cleanup Jobs. At the end the pool
+# selectors are restored and the pools are unpaused.
+#
+# Every step sets a real boolean gate fact: false at the top of its rescue,
+# true as the last task of its block. Status is merged condition by condition
+# (it is not wiped on each reconcile), so progress and lastTransitionTime
+# survive a re-entry.
+#
+# Failure policy: a failure never unpauses anything. The pools stay paused, the
+# role reports Degraded=True with the reason and the next reconcile retries.
+# Deleting the MutexRunConfig runs the finalizer (watches.yaml), which unpauses
+# the pools this MutexRunConfig paused, removes its mutex labels from the nodes
+# and restores the canary and target pool selectors. Deleting it in the middle
+# of an upgrade therefore lets MCO upgrade the remaining nodes WITHOUT running
+# their MutexRule Jobs.
+
+- name: Determine Reconcile Mode
+  ansible.builtin.set_fact:
+    mutexrunconfig_operator_namespace: "{{ lookup('ansible.builtin.env', 'POD_NAMESPACE', default='') }}"
+    mutexrunconfig_finalizing: >-
+      {{ (state | default('present')) == 'absent'
+         or (_openshift_optional_skrzypek_io_mutexrunconfig.metadata.deletionTimestamp | default('', true)) | length > 0 }}
+
+# Trust boundary: only MutexRunConfigs in the operator's own namespace
+# (POD_NAMESPACE) are acted on. Without POD_NAMESPACE (e.g. 'make run') every
+# namespace is allowed.
+- name: Check Namespace
+  ansible.builtin.set_fact:
+    mutexrunconfig_namespace_allowed: >-
+      {{ mutexrunconfig_operator_namespace | length == 0
+         or ansible_operator_meta.namespace == mutexrunconfig_operator_namespace }}
+
+- name: Report Namespace Not Allowed
   operator_sdk.util.k8s_status:
     api_version: "openshift-optional.skrzypek.io/v1alpha1"
     kind: MutexRunConfig
     name: "{{ ansible_operator_meta.name }}"
     namespace: "{{ ansible_operator_meta.namespace }}"
-    replace: true
-    replace_lists: true
-    conditions: []
+    conditions:
+      - type: Reconciled
+        status: "False"
+        reason: NamespaceNotAllowed
+        message: >-
+          MutexRunConfigs are only reconciled in the operator namespace
+          '{{ mutexrunconfig_operator_namespace }}'. Nothing was done.
+        lastTransitionTime: "{{ mutexrunconfig_now }}"
+  when:
+    - not mutexrunconfig_namespace_allowed | bool
+    - not mutexrunconfig_finalizing | bool
+
+- name: Stop Outside The Operator Namespace
+  ansible.builtin.meta: end_play
+  when: not mutexrunconfig_namespace_allowed | bool
+
+- name: Initialize Gates
+  ansible.builtin.set_fact:
+    ConfigValidated: false
+    ClusterStateValidated: false
+    UpgradabilityChecked: false
+    UpgradeAvailable: false
+    UpgradeReady: false
+    TargetPoolsPaused: false
+    MutexRulesApplied: false
+    MCPUpdated: false
+    JobRun: false
+    mutexrunconfig_failure: ""
+    targetNodeList: []
+    machineConfigPoolList: []
+
+- name: Resolve References
+  ansible.builtin.include_tasks: 00-resolve-references.yml
+
+- name: Finalize
+  when: mutexrunconfig_finalizing | bool
+  block:
+    - name: Gather MutexTargets Still Present
+      kubernetes.core.k8s_info:
+        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        kind: MutexTarget
+        name: "{{ item.name }}"
+        namespace: "{{ item.namespace }}"
+      loop: "{{ mutexrunconfig_target_refs }}"
+      loop_control:
+        label: "{{ item.namespace }}/{{ item.name }}"
+      register: mutexrunconfig_finalize_targets
+
+    # The restore also covers pools whose MutexTarget is gone: every pool
+    # carrying this MutexRunConfig's paused-by annotation is included.
+    - name: Restore Pools And Nodes
+      ansible.builtin.include_tasks: 08-restore.yml
+      vars:
+        mutexrunconfig_finalize_target_objects: "{{ mutexrunconfig_finalize_targets.results | map(attribute='resources') | flatten(1) }}"
+        mutexrunconfig_restore_pools: >-
+          {{ ([mutexrunconfig_canary_name] if mutexrunconfig_canary_name | length > 0 else [])
+             + (mutexrunconfig_finalize_target_objects | map(attribute='spec')
+                | map(attribute='machineConfigPools', default=[]) | flatten | unique) }}
+        mutexrunconfig_restore_nodes: >-
+          {{ mutexrunconfig_finalize_target_objects | map(attribute='status', default={})
+             | map(attribute='nodes', default=[]) | flatten | unique }}
+
+- name: Stop After Finalizing
+  ansible.builtin.meta: end_play
+  when: mutexrunconfig_finalizing | bool
 
 - name: Validate
   ansible.builtin.include_tasks: 01-validate.yml
@@ -15,35 +116,46 @@
 - name: Check For Upgrade
   ansible.builtin.include_tasks: 02-check-for-upgrade.yml
   when:
-    - ConfigValidated
+    - ConfigValidated | bool
 
+# Pause only when the check succeeded and a target node is behind the version
+# the cluster is moving to. A failed or inconclusive check never pauses.
 - name: Pause Pools
   ansible.builtin.include_tasks: 03-pause-machine-config-pools.yml
-  vars:
-    paused_bool: true
   when:
-    - ConfigValidated
-    - (not UpgradabilityChecked) or (UpgradabilityChecked and UpgradeAvailable)
+    - ConfigValidated | bool
+    - UpgradabilityChecked | bool
+    - UpgradeAvailable | bool
 
 - name: Apply Labels
   ansible.builtin.include_tasks: 04-apply-mutex-rules-as-labels.yml
   when:
-    - ConfigValidated
-    - UpgradabilityChecked
-    - UpgradeAvailable
-    - TargetPoolsPaused
+    - ConfigValidated | bool
+    - UpgradabilityChecked | bool
+    - UpgradeAvailable | bool
+    - TargetPoolsPaused | bool
 
 - name: Update Canary MachineConfigPool
   ansible.builtin.include_tasks: 05-modify-machineconfigpool.yml
-  vars:
-    set_expressions: true
   when:
-    - ConfigValidated
-    - UpgradabilityChecked
-    - UpgradeAvailable
-    - TargetPoolsPaused
-    - MutexRulesApplied
+    - ConfigValidated | bool
+    - UpgradabilityChecked | bool
+    - UpgradeAvailable | bool
+    - TargetPoolsPaused | bool
+    - MutexRulesApplied | bool
 
+- name: Start Job Run
+  ansible.builtin.set_fact:
+    JobRun: true
+  when:
+    - ConfigValidated | bool
+    - UpgradabilityChecked | bool
+    - UpgradeReady | bool
+    - TargetPoolsPaused | bool
+    - MutexRulesApplied | bool
+    - MCPUpdated | bool
+
+# A node that fails sets JobRun to false, which skips the remaining nodes.
 - name: Run Job
   ansible.builtin.include_tasks: 06-execute-jobs.yml
   loop: "{{ targetNodeList }}"
@@ -51,35 +163,61 @@
     extended: true
     loop_var: targetNode
   when:
-    - ConfigValidated
-    - UpgradabilityChecked
-    - UpgradeReady
-    - TargetPoolsPaused
-    - MutexRulesApplied
-    - MCPUpdated
+    - JobRun | bool
 
-- name: UnPause
-  ansible.builtin.include_tasks: 03-pause-machine-config-pools.yml
-  vars:
-    paused_bool: false
+# Runs after every node is done, and also whenever the check finds no target
+# node behind: then nothing is left to protect, so leftovers of an earlier
+# run (paused pools, selectors, labels) are cleaned up.
+- name: Finish Run
   when:
-    - ConfigValidated
-    - UpgradabilityChecked
-    - UpgradeReady
-    - TargetPoolsPaused
-    - MutexRulesApplied
-    - MCPUpdated
-    - JobRun
+    - ConfigValidated | bool
+    - UpgradabilityChecked | bool
+    - (JobRun | bool) or (not UpgradeAvailable | bool)
+  block:
+    - name: Restore Pools And Nodes
+      ansible.builtin.include_tasks: 08-restore.yml
+      vars:
+        mutexrunconfig_restore_pools: "{{ [mutexrunconfig_canary_name] + machineConfigPoolList }}"
+        mutexrunconfig_restore_nodes: "{{ targetNodeList }}"
 
-- name: Remove MCP Expressions
-  ansible.builtin.include_tasks: 05-modify-machineconfigpool.yml
-  vars:
-    set_expressions: false
-  when:
-    - ConfigValidated
-    - UpgradabilityChecked
-    - UpgradeReady
-    - TargetPoolsPaused
-    - MutexRulesApplied
-    - MCPUpdated
-    - JobRun
+    - name: Report MCP Restored
+      operator_sdk.util.k8s_status:
+        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        kind: MutexRunConfig
+        name: "{{ ansible_operator_meta.name }}"
+        namespace: "{{ ansible_operator_meta.namespace }}"
+        conditions:
+          - type: MCPUpdated
+            status: "False"
+            reason: SelectorsRestored
+            message: >-
+              The original node selectors of {{ mutexrunconfig_restored_pools | join(', ') }} were restored.
+            lastTransitionTime: "{{ mutexrunconfig_now }}"
+      when: mutexrunconfig_restored_pools | length > 0
+
+    - name: Report Upgrade Finished
+      operator_sdk.util.k8s_status:
+        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        kind: MutexRunConfig
+        name: "{{ ansible_operator_meta.name }}"
+        namespace: "{{ ansible_operator_meta.namespace }}"
+        conditions:
+          - type: UpgradeAvailable
+            status: "False"
+            reason: UpgradeFinished
+            message: All target nodes run {{ desired_version }}.
+            lastTransitionTime: "{{ mutexrunconfig_now }}"
+          - type: UpgradeReady
+            status: "False"
+            reason: UpgradeFinished
+            message: All target nodes run {{ desired_version }}.
+            lastTransitionTime: "{{ mutexrunconfig_now }}"
+      when: JobRun | bool
+
+  rescue:
+    - name: Record Restore Failure
+      ansible.builtin.set_fact:
+        mutexrunconfig_failure: "Restoring the pools failed: {{ mutexrunconfig_failed_msg }}"
+
+- name: Report Run State
+  ansible.builtin.include_tasks: 09-report.yml

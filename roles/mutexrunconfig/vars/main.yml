@@ -1,2 +1,94 @@
 ---
 # vars file for MutexRunConfig
+
+# RFC 3339 UTC timestamp used for every status condition. It is a lazy
+# template, so each use renders the current time.
+mutexrunconfig_now: "{{ now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') }}"
+
+# "<namespace>/<name>" of the MutexRunConfig being reconciled. Written to the
+# paused-by annotation of every MachineConfigPool this run pauses and to the
+# Jobs it creates.
+mutexrunconfig_owner: "{{ ansible_operator_meta.namespace }}/{{ ansible_operator_meta.name }}"
+
+# Node label keys are mutexrule.openshift-optional.skrzypek.io/<rule>.<namespace>.
+mutexrunconfig_label_prefix: "mutexrule.openshift-optional.skrzypek.io/"
+# The "<rule>.<namespace>" part must be a valid label name: at most 63
+# characters, alphanumeric at both ends, [-A-Za-z0-9_.] in between.
+mutexrunconfig_label_name_regex: '^(?=.{1,63}$)[A-Za-z0-9]([-A-Za-z0-9_.]*[A-Za-z0-9])?$'
+
+# Annotations this role writes on MachineConfigPools.
+# original-match-expressions: JSON copy of spec.nodeSelector.matchExpressions
+#   taken before the first selector change; the restore reads it back.
+# paused-by: set when this role pauses a pool; only pools carrying it with this
+#   MutexRunConfig's owner value are ever unpaused by the role.
+mutexrunconfig_annotation_original_expressions: "openshift-optional.skrzypek.io/original-match-expressions"
+mutexrunconfig_annotation_paused_by: "openshift-optional.skrzypek.io/paused-by"
+
+# Label put on every Job the role creates. Its value is a hash of the
+# MutexRunConfig, node, rule, phase and desired version, so a re-entered run
+# finds and reuses a Job it already started instead of starting another one.
+mutexrunconfig_job_key_label: "openshift-optional.skrzypek.io/job-key"
+
+mutexrunconfig_version_label: "machineconfiguration.openshift.io/release-image-version"
+
+# Semantic version as accepted by Ansible's version test (version_type=semver).
+mutexrunconfig_semver_regex: '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(0|[1-9][0-9]*|[0-9]*[a-zA-Z-][a-zA-Z0-9-]*)(\.(0|[1-9][0-9]*|[0-9]*[a-zA-Z-][a-zA-Z0-9-]*))*)?(\+[0-9a-zA-Z-]+(\.[0-9a-zA-Z-]+)*)?$'  # yamllint disable-line rule:line-length
+
+# Builds a label selector string ("k=v,k in (a,b),k notin (c),k,!k") from
+# mutexrunconfig_selector_source, a dict with matchLabels and matchExpressions,
+# which the calling task passes as a task var.
+mutexrunconfig_selector: >-
+  {%- set ns = namespace(parts=[]) -%}
+  {%- for key, value in (mutexrunconfig_selector_source.matchLabels | default({}, true)) | dictsort -%}
+  {%- set ns.parts = ns.parts + [key ~ '=' ~ value] -%}
+  {%- endfor -%}
+  {%- for expression in mutexrunconfig_selector_source.matchExpressions | default([], true) -%}
+  {%- if expression.operator == 'In' -%}
+  {%- set ns.parts = ns.parts + [expression.key ~ ' in (' ~ (expression['values'] | default([], true) | join(',')) ~ ')'] -%}
+  {%- elif expression.operator == 'NotIn' -%}
+  {%- set ns.parts = ns.parts + [expression.key ~ ' notin (' ~ (expression['values'] | default([], true) | join(',')) ~ ')'] -%}
+  {%- elif expression.operator == 'Exists' -%}
+  {%- set ns.parts = ns.parts + [expression.key] -%}
+  {%- elif expression.operator == 'DoesNotExist' -%}
+  {%- set ns.parts = ns.parts + ['!' ~ expression.key] -%}
+  {%- endif -%}
+  {%- endfor -%}
+  {{- ns.parts | join(',') -}}
+
+# Env injected into every container and initContainer of a MutexRule Job,
+# replacing entries with the same names. Rendered per node and rule.
+mutexrunconfig_injected_env_names:
+  - NODE_NAME
+  - MUTEX_RULE
+mutexrunconfig_injected_env:
+  - name: NODE_NAME
+    value: "{{ targetNode }}"
+  - name: MUTEX_RULE
+    value: "{{ mutexrunconfig_rule.name }}"
+
+# nodeAffinity matchExpression added to every nodeSelectorTerm of a MutexRule
+# Job, so its pod never runs on the node that is about to be upgraded.
+mutexrunconfig_node_exclusion:
+  key: kubernetes.io/hostname
+  operator: NotIn
+  values:
+    - "{{ targetNode }}"
+
+# State of the Job last read into mutexrunconfig_job_info:
+# Missing, Failed, Complete or Running.
+mutexrunconfig_job_conditions: >-
+  {{ (mutexrunconfig_job_info.resources | default([]) | first | default({})).status.conditions | default([]) }}
+mutexrunconfig_job_state: >-
+  {{ 'Missing' if (mutexrunconfig_job_info.resources | default([]) | length == 0) else
+     ('Failed' if (mutexrunconfig_job_conditions | selectattr('type', 'equalto', 'Failed')
+                   | selectattr('status', 'equalto', 'True') | list | length > 0) else
+     ('Complete' if (mutexrunconfig_job_conditions | selectattr('type', 'equalto', 'Complete')
+                     | selectattr('status', 'equalto', 'True') | list | length > 0) else
+     'Running')) }}
+
+# Error text for a rescue: the failed task's msg plus the msg of each failed
+# loop item (a looped task only says "One or more items failed").
+mutexrunconfig_failed_msg: >-
+  {{ ([ansible_failed_result.msg | default('')]
+      + (ansible_failed_result.results | default([]) | map(attribute='msg', default='') | list))
+     | select | unique | join(': ') | default('unknown error', true) }}

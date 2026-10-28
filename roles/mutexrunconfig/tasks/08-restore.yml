@@ -1,0 +1,107 @@
+---
+# Puts the cluster back the way it was before the run. Used at the end of a
+# run and by the finalizer when the MutexRunConfig is deleted.
+# Inputs: mutexrunconfig_restore_pools, the canary and target pool names, and
+# mutexrunconfig_restore_nodes, the target nodes (empty: every node).
+#   1. every pool in that list, or paused by this MutexRunConfig, that has an
+#      original-match-expressions annotation gets its saved matchExpressions
+#      back and loses the annotation;
+#   2. this run's mutex labels are removed from the target nodes that have
+#      them (only those, so a MutexRunConfig that shares a MutexRule but
+#      targets other pools keeps its labels);
+#   3. every pool whose paused-by annotation names this MutexRunConfig is
+#      unpaused and loses the annotation. Pools paused by someone else are
+#      never unpaused.
+# Selectors are restored before unpausing, so the nodes are back in their own
+# pools when MCO resumes.
+- name: List MachineConfigPools
+  kubernetes.core.k8s_info:
+    api_version: "machineconfiguration.openshift.io/v1"
+    kind: MachineConfigPool
+  register: mutexrunconfig_all_pools
+
+- name: Reset Restore Facts
+  ansible.builtin.set_fact:
+    mutexrunconfig_unpause_pools: []
+    mutexrunconfig_selector_pools: []
+
+- name: Select Pools To Restore
+  ansible.builtin.set_fact:
+    mutexrunconfig_unpause_pools: >-
+      {{ mutexrunconfig_unpause_pools + ([item.metadata.name] if mutexrunconfig_paused_by_us | bool else []) }}
+    mutexrunconfig_selector_pools: >-
+      {{ mutexrunconfig_selector_pools
+         + ([item] if (mutexrunconfig_pool_annotations[mutexrunconfig_annotation_original_expressions] is defined
+                       and (item.metadata.name in mutexrunconfig_restore_pools or mutexrunconfig_paused_by_us | bool)) else []) }}
+  loop: "{{ mutexrunconfig_all_pools.resources }}"
+  loop_control:
+    label: "{{ item.metadata.name }}"
+  vars:
+    mutexrunconfig_pool_annotations: "{{ item.metadata.annotations | default({}, true) }}"
+    mutexrunconfig_paused_by_us: >-
+      {{ (mutexrunconfig_pool_annotations[mutexrunconfig_annotation_paused_by] | default('')) == mutexrunconfig_owner }}
+
+- name: Restore Pool Node Selectors
+  kubernetes.core.k8s:
+    state: patched
+    merge_type: merge
+    api_version: "machineconfiguration.openshift.io/v1"
+    kind: MachineConfigPool
+    name: "{{ item.metadata.name }}"
+    definition:
+      metadata:
+        annotations:
+          openshift-optional.skrzypek.io/original-match-expressions: null
+      spec:
+        nodeSelector:
+          matchExpressions: "{{ item.metadata.annotations[mutexrunconfig_annotation_original_expressions] | from_json }}"
+  loop: "{{ mutexrunconfig_selector_pools }}"
+  loop_control:
+    label: "{{ item.metadata.name }}"
+
+- name: Find Nodes With Mutex Labels
+  kubernetes.core.k8s_info:
+    api_version: "v1"
+    kind: Node
+    label_selectors:
+      - "{{ item.label }}"
+  loop: "{{ mutexrunconfig_rule_refs }}"
+  loop_control:
+    label: "{{ item.label }}"
+  register: mutexrunconfig_labelled_nodes
+
+- name: Remove Mutex Labels
+  kubernetes.core.k8s:
+    state: patched
+    api_version: "v1"
+    kind: Node
+    name: "{{ item }}"
+    definition:
+      metadata:
+        labels: "{{ mutexrunconfig_remove_labels }}"
+  loop: >-
+    {{ mutexrunconfig_labelled_node_names | intersect(mutexrunconfig_restore_nodes)
+       if mutexrunconfig_restore_nodes | length > 0 else mutexrunconfig_labelled_node_names }}
+  vars:
+    mutexrunconfig_labelled_node_names: >-
+      {{ mutexrunconfig_labelled_nodes.results | map(attribute='resources') | flatten(1)
+         | map(attribute='metadata.name') | unique | list }}
+
+- name: Unpause Pools Paused By This MutexRunConfig
+  kubernetes.core.k8s:
+    state: patched
+    merge_type: merge
+    api_version: "machineconfiguration.openshift.io/v1"
+    kind: MachineConfigPool
+    name: "{{ item }}"
+    definition:
+      metadata:
+        annotations:
+          openshift-optional.skrzypek.io/paused-by: null
+      spec:
+        paused: false
+  loop: "{{ mutexrunconfig_unpause_pools }}"
+
+- name: Record Restored Pools
+  ansible.builtin.set_fact:
+    mutexrunconfig_restored_pools: "{{ mutexrunconfig_selector_pools | map(attribute='metadata.name') | list }}"

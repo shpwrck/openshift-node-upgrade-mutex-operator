@@ -1,0 +1,44 @@
+---
+# Normalises spec.mutexRules and spec.mutexTargets. A reference without a
+# namespace means the MutexRunConfig's own namespace, in every later step and
+# in the finalizer. Each rule also gets its node label key
+# mutexrule.openshift-optional.skrzypek.io/<rule>.<namespace> (01-validate
+# checks that the key is valid) and the matchExpressions that hold labelled
+# nodes in the target pools (Exists) and keep them out of the canary
+# (DoesNotExist).
+- name: Reset References
+  ansible.builtin.set_fact:
+    mutexrunconfig_canary_name: "{{ _openshift_optional_skrzypek_io_mutexrunconfig_spec.canary.name | default('', true) }}"
+    mutexrunconfig_rule_refs: []
+    mutexrunconfig_target_refs: []
+    mutexrunconfig_mutex_labels: {}
+    mutexrunconfig_remove_labels: {}
+    mutexrunconfig_canary_mutex_expressions: []
+    mutexrunconfig_target_mutex_expressions: []
+
+- name: Resolve MutexRule References
+  ansible.builtin.set_fact:
+    mutexrunconfig_rule_refs: >-
+      {{ mutexrunconfig_rule_refs
+         + [{'name': mutexrunconfig_ref_name, 'namespace': mutexrunconfig_ref_namespace, 'label': mutexrunconfig_ref_label}] }}
+    mutexrunconfig_mutex_labels: "{{ mutexrunconfig_mutex_labels | combine({mutexrunconfig_ref_label: ''}) }}"
+    mutexrunconfig_remove_labels: "{{ mutexrunconfig_remove_labels | combine({mutexrunconfig_ref_label: none}) }}"
+    mutexrunconfig_canary_mutex_expressions: "{{ mutexrunconfig_canary_mutex_expressions + [{'key': mutexrunconfig_ref_label, 'operator': 'DoesNotExist'}] }}"
+    mutexrunconfig_target_mutex_expressions: "{{ mutexrunconfig_target_mutex_expressions + [{'key': mutexrunconfig_ref_label, 'operator': 'Exists'}] }}"
+  loop: "{{ _openshift_optional_skrzypek_io_mutexrunconfig_spec.mutexRules | default([], true) }}"
+  loop_control:
+    label: "{{ mutexrunconfig_ref_namespace }}/{{ mutexrunconfig_ref_name }}"
+  vars:
+    mutexrunconfig_ref_name: "{{ item.name | default('', true) }}"
+    mutexrunconfig_ref_namespace: "{{ item.namespace | default(ansible_operator_meta.namespace, true) }}"
+    mutexrunconfig_ref_label: "{{ mutexrunconfig_label_prefix ~ mutexrunconfig_ref_name ~ '.' ~ mutexrunconfig_ref_namespace }}"
+
+- name: Resolve MutexTarget References
+  ansible.builtin.set_fact:
+    mutexrunconfig_target_refs: "{{ mutexrunconfig_target_refs + [{'name': mutexrunconfig_ref_name, 'namespace': mutexrunconfig_ref_namespace}] }}"
+  loop: "{{ _openshift_optional_skrzypek_io_mutexrunconfig_spec.mutexTargets | default([], true) }}"
+  loop_control:
+    label: "{{ mutexrunconfig_ref_namespace }}/{{ mutexrunconfig_ref_name }}"
+  vars:
+    mutexrunconfig_ref_name: "{{ item.name | default('', true) }}"
+    mutexrunconfig_ref_namespace: "{{ item.namespace | default(ansible_operator_meta.namespace, true) }}"

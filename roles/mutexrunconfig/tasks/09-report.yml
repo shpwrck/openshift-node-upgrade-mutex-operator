@@ -1,0 +1,61 @@
+---
+# Reports, at the end of every reconcile, which pools this MutexRunConfig
+# keeps paused and whether that is because something failed.
+#   Degraded=True  PoolsLeftPaused  a step failed while pools are paused: they
+#                                   stay paused (no node is upgraded without
+#                                   its jobs) and the next reconcile retries;
+#   Degraded=False RunInProgress    pools are paused for an upgrade in progress;
+#   Degraded=False NoPoolsPaused    nothing is paused by this MutexRunConfig.
+- name: List MachineConfigPools
+  kubernetes.core.k8s_info:
+    api_version: "machineconfiguration.openshift.io/v1"
+    kind: MachineConfigPool
+  register: mutexrunconfig_report_pools
+
+- name: Reset Report Facts
+  ansible.builtin.set_fact:
+    mutexrunconfig_paused_pools: []
+
+- name: Find Pools Paused By This MutexRunConfig
+  ansible.builtin.set_fact:
+    mutexrunconfig_paused_pools: "{{ mutexrunconfig_paused_pools + [item.metadata.name] }}"
+  loop: "{{ mutexrunconfig_report_pools.resources }}"
+  loop_control:
+    label: "{{ item.metadata.name }}"
+  when:
+    - item.spec.paused | default(false) | bool
+    - ((item.metadata.annotations | default({}, true))[mutexrunconfig_annotation_paused_by] | default('')) == mutexrunconfig_owner
+
+- name: Report Paused
+  operator_sdk.util.k8s_status:
+    api_version: "openshift-optional.skrzypek.io/v1alpha1"
+    kind: MutexRunConfig
+    name: "{{ ansible_operator_meta.name }}"
+    namespace: "{{ ansible_operator_meta.namespace }}"
+    conditions:
+      - type: TargetPoolsPaused
+        status: "{{ (mutexrunconfig_paused_pools | length > 0) | ternary('True', 'False') }}"
+        reason: "{{ (mutexrunconfig_paused_pools | length > 0) | ternary('Paused', 'NotPaused') }}"
+        message: >-
+          {{ ('MachineConfigPools paused by this MutexRunConfig: ' ~ (mutexrunconfig_paused_pools | join(', ')) ~ '.')
+             if mutexrunconfig_paused_pools | length > 0
+             else 'No MachineConfigPool is paused by this MutexRunConfig.' }}
+        lastTransitionTime: "{{ mutexrunconfig_now }}"
+      - type: Degraded
+        status: "{{ (mutexrunconfig_paused_pools | length > 0 and mutexrunconfig_failure | length > 0) | ternary('True', 'False') }}"
+        reason: >-
+          {{ 'NoPoolsPaused' if mutexrunconfig_paused_pools | length == 0
+             else ('PoolsLeftPaused' if mutexrunconfig_failure | length > 0 else 'RunInProgress') }}
+        message: >-
+          {{ ('No MachineConfigPool is paused by this MutexRunConfig.'
+              ~ ((' Last error: ' ~ mutexrunconfig_failure) if mutexrunconfig_failure | length > 0 else ''))
+             if mutexrunconfig_paused_pools | length == 0
+             else (('MachineConfigPools ' ~ (mutexrunconfig_paused_pools | join(', ')) ~ ' stay paused after a failure, and nodes keep their'
+                    ~ ' mutex labels and the pools their changed node selectors, so no target node is upgraded without its jobs.'
+                    ~ ' Error: ' ~ mutexrunconfig_failure ~ ' The operator retries on the next reconcile. To abort instead,'
+                    ~ ' delete this MutexRunConfig: its finalizer unpauses these pools, removes the mutex labels and restores'
+                    ~ ' the node selectors, and MCO then upgrades the remaining nodes WITHOUT running their MutexRule jobs.')
+                   if mutexrunconfig_failure | length > 0
+                   else ('MachineConfigPools ' ~ (mutexrunconfig_paused_pools | join(', ')) ~ ' are paused while the upgrade to '
+                         ~ (desired_version | default('the desired version')) ~ ' is in progress.')) | truncate(2000) }}
+        lastTransitionTime: "{{ mutexrunconfig_now }}"

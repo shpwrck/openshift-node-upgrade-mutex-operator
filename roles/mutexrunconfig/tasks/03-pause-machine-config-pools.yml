@@ -1,38 +1,39 @@
 ---
+# Pauses the target MachineConfigPools and marks each with the paused-by
+# annotation. Only pools marked by this MutexRunConfig are unpaused later
+# (08-restore.yml). A pool an administrator paused already is left as it is:
+# it is paused, which is all the run needs, and the operator will not unpause
+# it.
 - name: Pool Modification Block
   block:
-    - name: Create MachineConfigPool List
-      ansible.builtin.set_fact:
-        machineConfigPoolList: "{{ mutexTargets | community.general.json_query(query) | flatten }}"
-      vars:
-        query: results[*].resources[*].spec.machineConfigPools[*]
-
     - name: Pause Pools
       kubernetes.core.k8s:
+        state: patched
+        merge_type: merge
+        api_version: "machineconfiguration.openshift.io/v1"
+        kind: MachineConfigPool
+        name: "{{ item.item }}"
         definition:
-          apiVersion: "machineconfiguration.openshift.io/v1"
-          kind: MachineConfigPool
           metadata:
-            name: "{{ item }}"
+            annotations:
+              openshift-optional.skrzypek.io/paused-by: "{{ mutexrunconfig_owner }}"
           spec:
-            paused: "{{ paused_bool }}"
-        wait: true
-      loop: "{{ machineConfigPoolList }}"
+            paused: true
+      loop: "{{ mutexrunconfig_target_pools.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+      when: not (item.resources[0].spec.paused | default(false) | bool)
 
-    - name: Report Paused
-      operator_sdk.util.k8s_status:
-        api_version: "openshift-optional.skrzypek.io/v1alpha1"
-        kind: MutexRunConfig
-        name: "{{ ansible_operator_meta.name }}"
-        namespace: "{{ ansible_operator_meta.namespace }}"
-        conditions:
-          - type: TargetPoolsPaused
-            status: "True"
-            reason: "Paused"
-            message: "All target Machine Config Pools are paused"
-            lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
+    - name: Set Machine Config Pools Paused
+      ansible.builtin.set_fact:
+        TargetPoolsPaused: true
 
   rescue:
+    - name: Set Machine Config Pools Paused
+      ansible.builtin.set_fact:
+        TargetPoolsPaused: false
+        mutexrunconfig_failure: "TargetPoolsPaused: {{ mutexrunconfig_failed_msg }}"
+
     - name: Report Not Paused
       operator_sdk.util.k8s_status:
         api_version: "openshift-optional.skrzypek.io/v1alpha1"
@@ -43,10 +44,7 @@
           - type: TargetPoolsPaused
             status: "False"
             reason: "NotPaused"
-            message: "All target Machine Config Pools are not paused"
-            lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
-
-  always:
-    - name: Set Machine Config Pools Paused
-      ansible.builtin.set_fact:
-        TargetPoolsPaused: "{{ (ansible_failed_result is not defined) | ternary('true', 'false') }}"
+            message: >-
+              The target Machine Config Pools could not all be paused:
+              {{ mutexrunconfig_failed_msg | truncate(900) }}
+            lastTransitionTime: "{{ mutexrunconfig_now }}"
