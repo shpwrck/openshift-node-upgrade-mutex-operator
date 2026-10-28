@@ -1,55 +1,105 @@
+# A MutexRule whose Jobs act on the node being upgraded: before the upgrade
+# the Job labels the node, after it the cleanup Job removes the label again.
+#
+# Job contract: the operator adds NODE_NAME (the node being upgraded) and
+# MUTEX_RULE (this MutexRule's name) to every container's env, so the
+# commands use $(NODE_NAME) instead of a hard-coded node. It also keeps the
+# pod off that node. See config/samples for the other fields.
+#
+# The Jobs run as a dedicated ServiceAccount that may only read and patch
+# nodes. Do not grant node access to the 'default' ServiceAccount: every pod
+# in the namespace that sets no serviceAccountName would get it.
+#
+# Everything is created in the operator's namespace (MutexRules are only
+# reconciled there); replace node-upgrade-mutex-operator if you installed
+# the operator elsewhere. The image is the OpenShift CLI; on a cluster with
+# the internal registry you can use the 'cli' image stream instead
+# (image-registry.openshift-image-registry.svc:5000/openshift/cli:latest),
+# which always matches the cluster version.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mutex-node-labeler
+  namespace: node-upgrade-mutex-operator
 ---
-# Cluster Role
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: node-label
+  name: mutex-node-labeler
 rules:
-- apiGroups:
-  - ""
-  resources:
-  - nodes
-  verbs:
-  - list
-  - get
-  - update
-  - patch
+  # 'oc label node' reads the node, then patches it.
+  - apiGroups:
+      - ""
+    resources:
+      - nodes
+    verbs:
+      - get
+      - patch
 ---
-# Cluster Role Binding
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: node-label
+  name: mutex-node-labeler
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: node-label
+  name: mutex-node-labeler
 subjects:
-- kind: ServiceAccount
-  name: default
-  namespace: node-upgrade-mutex-operator
+  - kind: ServiceAccount
+    name: mutex-node-labeler
+    namespace: node-upgrade-mutex-operator
 ---
-# Job
-apiVersion: batch/v1
-kind: Job
+apiVersion: openshift-optional.skrzypek.io/v1alpha1
+kind: MutexRule
 metadata:
-  name: openshift-client
+  name: label-node
   namespace: node-upgrade-mutex-operator
 spec:
-  selector: {}
-  template:
-    metadata:
-      name: openshift-client
-    spec:
-      containers:
-        - name: openshift-client
-          image: 'registry.redhat.io/openshift4/ose-cli@sha256:3ca5a910cd00ea8cc81d132892940a4730c9b39a92c974460a8404445842a4dc'
-          command:
-            - oc
-            - label
-            - node
-            - ip-10-0-11-242.us-east-2.compute.internal
-            - success=true
-            - --overwrite
-      restartPolicy: Never
-...
+  type: kubernetes
+  jobName: label-node
+  timeoutSeconds: 300
+  jobSpec:
+    backoffLimit: 2
+    template:
+      spec:
+        serviceAccountName: mutex-node-labeler
+        restartPolicy: Never
+        containers:
+          - name: oc
+            image: registry.redhat.io/openshift4/ose-cli-rhel9:latest
+            command:
+              - oc
+              - label
+              - node
+              - $(NODE_NAME)
+              - example.com/pre-upgrade-done=true
+              - --overwrite
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                  - ALL
+              seccompProfile:
+                type: RuntimeDefault
+  cleanUpJobSpec:
+    backoffLimit: 2
+    template:
+      spec:
+        serviceAccountName: mutex-node-labeler
+        restartPolicy: Never
+        containers:
+          - name: oc
+            image: registry.redhat.io/openshift4/ose-cli-rhel9:latest
+            command:
+              - oc
+              - label
+              - node
+              - $(NODE_NAME)
+              - example.com/pre-upgrade-done-
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                  - ALL
+              seccompProfile:
+                type: RuntimeDefault

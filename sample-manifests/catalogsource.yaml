@@ -1,14 +1,16 @@
----
+# CatalogSource for installing the operator from a catalog image you built
+# and pushed yourself (make release, or make catalog-build catalog-push with
+# CATALOG_IMG set). Replace the image with your registry and organization.
+# registryPoll makes OLM pick up new versions pushed to the same tag.
 apiVersion: operators.coreos.com/v1alpha1
 kind: CatalogSource
 metadata:
-  name: skrzypek-io
+  name: node-upgrade-mutex-operator-catalog
   namespace: openshift-marketplace
 spec:
-  displayName: Skrzypek Operators
-  image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator-catalog:latest
-  publisher: Jason Skrzypek
+  displayName: Node Upgrade Mutex Operator
+  image: example.com/openshift-node-upgrade-mutex-operator-catalog:latest
   sourceType: grpc
   updateStrategy:
     registryPoll:
-      interval: 1m
+      interval: 10m
