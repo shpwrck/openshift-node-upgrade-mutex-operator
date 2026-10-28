@@ -26,15 +26,15 @@ spec:
       jsonPath: .status.conditions[?(@.type=="ConfigValidated")].status
     - name: Upgrade
       type: string
-      description: Status of the UpgradeAvailable condition (True while a target node is behind the desired version)
+      description: Status of the UpgradeAvailable condition (True while a target node is behind the desired version or still needs its cleanup Jobs)
       jsonPath: .status.conditions[?(@.type=="UpgradeAvailable")].status
     - name: Paused
       type: string
-      description: Status of the TargetPoolsPaused condition (True while this MutexRunConfig keeps pools paused)
+      description: Status of the TargetPoolsPaused condition (True while this MutexRunConfig keeps pools paused or a target pool is paused by someone else)
       jsonPath: .status.conditions[?(@.type=="TargetPoolsPaused")].status
     - name: Degraded
       type: string
-      description: Status of the Degraded condition (True when a failure left pools paused)
+      description: Status of the Degraded condition (True when a step failed while this MutexRunConfig holds pools paused or re-pointed)
       jsonPath: .status.conditions[?(@.type=="Degraded")].status
     - name: Rules
       type: string
@@ -57,8 +57,8 @@ spec:
           (ClusterVersion 'version' status.desired.version) and a target node is behind it, the
           operator pauses the target pools, labels the target nodes, re-points the canary and
           target pool node selectors, and then, one node at a time, runs the MutexRule Jobs,
-          releases the node into the canary pool, waits for it to report the desired version and
-          runs the cleanup Jobs. At the end it restores the selectors and unpauses the pools it
+          releases the node into the canary pool, waits until the node has finished its upgrade
+          and runs the cleanup Jobs. At the end it restores the selectors and unpauses the pools it
           paused. Deleting the MutexRunConfig runs the same restore through its finalizer.
           MutexRunConfigs are only reconciled in the namespace of the operator, and all
           referenced MutexRules and MutexTargets must be in that namespace too.

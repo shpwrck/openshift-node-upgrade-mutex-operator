@@ -2,7 +2,10 @@
 # Asserts that no MutexRunConfig has left anything behind: the canary and
 # target pools match the snapshot in e2e_pools_before (paused, matchLabels,
 # matchExpressions) and carry no openshift-optional.skrzypek.io/ annotation,
-# and no node carries a mutexrule.openshift-optional.skrzypek.io/ label.
+# no node carries a mutexrule.openshift-optional.skrzypek.io/ label, and no
+# node keeps the openshift-optional.skrzypek.io/labelled-by or released-by
+# annotation the operator sets during a run (the node list is the
+# e2e_node_info that pools.yml reads).
 # With e2e_expect_version set, every target node must also report it.
 - name: Read the pools and nodes
   ansible.builtin.include_tasks: pools.yml
@@ -40,4 +43,12 @@
       {%- set ns.p = ns.p + [node ~ ': ' ~ e2e_version_label ~ '=' ~ (labels[e2e_version_label] | default(''))] -%}
       {%- endif -%}
       {%- endfor -%}
+      {%- for node in e2e_node_info.resources -%}
+      {%- for key in (node.metadata.annotations | default({}, true)).keys() if key in e2e_node_marks -%}
+      {%- set ns.p = ns.p + [node.metadata.name ~ ': annotation ' ~ key] -%}
+      {%- endfor -%}
+      {%- endfor -%}
       {{ ns.p | join('; ') }}
+    e2e_node_marks:
+      - "{{ e2e_annotation_prefix }}labelled-by"
+      - "{{ e2e_annotation_prefix }}released-by"

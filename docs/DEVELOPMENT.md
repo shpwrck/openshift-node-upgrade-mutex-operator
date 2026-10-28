@@ -81,7 +81,11 @@ not resolve there. Keep its permissions table in step with `config/rbac/role.yam
 * **Against a cluster:** `make install` to apply the CRDs, then either `make run` (local) or
   `make docker-build docker-push deploy IMG=<image>`. `make run` does not set `POD_NAMESPACE`, so every namespace is
   allowed. Export `POD_NAMESPACE=<namespace>` first to test the namespace boundary. Only an OpenShift cluster has the
-  MachineConfigPool and ClusterVersion APIs the operator needs.
+  MachineConfigPool and ClusterVersion APIs the operator needs. Molecule's `default` scenario then refuses this
+  cluster: its prepare, converge and destroy stop when an operator CRD lacks the label its converge sets, or when a
+  MutexRule, MutexTarget or MutexRunConfig exists outside its test namespaces (`molecule/default/tasks/olm_guard.yml`).
+  Run it on a fresh cluster instead, or run `make undeploy` (after `make deploy`) or `make uninstall` first. Both
+  delete the CRDs, and with them every MutexRule, MutexTarget and MutexRunConfig in the cluster.
 * **Molecule:** `molecule test -s kind` runs the kind scenario in `molecule/kind`. It creates a throwaway kind cluster,
   deploys the operator and checks the reconciles that work without OpenShift. It works with docker, or with podman
   (`KIND_EXPERIMENTAL_PROVIDER=podman`). Rootless podman needs cgroup v2 with the `cpu` controller delegated to the user
@@ -125,12 +129,17 @@ make release-check
 make docker-build docker-push
 make bundle
 make bundle-build bundle-push
-skopeo inspect --format '{{.Digest}}' docker://<IMAGE_TAG_BASE>-bundle:v<VERSION>
-make catalog-add BUNDLE_REF=<IMAGE_TAG_BASE>-bundle@sha256:<digest>
+digest=$(skopeo inspect --format '{{.Digest}}' docker://<IMAGE_TAG_BASE>-bundle:v<VERSION>)
+make catalog-add BUNDLE_REF=<IMAGE_TAG_BASE>-bundle@$digest
 make catalog-render
 make catalog-build catalog-push
 make latest
 ```
+
+`skopeo` prints the full digest, `sha256:...`, so `BUNDLE_REF` gets no second `sha256:` prefix. `catalog-add` does
+not check the format of the reference, and running it again for the same version is refused. To undo a wrong
+`catalog-add`, run `git checkout catalog-template.yaml` (and `git checkout catalog/` if `catalog-render` already ran),
+then run it again.
 
 Then continue with steps 3 and 4.
 
