@@ -363,13 +363,13 @@ reason or message changes.
 | MutexRunConfig | `NodeVersionsKnown` | `True` / `VersionsKnown`, `False` / `VersionLabelMissing` | Every target node has a valid version label, or the nodes that do not. |
 | MutexRunConfig | `UpgradeAvailable` | `True` / `UpgradeAvailable`, `False` / `UpgradeUnavailable`, `False` / `UpgradeFinished` | Whether a target node is behind the target version, or was released and still needs its cleanup Jobs. |
 | MutexRunConfig | `UpgradeReady` | `True` / `UpgradeReady`, `False` / `UpgradeNotReady`, `False` / `UpgradeFinished` | Whether nodes can be released: an upgrade is available and the control plane is done. |
-| MutexRunConfig | `TargetPoolsPaused` | `True` / `Paused`, `False` / `NotPaused` | The pools this MutexRunConfig keeps paused, or why pausing failed. |
+| MutexRunConfig | `TargetPoolsPaused` | `True` / `Paused`, `False` / `NotPaused` | The pools this MutexRunConfig keeps paused and, named separately, the target pools paused by someone else, which it never unpauses. Or why pausing failed. |
 | MutexRunConfig | `MutexRulesApplied` | `True` / `ApplySucceeded`, `False` / `ApplyFailed` | The mutex labels are on the nodes that are behind. |
 | MutexRunConfig | `MCPUpdated` | `True` / `UpdateSucceeded`, `False` / `UpdateFailed`, `False` / `SelectorsRestored` | The selectors are changed for the run, or restored. |
 | MutexRunConfig | `JobRun` | `True` / `JobRunSucceeded`, `False` / `JobRunFailed` | The Jobs of the last node succeeded, or which Job failed and why. |
 | MutexRunConfig | `NodeUpgrade` | `True` / `NodeUpgradeSucceeded`, `True` / `NodeAlreadyUpgraded`, `False` / `NodeUpgradeFailed` | The last node processed and its position ("Node is 2 of 5"). `NodeAlreadyUpgraded`: the node already runs the target version and has no Jobs left, because it was never behind or its Jobs, cleanup included, are done. `NodeUpgradeFailed`: the node did not finish its upgrade in time, and the message says which of the version label, the MCO state, `currentConfig` and `Ready` it is still missing. |
-| MutexRunConfig | `Degraded` | `True` / `PoolsLeftPaused` | A step failed while pools are paused. They stay paused, and the message names the error and how to abort. |
-| MutexRunConfig | `Degraded` | `False` / `RunInProgress`, `False` / `NoPoolsPaused` | A run is in progress, or nothing is paused by this MutexRunConfig. |
+| MutexRunConfig | `Degraded` | `True` / `PoolsLeftPaused` | A step failed while a target pool is paused, by this MutexRunConfig or by someone else, or while a pool still has the node selector this run changed. Everything stays as it is, and the message names the pools, the error and how to abort. |
+| MutexRunConfig | `Degraded` | `False` / `RunInProgress`, `False` / `NoPoolsPaused` | A run is in progress, or nothing is paused or changed by this MutexRunConfig. |
 
 ## Recovery
 
