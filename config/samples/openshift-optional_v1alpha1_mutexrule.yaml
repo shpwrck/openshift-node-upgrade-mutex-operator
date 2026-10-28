@@ -1,3 +1,14 @@
+# A MutexRule must be created in the operator's namespace. Its Jobs run in
+# spec.jobNamespace, which defaults to the MutexRule's own namespace.
+#
+# Job contract: for every target node the operator creates one Job from
+# jobSpec before it releases the node to the canary pool, and one from
+# cleanUpJobSpec after the node reports the desired version. It appends
+# NODE_NAME (the node being upgraded) and MUTEX_RULE (this MutexRule's name)
+# to the env of every container, and keeps the pod off that node with a
+# 'kubernetes.io/hostname NotIn [<node>]' node affinity. Use $(NODE_NAME) in
+# command/args to act on the node. Each Job must complete within
+# timeoutSeconds; a failed Job stops the run and leaves the pools paused.
 apiVersion: openshift-optional.skrzypek.io/v1alpha1
 kind: MutexRule
 metadata:
@@ -9,19 +20,54 @@ metadata:
     app.kubernetes.io/created-by: openshift-node-upgrade-mutex-operator
   name: mutexrule-sample
 spec:
-  jobName: example
-  jobNamespace: node-upgrade-mutex-operator
-  jobSpec:
-    selector: {}
-    template:
-      metadata:
-        name: mutex
-      spec:
-        containers:
-        - command:
-          - sleep
-          - "20"
-          image: ubi9/toolbox
-          name: mutex
-        restartPolicy: Never
   type: kubernetes
+  jobName: pre-upgrade
+  timeoutSeconds: 600
+  jobSpec:
+    backoffLimit: 0
+    template:
+      spec:
+        restartPolicy: Never
+        containers:
+          - name: pre-upgrade
+            image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+            command:
+              - /bin/sh
+              - -c
+            args:
+              - echo "pre-upgrade step for node $(NODE_NAME) (MutexRule $(MUTEX_RULE))"; sleep 20
+            resources:
+              requests:
+                cpu: 10m
+                memory: 16Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                  - ALL
+              seccompProfile:
+                type: RuntimeDefault
+  cleanUpJobSpec:
+    backoffLimit: 0
+    template:
+      spec:
+        restartPolicy: Never
+        containers:
+          - name: post-upgrade
+            image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+            command:
+              - /bin/sh
+              - -c
+            args:
+              - echo "post-upgrade step for node $(NODE_NAME) (MutexRule $(MUTEX_RULE))"
+            resources:
+              requests:
+                cpu: 10m
+                memory: 16Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                  - ALL
+              seccompProfile:
+                type: RuntimeDefault
