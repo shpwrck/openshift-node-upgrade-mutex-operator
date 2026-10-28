@@ -1,4 +1,6 @@
-# permissions for end users to view mutexrunconfigs.
+# Helper ClusterRole for people who view mutexrunconfigs. It is not used by the
+# operator, is not listed in config/rbac/kustomization.yaml and is not
+# shipped in the bundle.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
