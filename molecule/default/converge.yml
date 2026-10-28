@@ -2,17 +2,54 @@
 - name: Converge
   hosts: localhost
   connection: local
-  gather_facts: no
-  collections:
-    - kubernetes.core
+  gather_facts: false
+  vars_files:
+    - vars/e2e.yml
 
   tasks:
-    - name: Create Namespace
-      k8s:
+    - name: Create the test namespace
+      kubernetes.core.k8s:
         api_version: v1
         kind: Namespace
-        name: '{{ namespace }}'
-
-    - import_tasks: kustomize.yml
-      vars:
+        name: "{{ e2e_namespace }}"
         state: present
+
+    - name: Render the test overlay
+      ansible.builtin.include_tasks: tasks/overlay.yml
+
+    - name: Apply the operator manifests
+      kubernetes.core.k8s:
+        definition: "{{ item }}"
+        state: present
+      loop: "{{ e2e_overlay_resources }}"
+      loop_control:
+        label: "{{ item.kind }}/{{ item.metadata.name }}"
+
+    - name: Wait for the CRDs to be established
+      kubernetes.core.k8s_info:
+        api_version: apiextensions.k8s.io/v1
+        kind: CustomResourceDefinition
+        name: "{{ item.metadata.name }}"
+        wait: true
+        wait_condition:
+          type: Established
+          status: "True"
+        wait_timeout: 120
+      loop: "{{ e2e_overlay_resources | selectattr('kind', 'equalto', 'CustomResourceDefinition') | list }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"
+
+    - name: Wait for the operator Deployment to become available
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        name: "{{ item.metadata.name }}"
+        namespace: "{{ e2e_namespace }}"
+        wait: true
+        wait_condition:
+          type: Available
+          status: "True"
+        wait_timeout: "{{ e2e_timeout }}"
+      loop: "{{ e2e_overlay_resources | selectattr('kind', 'equalto', 'Deployment') | list }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"

@@ -1,0 +1,32 @@
+---
+# Fake OpenShift only: sets the fake ClusterVersion 'version' to a completed
+# upgrade to e2e_cv_version (status.desired.version, status.history[0]),
+# keeping e2e_cv_previous as the earlier history entry when given. These are
+# the fields the operator reads to decide that the workers need an upgrade.
+- name: "Set the fake ClusterVersion to a completed {{ e2e_cv_version }}"
+  operator_sdk.util.k8s_status:
+    api_version: config.openshift.io/v1
+    kind: ClusterVersion
+    name: version
+    replace_lists: true
+    status:
+      desired:
+        version: "{{ e2e_cv_version }}"
+        image: "quay.example.com/openshift-release:{{ e2e_cv_version }}"
+      history: "{{ [e2e_latest] + ([e2e_previous] if e2e_cv_previous | default('') | length > 0 else []) }}"
+  vars:
+    e2e_now: "{{ now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') }}"
+    e2e_latest:
+      state: Completed
+      version: "{{ e2e_cv_version }}"
+      image: "quay.example.com/openshift-release:{{ e2e_cv_version }}"
+      startedTime: "{{ e2e_now }}"
+      completionTime: "{{ e2e_now }}"
+      verified: false
+    e2e_previous:
+      state: Completed
+      version: "{{ e2e_cv_previous | default('') }}"
+      image: "quay.example.com/openshift-release:{{ e2e_cv_previous | default('') }}"
+      startedTime: "{{ e2e_now }}"
+      completionTime: "{{ e2e_now }}"
+      verified: false

@@ -1,8 +1,30 @@
 ---
+# Runs the whole operator on a local kind cluster, without OpenShift and
+# without registry credentials:
+#
+#   molecule test -s kind
+#
+# create    a kind cluster with one control-plane and two worker nodes
+#           (KIND_EXPERIMENTAL_PROVIDER=podman is used when docker is absent);
+# prepare   minimal fake OpenShift APIs: MachineConfigPool and ClusterVersion
+#           CRDs with a status subresource, the master/worker/canary pools, a
+#           ClusterVersion 'version', and node labels as MCO and NFD set them;
+# converge  builds the operator image with CONTAINER_TOOL (podman or docker),
+#           loads it into kind and deploys config/testing;
+# verify    ../default/verify.yml with e2e_fake_openshift: the checks of the
+#           default scenario plus a simulated upgrade in which the test plays
+#           the MCO, and the finalizer.
+# Nothing is pulled from registry.redhat.io; the cluster pulls the kind node
+# image and the sample Job image (registry.access.redhat.com/ubi9/ubi-minimal)
+# anonymously.
 dependency:
   name: galaxy
+  options:
+    requirements-file: ${MOLECULE_PROJECT_DIRECTORY}/requirements.yml
 driver:
-  name: delegated
+  name: default
+  options:
+    managed: false
 platforms:
   - name: cluster
     groups:
@@ -10,24 +32,48 @@ platforms:
 provisioner:
   name: ansible
   playbooks:
-    prepare: ../default/prepare.yml
+    prepare: prepare.yml
     verify: ../default/verify.yml
   inventory:
     group_vars:
       all:
-        namespace: ${TEST_OPERATOR_NAMESPACE:-osdk-test}
+        e2e_namespace: ${TEST_OPERATOR_NAMESPACE:-osdk-test}
     host_vars:
       localhost:
-        ansible_python_interpreter: '{{ ansible_playbook_python }}'
+        ansible_python_interpreter: "{{ ansible_playbook_python }}"
+        project_dir: ${MOLECULE_PROJECT_DIRECTORY}
         config_dir: ${MOLECULE_PROJECT_DIRECTORY}/config
         samples_dir: ${MOLECULE_PROJECT_DIRECTORY}/config/samples
-        project_dir: ${MOLECULE_PROJECT_DIRECTORY}
-        operator_image: testing-operator
-        operator_pull_policy: "Never"
-        kubeconfig: "{{ lookup('env', 'KUBECONFIG') }}"
+        overlay_dir: ${MOLECULE_EPHEMERAL_DIRECTORY}/overlay
+        image_archive: ${MOLECULE_EPHEMERAL_DIRECTORY}/operator-image.tar
+        operator_image: ${OPERATOR_IMAGE:-localhost/mutex-operator:molecule}
+        # Set OPERATOR_BUILD=false to load an OPERATOR_IMAGE built beforehand.
+        operator_build: ${OPERATOR_BUILD:-true}
+        operator_pull_policy: Never
+        container_tool: ${CONTAINER_TOOL:-podman}
+        kind: ${KIND:-kind}
+        kind_cluster_name: ${KIND_CLUSTER_NAME:-osdk-test}
+        kind_config: ${MOLECULE_SCENARIO_DIRECTORY}/kind-config.yaml
+        kind_node_image: ${KIND_NODE_IMAGE:-""}
+        kubeconfig: ${MOLECULE_EPHEMERAL_DIRECTORY}/kubeconfig
         kustomize: ${KUSTOMIZE_PATH:-kustomize}
+        e2e_fake_openshift: true
+        # The Job pods print the node they act on; E2E_CHECK_JOB_LOGS=false skips
+        # reading their logs (for clusters whose pods do not really run).
+        e2e_check_job_logs: ${E2E_CHECK_JOB_LOGS:-true}
   env:
     K8S_AUTH_KUBECONFIG: ${MOLECULE_EPHEMERAL_DIRECTORY}/kubeconfig
     KUBECONFIG: ${MOLECULE_EPHEMERAL_DIRECTORY}/kubeconfig
 verifier:
   name: ansible
+scenario:
+  # No idempotence step: converge rebuilds and reloads the image every time.
+  test_sequence:
+    - dependency
+    - destroy
+    - syntax
+    - create
+    - prepare
+    - converge
+    - verify
+    - destroy

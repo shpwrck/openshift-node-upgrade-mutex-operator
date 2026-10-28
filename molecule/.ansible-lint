@@ -1,0 +1,5 @@
+---
+# ansible-lint settings for the molecule playbooks, which the root
+# .ansible-lint excludes. Run from the repository root:
+#   ansible-lint -c molecule/.ansible-lint molecule/
+profile: production

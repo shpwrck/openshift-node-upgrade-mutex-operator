@@ -1,0 +1,41 @@
+---
+# Test parameters shared by every molecule playbook. Scenario-specific
+# settings (cluster, image, e2e_fake_openshift) live in each molecule.yml.
+
+e2e_api_version: openshift-optional.skrzypek.io/v1alpha1
+
+# The CRs come from config/samples (the same files feed the CSV alm-examples).
+e2e_rule_name: mutexrule-sample
+e2e_target_name: mutextarget-sample
+e2e_runconfig_name: mutexrunconfig-sample
+e2e_canary_pool: canary
+e2e_target_pool: worker
+
+# Upper bound in seconds for any single wait (Job runs include image pulls).
+e2e_timeout: 300
+# Reconcile period set on the test MutexRunConfigs with the
+# ansible.sdk.operatorframework.io/reconcile-period annotation, so the
+# operator notices a ClusterVersion change within seconds instead of the 10
+# minutes in watches.yaml. ClusterVersion is not watched by the operator.
+e2e_reconcile_period: 15s
+
+# Names the operator uses on nodes, pools and Jobs (see roles/mutexrunconfig).
+e2e_label_prefix: mutexrule.openshift-optional.skrzypek.io/
+e2e_version_label: machineconfiguration.openshift.io/release-image-version
+e2e_annotation_paused_by: openshift-optional.skrzypek.io/paused-by
+e2e_annotation_original_expressions: openshift-optional.skrzypek.io/original-match-expressions
+e2e_annotation_prefix: openshift-optional.skrzypek.io/
+e2e_finalizer: openshift-optional.skrzypek.io/finalizer
+
+# RFC 3339 UTC timestamps written by the roles.
+e2e_time_regex: '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$'
+
+# Fake OpenShift (kind scenario only): versions the fake ClusterVersion and
+# the nodes' release-image-version labels move through.
+e2e_from_version: "4.16.4"
+e2e_to_version: "4.16.5"
+e2e_abort_version: "4.16.6"
+# The canary pool from the README.
+e2e_canary_expressions:
+  - key: isCanary
+    operator: Exists

@@ -1,0 +1,54 @@
+---
+# One target node of the run in upgrade_test.yml (loop var e2e_node).
+- name: "Run the pre-upgrade Job of {{ e2e_node }}"
+  ansible.builtin.include_tasks: job.yml
+  vars:
+    e2e_phase: pre
+    e2e_job_rule: "{{ e2e_rule_name }}"
+
+- name: "Wait for the operator to release to the canary {{ e2e_node }}"
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Node
+    name: "{{ e2e_node }}"
+  register: e2e_released
+  until: e2e_rule_label not in ((e2e_released.resources | first).metadata.labels | default({}, true))
+  retries: "{{ ((e2e_timeout | int) / 2) | int }}"
+  delay: 2
+
+- name: "List the nodes still labelled after releasing {{ e2e_node }}"
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Node
+    label_selectors:
+      - "{{ e2e_rule_label }}"
+  register: e2e_still_labelled
+
+- name: "Check that the later nodes still wait while upgrading {{ e2e_node }}"
+  ansible.builtin.assert:
+    that:
+      - e2e_waiting | difference(e2e_still_labelled.resources | map(attribute='metadata.name') | list) | length == 0
+    fail_msg: >-
+      Nodes {{ e2e_waiting }} should still carry {{ e2e_rule_label }};
+      labelled: {{ e2e_still_labelled.resources | map(attribute='metadata.name') | list }}
+  vars:
+    e2e_waiting: "{{ e2e_target_nodes[(e2e_node_index | int) + 1 :] }}"
+
+# Playing the MCO: the released node now matches the canary pool, which is
+# unpaused, so MCO would update and reboot it and NFD would publish the new
+# release version as a label.
+- name: "Report the upgraded version, as MCO and NFD would, on {{ e2e_node }}"
+  kubernetes.core.k8s:
+    api_version: v1
+    kind: Node
+    name: "{{ e2e_node }}"
+    state: patched
+    definition:
+      metadata:
+        labels: "{{ {e2e_version_label: e2e_to_version} }}"
+
+- name: "Run the cleanup Job of {{ e2e_node }}"
+  ansible.builtin.include_tasks: job.yml
+  vars:
+    e2e_phase: cleanup
+    e2e_job_rule: "{{ e2e_rule_name }}"

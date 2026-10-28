@@ -1,0 +1,25 @@
+---
+# destroy deletes the CRDs this scenario installs, and with them every
+# MutexRule, MutexTarget and MutexRunConfig in the cluster. Refuse to touch a
+# cluster where OLM manages the operator's CRDs.
+- name: Look for the operator's CRDs
+  kubernetes.core.k8s_info:
+    api_version: apiextensions.k8s.io/v1
+    kind: CustomResourceDefinition
+    name: mutexrunconfigs.openshift-optional.skrzypek.io
+  register: e2e_existing_crd
+
+- name: Refuse to run where OLM manages the operator
+  ansible.builtin.fail:
+    msg: >-
+      The MutexRunConfig CRD on this cluster is managed by OLM
+      ({{ e2e_olm_labels | join(', ') }}). This scenario installs and later
+      deletes the CRDs, which would delete every MutexRule, MutexTarget and
+      MutexRunConfig. Use a cluster without the operator installed.
+  vars:
+    e2e_olm_labels: >-
+      {{ (e2e_existing_crd.resources | first).metadata.labels | default({}, true)
+         | dict2items | map(attribute='key') | select('match', 'operators\.coreos\.com/') | list }}
+  when:
+    - e2e_existing_crd.resources | length > 0
+    - e2e_olm_labels | length > 0

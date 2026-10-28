@@ -1,0 +1,54 @@
+---
+# Trust boundary: a CR outside the operator's namespace (POD_NAMESPACE) gets
+# Reconciled=False reason NamespaceNotAllowed and nothing else happens. This
+# needs the operator to watch every namespace (WATCH_NAMESPACE empty, which is
+# the case outside OLM).
+- name: Explain why the namespace boundary check is skipped
+  ansible.builtin.debug:
+    msg: The operator does not watch every namespace, so a CR in another namespace is never reconciled.
+  when: not e2e_watches_all_namespaces | bool
+
+- name: Check the namespace boundary
+  when: e2e_watches_all_namespaces | bool
+  vars:
+    e2e_foreign_namespace: "{{ e2e_namespace }}-foreign"
+  block:
+    - name: Create a second namespace
+      kubernetes.core.k8s:
+        api_version: v1
+        kind: Namespace
+        name: "{{ e2e_foreign_namespace }}"
+        state: present
+
+    - name: Create the sample MutexRule in the second namespace
+      kubernetes.core.k8s:
+        state: present
+        namespace: "{{ e2e_foreign_namespace }}"
+        definition: "{{ e2e_sample_rule }}"
+
+    - name: Wait for the MutexRule outside the operator namespace to be refused
+      ansible.builtin.include_tasks: conditions.yml
+      vars:
+        e2e_kind: MutexRule
+        e2e_name: "{{ e2e_rule_name }}"
+        e2e_cr_namespace: "{{ e2e_foreign_namespace }}"
+        e2e_expected:
+          - type: Reconciled
+            status: "False"
+            reason: NamespaceNotAllowed
+
+    - name: Check that the refused MutexRule was not validated
+      ansible.builtin.assert:
+        that:
+          - e2e_cr.resources[0].status.conditions | map(attribute='type') | list == ['Reconciled']
+        fail_msg: "conditions: {{ e2e_cr.resources[0].status.conditions | to_json }}"
+
+  always:
+    - name: Delete the second namespace
+      kubernetes.core.k8s:
+        api_version: v1
+        kind: Namespace
+        name: "{{ e2e_foreign_namespace }}"
+        state: absent
+        wait: true
+        wait_timeout: "{{ e2e_timeout }}"

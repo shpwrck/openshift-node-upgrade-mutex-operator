@@ -1,0 +1,9 @@
+# One control-plane node (it runs the operator, as on OpenShift) and two
+# workers, so a MutexRule Job always has a node other than the one being
+# upgraded to run on.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+  - role: worker
+  - role: worker

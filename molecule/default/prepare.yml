@@ -3,26 +3,23 @@
   hosts: localhost
   connection: local
   gather_facts: false
+  vars_files:
+    - vars/e2e.yml
 
   tasks:
-    - name: Ensure operator image is set
-      fail:
-        msg: |
-          You must specify the OPERATOR_IMAGE environment variable in order to run the
-          'default' scenario
+    - name: Ensure the operator image is set
+      ansible.builtin.fail:
+        msg: >-
+          Set OPERATOR_IMAGE to the operator image to test (the 'kind' scenario
+          builds one itself).
       when: not operator_image
 
-    - name: Set testing image
-      command: '{{ kustomize }} edit set image testing={{ operator_image }}'
-      args:
-        chdir: '{{ config_dir }}/testing'
+    - name: Check that kustomize runs
+      ansible.builtin.command:
+        argv:
+          - "{{ kustomize }}"
+          - version
+      changed_when: false
 
-    - name: Set pull policy
-      command: '{{ kustomize }} edit add patch --path pull_policy/{{ operator_pull_policy }}.yaml'
-      args:
-        chdir: '{{ config_dir }}/testing'
-
-    - name: Set testing namespace
-      command: '{{ kustomize }} edit set namespace {{ namespace }}'
-      args:
-        chdir: '{{ config_dir }}/testing'
+    - name: Refuse to run where OLM manages the operator
+      ansible.builtin.include_tasks: tasks/olm_guard.yml

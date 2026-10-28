@@ -1,0 +1,48 @@
+---
+- name: Check the test settings
+  ansible.builtin.import_playbook: ../default/prepare.yml
+
+- name: Install fake OpenShift APIs
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files:
+    - ../default/vars/e2e.yml
+
+  tasks:
+    - name: Install the MachineConfigPool and ClusterVersion CRDs
+      kubernetes.core.k8s:
+        state: present
+        definition: "{{ item }}"
+      loop: "{{ lookup('ansible.builtin.file', 'files/fake-openshift-crds.yaml') | from_yaml_all | list }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"
+
+    - name: Wait for the fake CRDs to be established
+      kubernetes.core.k8s_info:
+        api_version: apiextensions.k8s.io/v1
+        kind: CustomResourceDefinition
+        name: "{{ item }}"
+        wait: true
+        wait_condition:
+          type: Established
+          status: "True"
+        wait_timeout: 120
+      loop:
+        - machineconfigpools.machineconfiguration.openshift.io
+        - clusterversions.config.openshift.io
+
+    - name: Create the ClusterVersion 'version'
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: config.openshift.io/v1
+          kind: ClusterVersion
+          metadata:
+            name: version
+          spec:
+            clusterID: 00000000-0000-0000-0000-000000000000
+            channel: stable-4.16
+
+    - name: Set the pools, node labels and ClusterVersion status
+      ansible.builtin.include_tasks: ../default/tasks/fake_reset.yml

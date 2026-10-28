@@ -1,0 +1,57 @@
+---
+# Deletes every MutexRunConfig, MutexRule and MutexTarget in the test
+# namespace. MutexRunConfigs go first and one at a time, so the operator runs
+# each finalizer (unpause, unlabel, restore selectors) while it is still
+# deployed. A MutexRunConfig the operator cannot finalize (for example when
+# it is not running) has its finalizer removed after e2e_timeout, so cleanup
+# never hangs; nothing is restored for it then.
+- name: List the MutexRunConfigs left in the test namespace
+  kubernetes.core.k8s_info:
+    api_version: "{{ e2e_api_version }}"
+    kind: MutexRunConfig
+    namespace: "{{ e2e_namespace }}"
+  register: e2e_left_runconfigs
+  failed_when: false
+
+- name: Delete the MutexRunConfigs and wait for their finalizers
+  kubernetes.core.k8s:
+    api_version: "{{ e2e_api_version }}"
+    kind: MutexRunConfig
+    name: "{{ item.metadata.name }}"
+    namespace: "{{ e2e_namespace }}"
+    state: absent
+    wait: true
+    wait_timeout: "{{ e2e_timeout }}"
+  loop: "{{ e2e_left_runconfigs.resources | default([]) }}"
+  loop_control:
+    label: "{{ item.metadata.name }}"
+  register: e2e_runconfig_deletions
+  failed_when: false
+
+- name: Remove the finalizer from MutexRunConfigs that were not finalized
+  kubernetes.core.k8s:
+    api_version: "{{ e2e_api_version }}"
+    kind: MutexRunConfig
+    name: "{{ item.item.metadata.name }}"
+    namespace: "{{ e2e_namespace }}"
+    state: patched
+    definition:
+      metadata:
+        finalizers: []
+  loop: "{{ e2e_runconfig_deletions.results | default([]) | selectattr('failed', 'defined') | selectattr('failed') | list }}"
+  loop_control:
+    label: "{{ item.item.metadata.name }}"
+  failed_when: false
+
+- name: Delete the MutexRules and MutexTargets
+  kubernetes.core.k8s:
+    api_version: "{{ e2e_api_version }}"
+    kind: "{{ item }}"
+    namespace: "{{ e2e_namespace }}"
+    delete_all: true
+    state: absent
+    wait: true
+  loop:
+    - MutexRule
+    - MutexTarget
+  failed_when: false

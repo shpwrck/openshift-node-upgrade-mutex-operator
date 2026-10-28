@@ -1,0 +1,72 @@
+---
+# Checks the deployed operator against the namespace contract the tests rely
+# on and gathers facts about the cluster.
+#   e2e_watches_all_namespaces  the operator reconciles CRs in every namespace
+#                               (WATCH_NAMESPACE unset or resolving to '')
+#   e2e_worker_nodes            fake OpenShift only: the kind worker nodes
+- name: Read the operator Deployment
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    namespace: "{{ e2e_namespace }}"
+    label_selectors:
+      - control-plane=controller-manager
+  register: e2e_deployment
+
+- name: Check the operator Deployment and its POD_NAMESPACE
+  ansible.builtin.assert:
+    that:
+      - e2e_deployment.resources | length == 1
+      - (e2e_deployment.resources[0].status.availableReplicas | default(0) | int) >= 1
+      - e2e_pod_namespace_refs == ['metadata.namespace']
+    fail_msg: >-
+      The operator Deployment in {{ e2e_namespace }} must be available, and its manager container must
+      set POD_NAMESPACE from the downward API (valueFrom.fieldRef.fieldPath: metadata.namespace),
+      because the roles only reconcile CRs in that namespace. POD_NAMESPACE fieldRefs found:
+      {{ e2e_pod_namespace_refs | default('none') }}.
+  vars:
+    e2e_manager: >-
+      {{ e2e_deployment.resources[0].spec.template.spec.containers | selectattr('name', 'equalto', 'manager') | first }}
+    e2e_pod_namespace_refs: >-
+      {{ e2e_manager.env | default([], true) | selectattr('name', 'equalto', 'POD_NAMESPACE')
+         | map(attribute='valueFrom.fieldRef.fieldPath', default='') | list }}
+
+# WATCH_NAMESPACE is either unset, a literal value, or (the contract) a
+# fieldRef to the olm.targetNamespaces annotation, which only OLM sets.
+- name: Work out which namespaces the operator watches
+  ansible.builtin.set_fact:
+    e2e_watches_all_namespaces: >-
+      {{ e2e_watch | length == 0
+         or ((e2e_watch[0].value | default('')) | length == 0
+             and (e2e_watch[0].valueFrom.fieldRef.fieldPath | default('')) is search('olm.targetNamespaces')
+             and 'olm.targetNamespaces' not in e2e_pod_annotations) }}
+  vars:
+    e2e_pod_spec: "{{ e2e_deployment.resources[0].spec.template }}"
+    e2e_pod_annotations: "{{ e2e_pod_spec.metadata.annotations | default({}, true) }}"
+    e2e_watch: >-
+      {{ (e2e_pod_spec.spec.containers | selectattr('name', 'equalto', 'manager') | first).env
+         | default([], true) | selectattr('name', 'equalto', 'WATCH_NAMESPACE') | list }}
+
+- name: Find the kind worker nodes
+  when: e2e_fake_openshift | bool
+  block:
+    - name: List the nodes
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Node
+      register: e2e_nodes
+
+    - name: Remember the worker nodes
+      ansible.builtin.set_fact:
+        e2e_worker_nodes: >-
+          {{ e2e_nodes.resources
+             | rejectattr('metadata.labels', 'contains', 'node-role.kubernetes.io/control-plane')
+             | map(attribute='metadata.name') | sort }}
+
+    - name: Check that there are two worker nodes
+      ansible.builtin.assert:
+        that:
+          - e2e_worker_nodes | length >= 2
+        fail_msg: >-
+          The upgrade test needs at least two worker nodes, so a Job can run while
+          another node is upgraded; found {{ e2e_worker_nodes }}.
