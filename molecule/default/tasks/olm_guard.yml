@@ -1,25 +1,72 @@
 ---
-# destroy deletes the CRDs this scenario installs, and with them every
-# MutexRule, MutexTarget and MutexRunConfig in the cluster. Refuse to touch a
-# cluster where OLM manages the operator's CRDs.
+# destroy deletes the CRDs that converge applies, and with them every
+# MutexRule, MutexTarget and MutexRunConfig in the cluster. prepare, converge
+# and destroy therefore refuse a cluster where that would delete anything
+# this scenario did not create:
+# - an operator CRD exists without the label converge puts on the CRDs it
+#   creates (e2e_owner_label set to the test namespace). The operator is then
+#   installed some other way: OLM, make install, make deploy or kustomize, or
+#   a run with another TEST_OPERATOR_NAMESPACE;
+# - a MutexRule, MutexTarget or MutexRunConfig exists outside the test
+#   namespace and the second namespace that namespace_test.yml creates.
+# A cluster without the CRDs passes both checks.
+- name: Name the label that marks the CRDs this scenario created
+  ansible.builtin.set_fact:
+    e2e_owner_label: molecule.openshift-optional.skrzypek.io/test-namespace
+
 - name: Look for the operator's CRDs
   kubernetes.core.k8s_info:
     api_version: apiextensions.k8s.io/v1
     kind: CustomResourceDefinition
-    name: mutexrunconfigs.openshift-optional.skrzypek.io
-  register: e2e_existing_crd
+    name: "{{ item }}.{{ e2e_api_version | split('/') | first }}"
+  loop:
+    - mutexrules
+    - mutextargets
+    - mutexrunconfigs
+  register: e2e_existing_crds
 
-- name: Refuse to run where OLM manages the operator
+- name: Refuse to run where this scenario did not create the CRDs
   ansible.builtin.fail:
     msg: >-
-      The MutexRunConfig CRD on this cluster is managed by OLM
-      ({{ e2e_olm_labels | join(', ') }}). This scenario installs and later
-      deletes the CRDs, which would delete every MutexRule, MutexTarget and
-      MutexRunConfig. Use a cluster without the operator installed.
+      The CRD {{ item.name }} exists but has no label
+      {{ e2e_owner_label }}={{ e2e_namespace }} (its labels:
+      {{ item.labels | default({}, true) | to_json }}), so this
+      scenario did not create it: the operator or its CRDs are installed some
+      other way (OLM, make install, make deploy, kustomize) or by a run with
+      another TEST_OPERATOR_NAMESPACE. destroy deletes the CRDs, which deletes
+      every MutexRule, MutexTarget and MutexRunConfig in the cluster. Use a
+      cluster where the operator and its CRDs are not installed.
+  loop: "{{ e2e_existing_crds.results | map(attribute='resources') | flatten | map(attribute='metadata') }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: (item.labels | default({}, true))[e2e_owner_label] | default('') != e2e_namespace
+
+- name: Look for MutexRules, MutexTargets and MutexRunConfigs in every namespace
+  kubernetes.core.k8s_info:
+    api_version: "{{ e2e_api_version }}"
+    kind: "{{ item }}"
+  loop:
+    - MutexRule
+    - MutexTarget
+    - MutexRunConfig
+  register: e2e_existing_crs
+
+- name: Refuse to run where other namespaces have MutexRules, MutexTargets or MutexRunConfigs
+  ansible.builtin.fail:
+    msg: >-
+      {{ e2e_foreign_names | join(', ') }} exist outside the test namespace
+      {{ e2e_namespace }}. destroy deletes the CRDs, which would delete them
+      too. Use a cluster where the operator and its CRDs are not installed.
   vars:
-    e2e_olm_labels: >-
-      {{ (e2e_existing_crd.resources | first).metadata.labels | default({}, true)
-         | dict2items | map(attribute='key') | select('match', 'operators\.coreos\.com/') | list }}
-  when:
-    - e2e_existing_crd.resources | length > 0
-    - e2e_olm_labels | length > 0
+    e2e_test_namespaces:
+      - "{{ e2e_namespace }}"
+      - "{{ e2e_namespace }}-foreign"
+    e2e_foreign_crs: >-
+      {{ e2e_existing_crs.results | map(attribute='resources') | flatten
+         | rejectattr('metadata.namespace', 'in', e2e_test_namespaces) | list }}
+    # kind/namespace/name
+    e2e_foreign_names: >-
+      {{ e2e_foreign_crs | map(attribute='kind')
+         | zip(e2e_foreign_crs | map(attribute='metadata.namespace'), e2e_foreign_crs | map(attribute='metadata.name'))
+         | map('join', '/') | list }}
+  when: e2e_foreign_crs | length > 0

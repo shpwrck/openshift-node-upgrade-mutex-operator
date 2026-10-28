@@ -2,9 +2,10 @@
 # Deletes every MutexRunConfig, MutexRule and MutexTarget in the test
 # namespace. MutexRunConfigs go first and one at a time, so the operator runs
 # each finalizer (unpause, unlabel, restore selectors) while it is still
-# deployed. A MutexRunConfig the operator cannot finalize (for example when
-# it is not running) has its finalizer removed after e2e_timeout, so cleanup
-# never hangs; nothing is restored for it then.
+# deployed. A MutexRunConfig still there after e2e_timeout (the operator did
+# not finalize it, for example because it is not running) has its finalizer
+# removed, so cleanup and the CRD deletion in destroy do not hang; nothing is
+# restored for it then.
 - name: List the MutexRunConfigs left in the test namespace
   kubernetes.core.k8s_info:
     api_version: "{{ e2e_api_version }}"
@@ -25,22 +26,32 @@
   loop: "{{ e2e_left_runconfigs.resources | default([]) }}"
   loop_control:
     label: "{{ item.metadata.name }}"
-  register: e2e_runconfig_deletions
   failed_when: false
+
+# Read them again rather than relying on each deletion's result: a timed-out
+# wait is not reported as failed under failed_when: false.
+- name: List the MutexRunConfigs that were not finalized
+  kubernetes.core.k8s_info:
+    api_version: "{{ e2e_api_version }}"
+    kind: MutexRunConfig
+    namespace: "{{ e2e_namespace }}"
+  register: e2e_unfinalized_runconfigs
+  failed_when: false
+  when: e2e_left_runconfigs.resources | default([]) | length > 0
 
 - name: Remove the finalizer from MutexRunConfigs that were not finalized
   kubernetes.core.k8s:
     api_version: "{{ e2e_api_version }}"
     kind: MutexRunConfig
-    name: "{{ item.item.metadata.name }}"
+    name: "{{ item.metadata.name }}"
     namespace: "{{ e2e_namespace }}"
     state: patched
     definition:
       metadata:
         finalizers: []
-  loop: "{{ e2e_runconfig_deletions.results | default([]) | selectattr('failed', 'defined') | selectattr('failed') | list }}"
+  loop: "{{ e2e_unfinalized_runconfigs.resources | default([]) }}"
   loop_control:
-    label: "{{ item.item.metadata.name }}"
+    label: "{{ item.metadata.name }}"
   failed_when: false
 
 - name: Delete the MutexRules and MutexTargets

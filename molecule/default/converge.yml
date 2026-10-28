@@ -7,6 +7,10 @@
     - vars/e2e.yml
 
   tasks:
+    # Run here too, as converge also runs on its own (molecule converge).
+    - name: Refuse to run where the operator is installed
+      ansible.builtin.include_tasks: tasks/olm_guard.yml
+
     - name: Create the test namespace
       kubernetes.core.k8s:
         api_version: v1
@@ -17,10 +21,18 @@
     - name: Render the test overlay
       ansible.builtin.include_tasks: tasks/overlay.yml
 
+    # The guard has refused any operator CRD that exists without
+    # e2e_owner_label, so each CRD applied here is new or was created by an
+    # earlier converge of this scenario. The label lets the guard tell the
+    # CRDs this scenario created from those of an installed operator.
     - name: Apply the operator manifests
       kubernetes.core.k8s:
-        definition: "{{ item }}"
+        definition: "{{ item | combine(e2e_owned, recursive=true) if item.kind == 'CustomResourceDefinition' else item }}"
         state: present
+      vars:
+        e2e_owned:
+          metadata:
+            labels: "{{ {e2e_owner_label: e2e_namespace} }}"
       loop: "{{ e2e_overlay_resources }}"
       loop_control:
         label: "{{ item.kind }}/{{ item.metadata.name }}"
