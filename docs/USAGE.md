@@ -27,8 +27,8 @@ MCO upgrades the nodes of a MachineConfigPool once the pool is unpaused. The ope
    pool, which is not paused, picks up a target node once it has lost them, and no node outside the target pools.
 3. Once the control plane has finished (`status.history[0]` is `Completed` for that version), it works through the
    target nodes **one at a time**. It runs the MutexRule Jobs for the node, removes the node's mutex labels (so the
-   node moves into the canary pool and MCO upgrades it), waits for the node to report the new version, then runs
-   the cleanup Jobs.
+   node moves into the canary pool and MCO upgrades it), waits until the node has finished its upgrade (it reports
+   the new version, MCO reports it done, and it is `Ready`), then runs the cleanup Jobs.
 4. After the last node it **restores** the original selectors, removes the labels and unpauses the pools it paused.
 
 When something fails, the pools **stay paused**. No node is upgraded without its Jobs. The MutexRunConfig reports
@@ -263,8 +263,10 @@ Order and timing:
 1. The pre-upgrade Jobs of a node run **one after another**, in the order of `spec.mutexRules`. Each must reach
    `Complete` within the rule's `timeoutSeconds` (default 3600). A `Failed` Job stops the run at once.
 2. The node's mutex labels are then removed. The node moves into the canary pool and MCO upgrades it. The operator
-   waits up to 2 hours (120 checks, 60 seconds apart) for the node's `release-image-version` label to show the new
-   version.
+   waits up to 2 hours (120 checks, 60 seconds apart) until the node has finished its upgrade: its
+   `release-image-version` label shows the new version, its annotation `machineconfiguration.openshift.io/state` is
+   `Done` with `machineconfiguration.openshift.io/currentConfig` equal to `.../desiredConfig`, and its `Ready`
+   condition is `True`. The label alone is not enough: it can show the new version before the node has rebooted.
 3. The cleanup Jobs of the rules that have a `cleanUpJobSpec` then run, in the same order and with the same timeout.
    Only then does the operator turn to the next node.
 
@@ -365,7 +367,7 @@ reason or message changes.
 | MutexRunConfig | `MutexRulesApplied` | `True` / `ApplySucceeded`, `False` / `ApplyFailed` | The mutex labels are on the nodes that are behind. |
 | MutexRunConfig | `MCPUpdated` | `True` / `UpdateSucceeded`, `False` / `UpdateFailed`, `False` / `SelectorsRestored` | The selectors are changed for the run, or restored. |
 | MutexRunConfig | `JobRun` | `True` / `JobRunSucceeded`, `False` / `JobRunFailed` | The Jobs of the last node succeeded, or which Job failed and why. |
-| MutexRunConfig | `NodeUpgrade` | `True` / `NodeUpgradeSucceeded`, `True` / `NodeAlreadyUpgraded`, `False` / `NodeUpgradeFailed` | The last node processed and its position ("Node is 2 of 5"). `NodeAlreadyUpgraded`: the node already runs the target version and has no Jobs left, because it was never behind or its Jobs, cleanup included, are done. |
+| MutexRunConfig | `NodeUpgrade` | `True` / `NodeUpgradeSucceeded`, `True` / `NodeAlreadyUpgraded`, `False` / `NodeUpgradeFailed` | The last node processed and its position ("Node is 2 of 5"). `NodeAlreadyUpgraded`: the node already runs the target version and has no Jobs left, because it was never behind or its Jobs, cleanup included, are done. `NodeUpgradeFailed`: the node did not finish its upgrade in time, and the message says which of the version label, the MCO state, `currentConfig` and `Ready` it is still missing. |
 | MutexRunConfig | `Degraded` | `True` / `PoolsLeftPaused` | A step failed while pools are paused. They stay paused, and the message names the error and how to abort. |
 | MutexRunConfig | `Degraded` | `False` / `RunInProgress`, `False` / `NoPoolsPaused` | A run is in progress, or nothing is paused by this MutexRunConfig. |
 

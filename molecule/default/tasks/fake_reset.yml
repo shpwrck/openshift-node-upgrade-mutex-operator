@@ -5,6 +5,9 @@
 #   - control-plane nodes: node-role.kubernetes.io/master, workers:
 #     node-role.kubernetes.io/worker (as on OpenShift), all with the
 #     release-image-version label NFD would publish, and no mutex label;
+#   - the MCO annotations of a node that is not updating: currentConfig and
+#     desiredConfig rendered-<master|worker>-<hash> and state Done, and no
+#     openshift-optional.skrzypek.io/ annotation;
 #   - MachineConfigPools 'master', 'worker' and the README's 'canary',
 #     recreated so no annotation or selector change survives;
 #   - ClusterVersion 'version' at a completed e2e_from_version.
@@ -14,7 +17,7 @@
     kind: Node
   register: e2e_fake_nodes
 
-- name: Label the nodes like OpenShift nodes running {{ e2e_from_version }}
+- name: Label and annotate the nodes like OpenShift nodes running {{ e2e_from_version }}
   kubernetes.core.k8s:
     api_version: v1
     kind: Node
@@ -27,11 +30,17 @@
                   | select('match', e2e_label_prefix | regex_escape) | product([none]))
              | combine({e2e_version_label: e2e_from_version})
              | combine({'node-role.kubernetes.io/master': ''} if e2e_control_plane else {'node-role.kubernetes.io/worker': ''}) }}
+        annotations: >-
+          {{ dict(item.metadata.annotations | default({}, true) | dict2items | map(attribute='key')
+                  | select('match', e2e_annotation_prefix | regex_escape) | product([none]))
+             | combine({e2e_mco_state: 'Done', e2e_mco_current_config: e2e_rendered_config,
+                        e2e_mco_desired_config: e2e_rendered_config}) }}
   loop: "{{ e2e_fake_nodes.resources }}"
   loop_control:
     label: "{{ item.metadata.name }}"
   vars:
     e2e_control_plane: "{{ 'node-role.kubernetes.io/control-plane' in (item.metadata.labels | default({}, true)) }}"
+    e2e_rendered_config: "rendered-{{ 'master' if e2e_control_plane else 'worker' }}-{{ e2e_rendered_config_hash }}"
 
 - name: Remove the fake MachineConfigPools
   kubernetes.core.k8s:

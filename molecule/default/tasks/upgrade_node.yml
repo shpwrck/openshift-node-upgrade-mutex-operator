@@ -35,9 +35,22 @@
     e2e_waiting: "{{ e2e_target_nodes[(e2e_node_index | int) + 1 :] }}"
 
 # Playing the MCO: the released node now matches the canary pool, which is
-# unpaused, so MCO would update and reboot it and NFD would publish the new
-# release version as a label.
-- name: "Report the upgraded version, as MCO and NFD would, on {{ e2e_node }}"
+# unpaused. MCO gives it the canary's rendered config as desiredConfig and its
+# daemon reports state Working while it drains, updates and reboots the node.
+- name: "Start the update as MCO would, on {{ e2e_node }}"
+  kubernetes.core.k8s:
+    api_version: v1
+    kind: Node
+    name: "{{ e2e_node }}"
+    state: patched
+    definition:
+      metadata:
+        annotations: "{{ {e2e_mco_state: 'Working', e2e_mco_desired_config: e2e_canary_rendered_config} }}"
+
+# NFD can publish the new release version before the reboot (the daemon
+# writes the new config to disk first), so the label alone must not let the
+# operator move on.
+- name: "Publish the new version label before MCO is done, as NFD can, on {{ e2e_node }}"
   kubernetes.core.k8s:
     api_version: v1
     kind: Node
@@ -46,6 +59,43 @@
     definition:
       metadata:
         labels: "{{ {e2e_version_label: e2e_to_version} }}"
+
+- name: "List the Jobs while MCO is still updating {{ e2e_node }}"
+  kubernetes.core.k8s_info:
+    api_version: batch/v1
+    kind: Job
+    namespace: "{{ e2e_namespace }}"
+  register: e2e_early_jobs
+
+- name: "Check that no cleanup Job started while MCO is still updating {{ e2e_node }}"
+  ansible.builtin.assert:
+    that:
+      - e2e_early_cleanup | length == 0
+    fail_msg: "Cleanup Job(s) {{ e2e_early_cleanup }} started while MCO still reports {{ e2e_node }} Working"
+  vars:
+    e2e_early_cleanup: >-
+      {%- set ns = namespace(names=[]) -%}
+      {%- for job in e2e_early_jobs.resources | default([]) -%}
+      {%- set a = job.metadata.annotations | default({}, true) -%}
+      {%- if a[e2e_annotation_prefix ~ 'node'] | default('') == e2e_node
+            and a[e2e_annotation_prefix ~ 'phase'] | default('') == 'cleanup'
+            and a[e2e_annotation_prefix ~ 'mutexrunconfig'] | default('') == e2e_owner -%}
+      {%- set ns.names = ns.names + [job.metadata.name] -%}
+      {%- endif -%}
+      {%- endfor -%}
+      {{ ns.names | join(', ') }}
+
+# After the reboot the daemon reports the new config as current and state
+# Done. The kind and kwok nodes report Ready themselves.
+- name: "Finish the update as MCO would after the reboot, on {{ e2e_node }}"
+  kubernetes.core.k8s:
+    api_version: v1
+    kind: Node
+    name: "{{ e2e_node }}"
+    state: patched
+    definition:
+      metadata:
+        annotations: "{{ {e2e_mco_state: 'Done', e2e_mco_current_config: e2e_canary_rendered_config} }}"
 
 - name: "Run the cleanup Job of {{ e2e_node }}"
   ansible.builtin.include_tasks: job.yml

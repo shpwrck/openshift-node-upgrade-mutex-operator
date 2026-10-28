@@ -6,8 +6,8 @@
 # canary pool is changed to select worker nodes without those labels. Then,
 # one node at a time, the MutexRule Jobs run, the node's labels are removed
 # (so MCO upgrades it through the canary pool), the role waits for the node to
-# report the desired version and runs the cleanup Jobs. At the end the pool
-# selectors are restored and the pools are unpaused.
+# finish its upgrade and runs the cleanup Jobs. At the end the pool selectors
+# are restored and the pools are unpaused.
 #
 # Every step sets a real boolean gate fact: false at the top of its rescue,
 # true as the last task of its block. Status is merged condition by condition

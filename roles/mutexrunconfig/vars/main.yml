@@ -104,6 +104,35 @@ mutexrunconfig_job_state: >-
                      | selectattr('status', 'equalto', 'True') | list | length > 0) else
      'Running')) }}
 
+# Why the node last read into mutexrunconfig_wait_info does not yet count as
+# upgraded (empty once it does). A node is upgraded when its
+# release-image-version label is desired_version, the MCO daemon reports
+# state Done with currentConfig equal to desiredConfig, and its Ready
+# condition is True. The label alone is not enough: it can appear while MCO
+# is still updating the node or before the node has rebooted.
+mutexrunconfig_wait_node: "{{ mutexrunconfig_wait_info.resources | default([]) | first | default({}) }}"
+mutexrunconfig_wait_annotations: "{{ mutexrunconfig_wait_node.metadata.annotations | default({}, true) }}"
+mutexrunconfig_wait_version: "{{ mutexrunconfig_wait_node.metadata.labels[mutexrunconfig_version_label] | default('') }}"
+mutexrunconfig_wait_state: "{{ mutexrunconfig_wait_annotations['machineconfiguration.openshift.io/state'] | default('') }}"
+mutexrunconfig_wait_current_config: "{{ mutexrunconfig_wait_annotations['machineconfiguration.openshift.io/currentConfig'] | default('') }}"
+mutexrunconfig_wait_desired_config: "{{ mutexrunconfig_wait_annotations['machineconfiguration.openshift.io/desiredConfig'] | default('') }}"
+# (A status of "True" or "False" comes back as a boolean, so it is compared
+# as a string.)
+mutexrunconfig_wait_ready: >-
+  {{ mutexrunconfig_wait_node.status.conditions | default([], true) | selectattr('type', 'equalto', 'Ready')
+     | map(attribute='status') | first | default('missing') }}
+mutexrunconfig_wait_problems: >-
+  {{ (['the node could not be read: ' ~ (mutexrunconfig_wait_info.msg | default('not found'))]
+      if mutexrunconfig_wait_info.resources | default([]) | length == 0 else [])
+     + ([] if mutexrunconfig_wait_version == desired_version
+        else ["its " ~ mutexrunconfig_version_label ~ " label is '" ~ mutexrunconfig_wait_version ~ "'"])
+     + ([] if mutexrunconfig_wait_state == 'Done'
+        else ["machineconfiguration.openshift.io/state is '" ~ mutexrunconfig_wait_state ~ "', not 'Done'"])
+     + ([] if mutexrunconfig_wait_current_config == mutexrunconfig_wait_desired_config
+        else ["machineconfiguration.openshift.io/currentConfig '" ~ mutexrunconfig_wait_current_config
+              ~ "' is not its desiredConfig '" ~ mutexrunconfig_wait_desired_config ~ "'"])
+     + ([] if mutexrunconfig_wait_ready | string == 'True' else ["its Ready condition is '" ~ mutexrunconfig_wait_ready ~ "'"]) }}
+
 # Error text for a rescue: the failed task's msg plus the msg of each failed
 # loop item (a looped task only says "One or more items failed").
 mutexrunconfig_failed_msg: >-

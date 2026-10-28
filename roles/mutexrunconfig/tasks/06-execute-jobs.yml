@@ -9,8 +9,10 @@
 #   3. one patch removes the node's mutex labels and its labelled-by
 #      annotation and sets released-by '<owner>|<desired_version>', so it
 #      joins the canary pool and MCO upgrades it;
-#   4. the role waits until the node's release-image-version label equals
-#      desired_version (mutexrunconfig_node_upgrade_retries x _delay);
+#   4. the role waits until the node has finished its upgrade: the
+#      release-image-version label is desired_version, the MCO daemon reports
+#      state Done with currentConfig equal to desiredConfig, and the node is
+#      Ready (mutexrunconfig_node_upgrade_retries x _delay);
 #   5. the cleanup Job of every rule that has a cleanUpJobSpec runs, and then
 #      the released-by annotation is removed.
 # A node that still carries released-by for desired_version was released by
@@ -173,29 +175,24 @@
           ansible.builtin.set_fact:
             mutexrunconfig_node_step: wait
 
-        - name: Wait Until Node Version Matches Desired Version
+        - name: Wait Until The Node Has Finished Its Upgrade
           kubernetes.core.k8s_info:
             api_version: "v1"
             kind: Node
             name: "{{ targetNode }}"
-          register: actual_version
-          until: mutexrunconfig_actual_version == desired_version
+          register: mutexrunconfig_wait_info
+          until: mutexrunconfig_wait_problems | length == 0
           retries: "{{ mutexrunconfig_node_upgrade_retries }}"
           delay: "{{ mutexrunconfig_node_upgrade_delay }}"
           failed_when: false
-          vars:
-            mutexrunconfig_actual_version: &actual_version >-
-              {{ (actual_version.resources | default([]) | first | default({})).metadata.labels[mutexrunconfig_version_label] | default('') }}
 
-        - name: Fail When The Node Did Not Reach The Desired Version
+        - name: Fail When The Node Did Not Finish Its Upgrade
           ansible.builtin.fail:
             msg: >-
-              {{ targetNode }} did not report {{ mutexrunconfig_version_label }}={{ desired_version }}
-              within {{ (mutexrunconfig_node_upgrade_retries | int) * (mutexrunconfig_node_upgrade_delay | int) }}s
-              (it reports '{{ mutexrunconfig_actual_version }}').
-          vars:
-            mutexrunconfig_actual_version: *actual_version
-          when: mutexrunconfig_actual_version != desired_version
+              {{ targetNode }} did not finish its upgrade to {{ desired_version }} within
+              {{ (mutexrunconfig_node_upgrade_retries | int) * (mutexrunconfig_node_upgrade_delay | int) }}s:
+              {{ mutexrunconfig_wait_problems | join('; ') }}.
+          when: mutexrunconfig_wait_problems | length > 0
 
         - name: Set Node Step
           ansible.builtin.set_fact:
