@@ -243,7 +243,8 @@
     # During a run, an expression that was added to the canary's live
     # matchExpressions (for example the one a canary-overlap message
     # suggests) is added to the saved copy, so it is kept for the rest of the
-    # run and restored with the others.
+    # run. 08 keeps it too, also when it was added after this reconcile read
+    # the canary.
     - name: Read Original Canary Expressions
       ansible.builtin.set_fact:
         mutexrunconfig_canary_original_expressions: >-
@@ -334,7 +335,12 @@
     # A pool that is no longer a target but still carries this
     # MutexRunConfig's modified-by (it was removed from the MutexTargets during
     # a run) keeps its labelled nodes until the restore at the end of the run
-    # puts back the canary first, so its nodes are not counted as overlap.
+    # puts back the canary first, so a node of it that this MutexRunConfig
+    # still holds (labelled-by and one of this run's mutex labels, which the
+    # canary's DoesNotExist expressions keep out) is not counted as overlap.
+    # Its other nodes are: one released by this run and still being updated,
+    # or the nodes of a former canary (spec.canary.name changed), are selected
+    # by the canary now.
     - name: Gather MachineConfigPools Re-pointed By This MutexRunConfig
       kubernetes.core.k8s_info:
         api_version: "machineconfiguration.openshift.io/v1"
@@ -360,9 +366,13 @@
           {%- endif -%}
           {%- endfor -%}
           {{ ns.names }}
+        mutexrunconfig_node_held_by_us: >-
+          {{ ((item.metadata.annotations | default({}, true))[mutexrunconfig_annotation_labelled_by] | default('')) == mutexrunconfig_owner
+             and (mutexrunconfig_mutex_labels.keys() | select('in', item.metadata.labels | default({}, true)) | list | length > 0) }}
       when:
         - mutexrunconfig_node_pool | length > 0
-        - mutexrunconfig_node_pool not in ([mutexrunconfig_canary_name] + machineConfigPoolList + mutexrunconfig_held_pools)
+        - mutexrunconfig_node_pool not in ([mutexrunconfig_canary_name] + machineConfigPoolList)
+        - not (mutexrunconfig_node_pool in mutexrunconfig_held_pools and mutexrunconfig_node_held_by_us | bool)
 
     # The expressions to suggest: 'K Exists' for a matchLabels key K of a
     # target pool that every target node carries and no conflicting node does,

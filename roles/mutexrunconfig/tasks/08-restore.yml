@@ -10,9 +10,11 @@
 #      whose MutexTarget is gone and a pool an administrator paused. A pool
 #      changed before modified-by existed (no modified-by) is restored when it
 #      is in mutexrunconfig_restore_pools or paused by this MutexRunConfig;
-#      a pool modified by another MutexRunConfig is never touched. An empty
-#      saved list removes matchExpressions, because a pool without the key
-#      (the usual case) is saved as [];
+#      a pool modified by another MutexRunConfig is never touched. On the
+#      canary, an expression added to its live matchExpressions during the run
+#      (not on a mutex label key, and not in the saved list) is kept, as 01
+#      does. An empty list removes matchExpressions, because a pool without
+#      the key (the usual case) is saved as [];
 #   2. this run's mutex labels are removed from the nodes whose labelled-by
 #      annotation names this MutexRunConfig and from nodes without any
 #      labelled-by (labelled before it existed) that are target nodes or,
@@ -73,9 +75,15 @@
           openshift-optional.skrzypek.io/original-match-expressions: null
           openshift-optional.skrzypek.io/modified-by: null
       spec:
-        nodeSelector: "{{ {'matchExpressions': mutexrunconfig_saved_expressions if mutexrunconfig_saved_expressions | length > 0 else none} }}"
+        nodeSelector: "{{ {'matchExpressions': mutexrunconfig_restored_expressions if mutexrunconfig_restored_expressions | length > 0 else none} }}"
   vars:
     mutexrunconfig_saved_expressions: "{{ item.metadata.annotations[mutexrunconfig_annotation_original_expressions] | from_json }}"
+    mutexrunconfig_added_expressions: >-
+      {{ (item.spec.nodeSelector.matchExpressions | default([], true)
+          | rejectattr('key', 'match', mutexrunconfig_label_prefix | regex_escape)
+          | reject('in', mutexrunconfig_saved_expressions) | list)
+         if item.metadata.name == mutexrunconfig_canary_name else [] }}
+    mutexrunconfig_restored_expressions: "{{ mutexrunconfig_saved_expressions + mutexrunconfig_added_expressions }}"
   loop: "{{ mutexrunconfig_selector_pools }}"
   loop_control:
     label: "{{ item.metadata.name }}"

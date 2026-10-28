@@ -4,7 +4,8 @@
 # How long to wait for a released node to finish its upgrade (the desired
 # machineconfiguration.openshift.io/release-image-version label, MCO state Done
 # with currentConfig equal to desiredConfig, and Ready) after its mutex labels
-# were removed: retries x delay seconds (default 120 x 60s = 2 hours per node).
+# were removed, and for a node MCO was already updating to finish that update:
+# retries x delay seconds (default 120 x 60s = 2 hours per node).
 # How long one Job may run is set per MutexRule (spec.timeoutSeconds, default
 # 3600 in the CRD).
 mutexrunconfig_node_upgrade_retries: 120

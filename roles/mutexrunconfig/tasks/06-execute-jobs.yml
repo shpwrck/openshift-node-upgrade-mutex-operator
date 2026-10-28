@@ -94,6 +94,11 @@
         mutexrunconfig_node_held_by_us: >-
           {{ mutexrunconfig_node_annotations[mutexrunconfig_annotation_labelled_by] | default('') == mutexrunconfig_owner }}
 
+    # A timeout below is reported as NodeUpgradeFailed: no Job has run.
+    - name: Set Node Step
+      ansible.builtin.set_fact:
+        mutexrunconfig_node_step: wait
+
     # MCO may already be updating a node this run has not released (it
     # started before the pools were paused, or the node was released by an
     # earlier version of the operator). Its update finishes first, so no
@@ -122,6 +127,43 @@
       when:
         - mutexrunconfig_wait_info is not skipped
         - mutexrunconfig_wait_mco_problems | length > 0
+
+    # The in-flight list of 02 is read before 03 pauses the pools, so MCO can
+    # still have started another target node since. Such a node is never
+    # taken down together with this one: the reconcile stops here, and the
+    # next one finds it in flight and waits for it first.
+    - name: Gather Target Nodes Before Taking Down This One
+      kubernetes.core.k8s_info:
+        api_version: "v1"
+        kind: Node
+      register: mutexrunconfig_guard_nodes
+      when: not mutexrunconfig_node_released | bool
+
+    - name: Fail When MCO Is Updating Another Target Node
+      ansible.builtin.fail:
+        msg: >-
+          MCO started updating target node(s) {{ mutexrunconfig_others_updating | join(', ') }} after the
+          node check of this reconcile, so {{ targetNode }} was not touched. The next reconcile waits for
+          them first.
+      vars:
+        mutexrunconfig_others_updating: >-
+          {%- set ns = namespace(names=[]) -%}
+          {%- for node in mutexrunconfig_guard_nodes.resources | default([])
+                if node.metadata.name in targetNodeList and node.metadata.name != targetNode -%}
+          {%- set annotations = node.metadata.annotations | default({}, true) -%}
+          {%- if (annotations['machineconfiguration.openshift.io/desiredConfig'] | default(''))
+                 != (annotations['machineconfiguration.openshift.io/currentConfig'] | default('')) -%}
+          {%- set ns.names = ns.names + [node.metadata.name] -%}
+          {%- endif -%}
+          {%- endfor -%}
+          {{ ns.names }}
+      when:
+        - mutexrunconfig_guard_nodes is not skipped
+        - mutexrunconfig_others_updating | length > 0
+
+    - name: Set Node Step
+      ansible.builtin.set_fact:
+        mutexrunconfig_node_step: jobs
 
     # The labels to remove when the node is released: this run's mutex
     # labels and, on a node this MutexRunConfig holds, every other mutex label

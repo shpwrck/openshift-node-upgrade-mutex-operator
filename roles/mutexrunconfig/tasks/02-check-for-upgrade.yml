@@ -20,8 +20,9 @@
 # even when no target node is behind any more.
 #
 # A target node whose desiredConfig differs from its currentConfig is being
-# updated by MCO (mutexrunconfig_inflight_nodes). The run waits for it before
-# it touches any other node (see 06).
+# updated by MCO (mutexrunconfig_inflight_nodes). After the nodes this run
+# released, the run waits for it before it touches any other node (see
+# main.yml and 06).
 - name: Upgrade Check Block
   block:
     - name: Gather ClusterVersion Info
@@ -88,6 +89,21 @@
         mutexrunconfig_annotations: "{{ item.metadata.annotations | default({}, true) }}"
         mutexrunconfig_desired_config: "{{ mutexrunconfig_annotations['machineconfiguration.openshift.io/desiredConfig'] | default('') }}"
         mutexrunconfig_current_config: "{{ mutexrunconfig_annotations['machineconfiguration.openshift.io/currentConfig'] | default('') }}"
+
+    # A node this run released still gets its cleanup Jobs first when it is
+    # no longer a target node, for example because its pool was removed from
+    # the MutexTargets during the run.
+    - name: Collect Released Nodes That Are No Longer Targets
+      ansible.builtin.set_fact:
+        mutexrunconfig_released_nodes: >-
+          {%- set ns = namespace(names=mutexrunconfig_released_nodes) -%}
+          {%- for node in nodes.resources if node.metadata.name not in targetNodeList -%}
+          {%- if ((node.metadata.annotations | default({}, true))[mutexrunconfig_annotation_released_by]
+                  | default('')).startswith(mutexrunconfig_owner ~ '|') -%}
+          {%- set ns.names = ns.names + [node.metadata.name] -%}
+          {%- endif -%}
+          {%- endfor -%}
+          {{ ns.names }}
 
     - name: Find Target Nodes Without A Known Version
       ansible.builtin.set_fact:

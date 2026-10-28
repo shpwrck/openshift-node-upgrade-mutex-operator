@@ -10,7 +10,8 @@
 # annotation, and the modified-by annotation records this MutexRunConfig as
 # the owner of the change; 08-restore.yml puts back the selector of every pool
 # carrying its owner value. On re-entry 01 reads the saved copy, so the
-# annotation keeps the true original.
+# annotation keeps the original; for the canary, 01 adds the expressions
+# added to its live selector during the run, and this task saves them too.
 # MachineConfigPool is a CRD, so these are JSON merge patches: the
 # matchExpressions list is replaced as a whole and matchLabels is untouched.
 - name: Canary Pool Block
@@ -35,6 +36,8 @@
         != (mutexrunconfig_canary_kept_expressions + mutexrunconfig_canary_mutex_expressions)
         or (canaryPool.resources[0].metadata.annotations | default({}, true))[mutexrunconfig_annotation_original_expressions] is not defined
         or (canaryPool.resources[0].metadata.annotations | default({}, true))[mutexrunconfig_annotation_modified_by] | default('') != mutexrunconfig_owner
+        or ((canaryPool.resources[0].metadata.annotations | default({}, true))[mutexrunconfig_annotation_original_expressions]
+            | default('[]') | from_json) != mutexrunconfig_canary_original_expressions
 
     - name: Update TargetPool NodeSelector
       kubernetes.core.k8s:

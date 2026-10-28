@@ -161,7 +161,9 @@
 
 # A node that fails sets JobRun to false, which skips the remaining nodes.
 # Nodes this run already released go first, so their cleanup Jobs finish
-# before any other node starts. ('difference' would reorder the list.)
+# before any other node starts. Target nodes MCO is already updating come
+# next; 06 waits for each before it does anything else. ('difference' would
+# reorder the list.)
 - name: Run Job
   ansible.builtin.include_tasks: 06-execute-jobs.yml
   loop: >-
