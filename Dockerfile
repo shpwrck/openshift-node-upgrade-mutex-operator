@@ -4,15 +4,11 @@ FROM quay.io/operator-framework/ansible-operator:v1.42.3
 
 COPY requirements.yml ${HOME}/requirements.yml
 
-# The base image ships python3.12 without pip. Bootstrap pip into the user
-# site, install the python libraries the roles need (jmespath for
-# community.general.json_query), then drop pip again. The chmod keeps the
-# collections and python packages usable by OpenShift's arbitrary UID (GID 0).
-RUN python3 -m ensurepip --user \
- && python3 -m pip install --user --no-cache-dir jmespath==1.1.0 \
- && python3 -m pip uninstall --yes pip \
- && ansible-galaxy collection install -r ${HOME}/requirements.yml \
- && chmod -R ug+rwx ${HOME}/.ansible ${HOME}/.local
+# The python libraries the roles need (kubernetes, PyYAML, jinja2) ship in the
+# base image, so only the collections are added. The chmod keeps them usable
+# by OpenShift's arbitrary UID (GID 0).
+RUN ansible-galaxy collection install -r ${HOME}/requirements.yml \
+ && chmod -R ug+rwx ${HOME}/.ansible
 
 COPY watches.yaml ${HOME}/watches.yaml
 COPY roles/ ${HOME}/roles/
