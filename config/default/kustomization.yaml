@@ -20,11 +20,15 @@ resources:
 - ../manager
 # [PROMETHEUS] To enable prometheus monitor, uncomment all sections with 'PROMETHEUS'.
 #- ../prometheus
+# [METRICS] Expose the controller manager metrics service.
+- metrics_service.yaml
 
-# Protect the /metrics endpoint by putting it behind auth.
-# If you want your controller-manager to expose the /metrics
-# endpoint w/o any authn/z, please comment the following line.
 patches:
-- path: manager_auth_proxy_patch.yaml
+# [METRICS] Serve the metrics endpoint over HTTPS on :8443 from the manager,
+# protected by RBAC-based authn/authz. More info:
+# https://book.kubebuilder.io/reference/metrics
+- path: manager_metrics_patch.yaml
+  target:
+    kind: Deployment
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
