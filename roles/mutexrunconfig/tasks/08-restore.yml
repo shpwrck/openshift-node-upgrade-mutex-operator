@@ -2,13 +2,21 @@
 # Puts the cluster back the way it was before the run. Used at the end of a
 # run and by the finalizer when the MutexRunConfig is deleted.
 # Inputs: mutexrunconfig_restore_pools, the canary and target pool names, and
-# mutexrunconfig_restore_nodes, the target nodes (empty: every node).
-#   1. every pool in that list, or paused by this MutexRunConfig, that has an
-#      original-match-expressions annotation gets its saved matchExpressions
-#      back and loses the annotation;
-#   2. this run's mutex labels are removed from the target nodes that have
-#      them (only those, so a MutexRunConfig that shares a MutexRule but
-#      targets other pools keeps its labels);
+# mutexrunconfig_restore_nodes, the target nodes (empty when no MutexTarget
+# is left).
+#   1. every pool with an original-match-expressions annotation whose
+#      modified-by annotation names this MutexRunConfig gets its saved
+#      matchExpressions back and loses both annotations. This covers a pool
+#      whose MutexTarget is gone and a pool an administrator paused. A pool
+#      changed before modified-by existed (no modified-by) is restored when it
+#      is in mutexrunconfig_restore_pools or paused by this MutexRunConfig;
+#      a pool modified by another MutexRunConfig is never touched;
+#   2. this run's mutex labels are removed from the target nodes and from the
+#      nodes whose labelled-by annotation names this MutexRunConfig (only
+#      those, so a MutexRunConfig that shares a MutexRule but targets other
+#      pools keeps its labels, also when no MutexTarget of this one is left),
+#      and this MutexRunConfig's labelled-by and released-by annotations are
+#      removed from every node;
 #   3. every pool whose paused-by annotation names this MutexRunConfig is
 #      unpaused and loses the annotation. Pools paused by someone else are
 #      never unpaused.
@@ -32,12 +40,16 @@
     mutexrunconfig_selector_pools: >-
       {{ mutexrunconfig_selector_pools
          + ([item] if (mutexrunconfig_pool_annotations[mutexrunconfig_annotation_original_expressions] is defined
-                       and (item.metadata.name in mutexrunconfig_restore_pools or mutexrunconfig_paused_by_us | bool)) else []) }}
+                       and (mutexrunconfig_modified_by == mutexrunconfig_owner
+                            or (mutexrunconfig_modified_by | length == 0
+                                and (item.metadata.name in mutexrunconfig_restore_pools or mutexrunconfig_paused_by_us | bool))))
+            else []) }}
   loop: "{{ mutexrunconfig_all_pools.resources }}"
   loop_control:
     label: "{{ item.metadata.name }}"
   vars:
     mutexrunconfig_pool_annotations: "{{ item.metadata.annotations | default({}, true) }}"
+    mutexrunconfig_modified_by: "{{ mutexrunconfig_pool_annotations[mutexrunconfig_annotation_modified_by] | default('') }}"
     mutexrunconfig_paused_by_us: >-
       {{ (mutexrunconfig_pool_annotations[mutexrunconfig_annotation_paused_by] | default('')) == mutexrunconfig_owner }}
 
@@ -52,6 +64,7 @@
       metadata:
         annotations:
           openshift-optional.skrzypek.io/original-match-expressions: null
+          openshift-optional.skrzypek.io/modified-by: null
       spec:
         nodeSelector:
           matchExpressions: "{{ item.metadata.annotations[mutexrunconfig_annotation_original_expressions] | from_json }}"
@@ -59,33 +72,49 @@
   loop_control:
     label: "{{ item.metadata.name }}"
 
-- name: Find Nodes With Mutex Labels
+- name: List Nodes
   kubernetes.core.k8s_info:
     api_version: "v1"
     kind: Node
-    label_selectors:
-      - "{{ item.label }}"
-  loop: "{{ mutexrunconfig_rule_refs }}"
-  loop_control:
-    label: "{{ item.label }}"
-  register: mutexrunconfig_labelled_nodes
+  register: mutexrunconfig_restore_node_info
 
-- name: Remove Mutex Labels
+# For each node: the mutex labels to remove and the annotations of this
+# MutexRunConfig to remove. Nodes with nothing to change are left out.
+- name: Select Nodes To Restore
+  ansible.builtin.set_fact:
+    mutexrunconfig_restore_node_patches: >-
+      {%- set ns = namespace(patches=[]) -%}
+      {%- for node in mutexrunconfig_restore_node_info.resources -%}
+      {%- set labels = node.metadata.labels | default({}, true) -%}
+      {%- set annotations = node.metadata.annotations | default({}, true) -%}
+      {%- set held_by_us = annotations[mutexrunconfig_annotation_labelled_by] | default('') == mutexrunconfig_owner -%}
+      {%- set released_by_us = (annotations[mutexrunconfig_annotation_released_by] | default('')).startswith(mutexrunconfig_owner ~ '|') -%}
+      {%- set has_labels = mutexrunconfig_remove_labels.keys() | select('in', labels) | list | length > 0 -%}
+      {%- set unlabel = has_labels and (held_by_us or node.metadata.name in mutexrunconfig_restore_nodes) -%}
+      {%- set unmark = {} -%}
+      {%- if held_by_us -%}{%- set unmark = unmark | combine({mutexrunconfig_annotation_labelled_by: none}) -%}{%- endif -%}
+      {%- if released_by_us -%}{%- set unmark = unmark | combine({mutexrunconfig_annotation_released_by: none}) -%}{%- endif -%}
+      {%- if unlabel or unmark | length > 0 -%}
+      {%- set ns.patches = ns.patches + [{'name': node.metadata.name,
+                                          'labels': mutexrunconfig_remove_labels if unlabel else {},
+                                          'annotations': unmark}] -%}
+      {%- endif -%}
+      {%- endfor -%}
+      {{ ns.patches }}
+
+- name: Remove Mutex Labels And Node Annotations
   kubernetes.core.k8s:
     state: patched
     api_version: "v1"
     kind: Node
-    name: "{{ item }}"
+    name: "{{ item.name }}"
     definition:
       metadata:
-        labels: "{{ mutexrunconfig_remove_labels }}"
-  loop: >-
-    {{ mutexrunconfig_labelled_node_names | intersect(mutexrunconfig_restore_nodes)
-       if mutexrunconfig_restore_nodes | length > 0 else mutexrunconfig_labelled_node_names }}
-  vars:
-    mutexrunconfig_labelled_node_names: >-
-      {{ mutexrunconfig_labelled_nodes.results | map(attribute='resources') | flatten(1)
-         | map(attribute='metadata.name') | unique | list }}
+        labels: "{{ item.labels }}"
+        annotations: "{{ item.annotations }}"
+  loop: "{{ mutexrunconfig_restore_node_patches }}"
+  loop_control:
+    label: "{{ item.name }}"
 
 - name: Unpause Pools Paused By This MutexRunConfig
   kubernetes.core.k8s:

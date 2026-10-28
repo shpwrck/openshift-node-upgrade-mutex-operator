@@ -13,9 +13,10 @@
 #     created); podAffinity, podAntiAffinity and preferred terms are kept;
 #   * the Job is created with generateName '<jobName>-' (cleanup:
 #     'cleanup-<jobName>-') in spec.jobNamespace (default: the MutexRule's
-#     namespace) and must reach Complete within spec.timeoutSeconds (default
-#     mutexrunconfig_job_timeout_seconds). A Failed condition stops the run
-#     at once.
+#     namespace) and must reach Complete within the rule's spec.timeoutSeconds
+#     (the CRD defaults it to 3600, so the literal fallback below only covers a
+#     rule read without the default). A Failed condition stops the run at
+#     once.
 #   * the Job carries the job-key label, a hash of MutexRunConfig, node, rule,
 #     phase and desired version. A re-entered run reuses a Job with the same
 #     key that has not failed (waiting for it if it still runs) rather than
@@ -30,7 +31,7 @@
     mutexrunconfig_job_key: >-
       {{ [mutexrunconfig_owner, targetNode, mutexrunconfig_rule.namespace, mutexrunconfig_rule.name,
           mutexrunconfig_job_phase, desired_version] | join('|') | hash('sha1') }}
-    mutexrunconfig_job_timeout: "{{ mutexrunconfig_rule.spec.timeoutSeconds | default(mutexrunconfig_job_timeout_seconds, true) | int }}"
+    mutexrunconfig_job_timeout: "{{ mutexrunconfig_rule.spec.timeoutSeconds | default(3600, true) | int }}"
     mutexrunconfig_job_containers: []
     mutexrunconfig_job_init_containers: []
     mutexrunconfig_job_terms: []

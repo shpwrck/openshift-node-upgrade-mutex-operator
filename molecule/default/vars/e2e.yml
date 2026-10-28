@@ -25,6 +25,11 @@ e2e_version_label: machineconfiguration.openshift.io/release-image-version
 e2e_annotation_paused_by: openshift-optional.skrzypek.io/paused-by
 e2e_annotation_original_expressions: openshift-optional.skrzypek.io/original-match-expressions
 e2e_annotation_prefix: openshift-optional.skrzypek.io/
+# Node annotations of the Machine Config Operator, which the fake MCO sets
+# (fake_reset.yml, upgrade_node.yml) and the operator reads.
+e2e_mco_state: machineconfiguration.openshift.io/state
+e2e_mco_current_config: machineconfiguration.openshift.io/currentConfig
+e2e_mco_desired_config: machineconfiguration.openshift.io/desiredConfig
 e2e_finalizer: openshift-optional.skrzypek.io/finalizer
 
 # RFC 3339 UTC timestamps written by the roles.
@@ -35,6 +40,11 @@ e2e_time_regex: '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$'
 e2e_from_version: "4.16.4"
 e2e_to_version: "4.16.5"
 e2e_abort_version: "4.16.6"
+# Rendered configs the fake MCO reports: rendered-<pool>-<hash> as current
+# and desired config of a node that is not updating, and the canary's as the
+# config of a node released into the canary.
+e2e_rendered_config_hash: "0e2e1234"
+e2e_canary_rendered_config: "rendered-{{ e2e_canary_pool }}-0e2e5678"
 # The canary pool from the README.
 e2e_canary_expressions:
   - key: isCanary

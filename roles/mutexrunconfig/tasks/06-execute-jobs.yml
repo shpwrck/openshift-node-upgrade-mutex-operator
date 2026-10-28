@@ -1,15 +1,26 @@
 ---
 # Processes one target node (loop var targetNode):
-#   1. a node already at desired_version is skipped: no pre-upgrade and no
-#      cleanup Jobs, only leftover mutex labels are removed;
+#   1. a node already at desired_version without this run's released-by
+#      annotation is skipped: it was never behind, or its Jobs, cleanup
+#      included, are done. Only leftover mutex labels are removed;
 #   2. otherwise the pre-upgrade Job of every rule whose label the node still
 #      carries runs (a Job that already completed for this node, rule and
 #      version is reused, see 07-run-job.yml);
-#   3. the node's mutex labels are removed, so it joins the canary pool and
-#      MCO upgrades it;
-#   4. the role waits until the node's release-image-version label equals
-#      desired_version (mutexrunconfig_node_upgrade_retries x _delay);
-#   5. the cleanup Job of every rule that has a cleanUpJobSpec runs.
+#   3. one patch removes the node's mutex labels and its labelled-by
+#      annotation and sets released-by '<owner>|<desired_version>', so it
+#      joins the canary pool and MCO upgrades it;
+#   4. the role waits until the node has finished its upgrade: the
+#      release-image-version label is desired_version, the MCO daemon reports
+#      state Done with currentConfig equal to desiredConfig, and the node is
+#      Ready (mutexrunconfig_node_upgrade_retries x _delay);
+#   5. the cleanup Job of every rule that has a cleanUpJobSpec runs, and then
+#      the released-by annotation is removed.
+# A node that still carries released-by for desired_version was released by
+# an earlier reconcile that then stopped (a failed or timed-out wait or
+# cleanup Job, or an operator restart). It resumes at step 4: its pre-upgrade
+# Jobs are not run again, and its cleanup Jobs run before the next node is
+# touched (07 reuses a Complete one, waits for a running one and replaces a
+# failed one).
 # Any failure sets JobRun=false, which skips the remaining nodes; the pools
 # stay paused (see main.yml). The loop's own 'when' is evaluated for every
 # node before the first one runs, so the block checks JobRun itself (through
@@ -67,16 +78,22 @@
     - name: Set Node Facts
       ansible.builtin.set_fact:
         mutexrunconfig_node_labels: "{{ nodeResource.resources[0].metadata.labels | default({}, true) }}"
+        mutexrunconfig_node_annotations: "{{ nodeResource.resources[0].metadata.annotations | default({}, true) }}"
 
     - name: Set Node Rule Facts
       ansible.builtin.set_fact:
         mutexrunconfig_node_version: "{{ mutexrunconfig_node_labels[mutexrunconfig_version_label] | default('') }}"
         mutexrunconfig_held_rules: "{{ mutexrunconfig_rules | selectattr('label', 'in', mutexrunconfig_node_labels) | list }}"
+        mutexrunconfig_node_released: >-
+          {{ mutexrunconfig_node_annotations[mutexrunconfig_annotation_released_by] | default('') == mutexrunconfig_released_marker }}
+        mutexrunconfig_node_held_by_us: >-
+          {{ mutexrunconfig_node_annotations[mutexrunconfig_annotation_labelled_by] | default('') == mutexrunconfig_owner }}
 
     - name: Check Whether The Node Is Already Upgraded
       ansible.builtin.set_fact:
         mutexrunconfig_node_upgraded: >-
-          {{ mutexrunconfig_node_version is match(mutexrunconfig_semver_regex)
+          {{ not mutexrunconfig_node_released | bool
+             and mutexrunconfig_node_version is match(mutexrunconfig_semver_regex)
              and not (mutexrunconfig_node_version is version(desired_version, 'lt', version_type='semver')) }}
 
     - name: Remove Leftover Mutex Labels From An Upgraded Node
@@ -88,9 +105,10 @@
         definition:
           metadata:
             labels: "{{ mutexrunconfig_remove_labels }}"
+            annotations: "{{ {mutexrunconfig_annotation_labelled_by: none} if mutexrunconfig_node_held_by_us | bool else {} }}"
       when:
         - mutexrunconfig_node_upgraded | bool
-        - mutexrunconfig_held_rules | length > 0
+        - (mutexrunconfig_held_rules | length > 0) or (mutexrunconfig_node_held_by_us | bool)
 
     - name: Report Node Already Upgraded
       operator_sdk.util.k8s_status:
@@ -103,7 +121,7 @@
             status: "True"
             reason: NodeAlreadyUpgraded
             message: >-
-              {{ targetNode }} already runs {{ mutexrunconfig_node_version }}; its jobs were skipped.
+              {{ targetNode }} already runs {{ mutexrunconfig_node_version }} and has no Jobs left to run.
               Node is {{ mutexrunconfig_node_position }}
             lastTransitionTime: "{{ mutexrunconfig_now }}"
       when: mutexrunconfig_node_upgraded | bool
@@ -113,7 +131,7 @@
       block:
         - name: Launch K8s Jobs
           ansible.builtin.include_tasks: 07-run-job.yml
-          loop: "{{ mutexrunconfig_held_rules }}"
+          loop: "{{ mutexrunconfig_held_rules if not mutexrunconfig_node_released | bool else [] }}"
           loop_control:
             loop_var: mutexrunconfig_rule
             label: "{{ mutexrunconfig_rule.namespace }}/{{ mutexrunconfig_rule.name }}"
@@ -134,8 +152,11 @@
                   Jobs for {{ targetNode }} have run successfully.
                   Node is {{ mutexrunconfig_node_position }}
                 lastTransitionTime: "{{ mutexrunconfig_now }}"
+          when: not mutexrunconfig_node_released | bool
 
-        - name: Remove Mutex Labels
+        # One patch, so the node is never released without the annotation
+        # that makes a later reconcile run its cleanup Jobs.
+        - name: Release The Node
           kubernetes.core.k8s:
             state: patched
             api_version: "v1"
@@ -144,35 +165,34 @@
             definition:
               metadata:
                 labels: "{{ mutexrunconfig_remove_labels }}"
-          when: mutexrunconfig_held_rules | length > 0
+                annotations: "{{ {mutexrunconfig_annotation_labelled_by: none, mutexrunconfig_annotation_released_by: mutexrunconfig_released_marker} }}"
+          when: >-
+            not mutexrunconfig_node_released | bool
+            or mutexrunconfig_held_rules | length > 0
+            or mutexrunconfig_node_held_by_us | bool
 
         - name: Set Node Step
           ansible.builtin.set_fact:
             mutexrunconfig_node_step: wait
 
-        - name: Wait Until Node Version Matches Desired Version
+        - name: Wait Until The Node Has Finished Its Upgrade
           kubernetes.core.k8s_info:
             api_version: "v1"
             kind: Node
             name: "{{ targetNode }}"
-          register: actual_version
-          until: mutexrunconfig_actual_version == desired_version
+          register: mutexrunconfig_wait_info
+          until: mutexrunconfig_wait_problems | length == 0
           retries: "{{ mutexrunconfig_node_upgrade_retries }}"
           delay: "{{ mutexrunconfig_node_upgrade_delay }}"
           failed_when: false
-          vars:
-            mutexrunconfig_actual_version: &actual_version >-
-              {{ (actual_version.resources | default([]) | first | default({})).metadata.labels[mutexrunconfig_version_label] | default('') }}
 
-        - name: Fail When The Node Did Not Reach The Desired Version
+        - name: Fail When The Node Did Not Finish Its Upgrade
           ansible.builtin.fail:
             msg: >-
-              {{ targetNode }} did not report {{ mutexrunconfig_version_label }}={{ desired_version }}
-              within {{ (mutexrunconfig_node_upgrade_retries | int) * (mutexrunconfig_node_upgrade_delay | int) }}s
-              (it reports '{{ mutexrunconfig_actual_version }}').
-          vars:
-            mutexrunconfig_actual_version: *actual_version
-          when: mutexrunconfig_actual_version != desired_version
+              {{ targetNode }} did not finish its upgrade to {{ desired_version }} within
+              {{ (mutexrunconfig_node_upgrade_retries | int) * (mutexrunconfig_node_upgrade_delay | int) }}s:
+              {{ mutexrunconfig_wait_problems | join('; ') }}.
+          when: mutexrunconfig_wait_problems | length > 0
 
         - name: Set Node Step
           ansible.builtin.set_fact:
@@ -186,6 +206,32 @@
             label: "{{ mutexrunconfig_rule.namespace }}/{{ mutexrunconfig_rule.name }}"
           vars:
             mutexrunconfig_job_phase: cleanup
+
+        - name: Clear The Release Mark
+          kubernetes.core.k8s:
+            state: patched
+            api_version: "v1"
+            kind: Node
+            name: "{{ targetNode }}"
+            definition:
+              metadata:
+                annotations: "{{ {mutexrunconfig_annotation_released_by: none} }}"
+
+        - name: Report Cleanup Of A Resumed Node
+          operator_sdk.util.k8s_status:
+            api_version: "openshift-optional.skrzypek.io/v1alpha1"
+            kind: MutexRunConfig
+            name: "{{ ansible_operator_meta.name }}"
+            namespace: "{{ ansible_operator_meta.namespace }}"
+            conditions:
+              - type: JobRun
+                status: "True"
+                reason: JobRunSucceeded
+                message: |-
+                  Jobs for {{ targetNode }} have run successfully (its cleanup Jobs after a retry).
+                  Node is {{ mutexrunconfig_node_position }}
+                lastTransitionTime: "{{ mutexrunconfig_now }}"
+          when: mutexrunconfig_node_released | bool
 
         - name: Report Upgrade Finish
           operator_sdk.util.k8s_status:
