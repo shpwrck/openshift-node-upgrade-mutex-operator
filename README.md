@@ -89,16 +89,17 @@ before every run that the canary:
 * is not already paused or re-pointed by another MutexRunConfig (its `paused-by` or `modified-by` annotation names
   another one). The same applies to the target pools.
 
-During a run the canary keeps those of its own `matchExpressions` that every target node already satisfies, for example
-`node-role.kubernetes.io/infra DoesNotExist`. Other expressions, such as the `isCanary Exists` below, are left out for
-the length of the run and put back afterwards. If validation reports that the canary would select other nodes, add an
-expression that every target node satisfies and those nodes do not. The message names one when it can find it. With
-the sample canary below and a custom target pool, for example `apps` with `matchLabels`
-`node-role.kubernetes.io/app: ""`, the canary would select every worker node during a run, so add
-`node-role.kubernetes.io/app Exists`. The canary keeps that expression outside runs too, so nodes in the canary that
-lack the label move out of it. To keep such a node in the canary, give it the label with a value the target pool does
-not select, for example `node-role.kubernetes.io/app=canary`. With the empty value it would also match `apps`, and MCO
-refuses a node that matches two custom pools.
+During a run the canary keeps those of its own `matchExpressions` that every target node already satisfies, for
+example `node-role.kubernetes.io/infra DoesNotExist`. Other expressions, such as the `isCanary Exists` below, are left
+out for the length of the run and put back afterwards. If validation reports that the canary would select other nodes,
+add an expression that every target node satisfies and those nodes do not. The message names one when it can find it.
+During a run, an expression you add to the canary's `matchExpressions` is added to the saved original, so it is kept
+for the rest of the run and stays after the restore. With the sample canary below and a custom target pool, for
+example `apps` with `matchLabels` `node-role.kubernetes.io/app: ""`, the canary would select every worker node during
+a run, so add `node-role.kubernetes.io/app Exists`. The canary keeps that expression outside runs too, so nodes in the
+canary that lack the label move out of it. To keep such a node in the canary, give it the label with a value the
+target pool does not select, for example `node-role.kubernetes.io/app=canary`. With the empty value it would also
+match `apps`, and MCO refuses a node that matches two custom pools.
 
 The canary should render the same MachineConfigs as the target pools, so a node gets the same configuration in either
 pool:
@@ -154,8 +155,9 @@ fails validation.
 
 ### Upgrading from 0.2.x
 
-0.3.0 is published in the `alpha` channel as the upgrade of 0.2.68, with `skipRange: <0.3.0`, so every 0.2.x
-Subscription is offered it. The common install needs no changes: the operator in its own namespace (for example
+0.3.0 is published in the `alpha` channel as the upgrade of the newest 0.2.x in each catalog (0.2.68, with
+`skipRange: <0.3.0`, in the project's own catalog; 0.2.66 in the community catalogs), so every 0.2.x Subscription is
+offered it. The common install needs no changes: the operator in its own namespace (for example
 `node-upgrade-mutex-operator`, through the console, which creates an `OwnNamespace` OperatorGroup) with every
 MutexRule, MutexTarget and MutexRunConfig in that same namespace keeps working, as long as the CRs pass the new
 schemas (step 3 below) and the canary passes the new checks (step 5). Four changes can break other installs:
@@ -372,7 +374,7 @@ is deleted. Jobs in other namespaces are not.
 | --- | --- | --- |
 | Target MachineConfigPools | `spec.paused: true`, annotation `openshift-optional.skrzypek.io/paused-by: <namespace>/<name>`. Pools that are already paused are left as they are and not annotated. | At the end of the run, and by the finalizer, every pool whose `paused-by` names this MutexRunConfig is unpaused and loses the annotation. A pool an administrator paused stays paused. |
 | Target and canary MachineConfigPools | `spec.nodeSelector.matchExpressions` changed for the run. The original list is saved as JSON in the annotation `openshift-optional.skrzypek.io/original-match-expressions`, and the annotation `openshift-optional.skrzypek.io/modified-by: <namespace>/<name>` names the MutexRunConfig that changed it. | At the end of the run, and by the finalizer, the saved list is put back on every pool whose `modified-by` names this MutexRunConfig, also when its MutexTarget is gone or someone else paused the pool, and both annotations are removed. `matchLabels` is never changed. |
-| Target nodes | Label `mutexrule.openshift-optional.skrzypek.io/<rule>.<namespace>: ""` per MutexRule and annotation `openshift-optional.skrzypek.io/labelled-by: <namespace>/<name>`, only on nodes still behind the new version. When the node is released, the same patch sets the annotation `openshift-optional.skrzypek.io/released-by: <namespace>/<name>\|<version>`. | The labels and `labelled-by` are removed when the node is released. At the end of the run, and by the finalizer, the labels are removed from the target nodes and from the nodes whose `labelled-by` names this MutexRunConfig, which also lose that annotation. `released-by` is removed once the node's cleanup Jobs have completed, and at the end of the run and by the finalizer, which does not run the cleanup Jobs. |
+| Target nodes | Label `mutexrule.openshift-optional.skrzypek.io/<rule>.<namespace>: ""` per MutexRule and annotation `openshift-optional.skrzypek.io/labelled-by: <namespace>/<name>`, only on nodes still behind the new version. When the node is released, the same patch sets the annotation `openshift-optional.skrzypek.io/released-by: <namespace>/<name>\|<version>`. | The labels and `labelled-by` are removed when the node is released. At the end of the run, and by the finalizer, the labels are removed from the nodes whose `labelled-by` names this MutexRunConfig, which also lose that annotation, and from target nodes without any `labelled-by`. A node whose `labelled-by` names another MutexRunConfig keeps its labels. `released-by` is removed once the node's cleanup Jobs have completed, and at the end of the run and by the finalizer, which does not run the cleanup Jobs. |
 | Jobs | Created as described above. | Never deleted by the operator. |
 
 ## Reconcile procedure
@@ -399,7 +401,8 @@ original selectors.
    version is `status.desired.version` of ClusterVersion `version`. Every target node needs a semantic-version
    `release-image-version` label. A node is behind when its version is lower than the target. `UpgradeAvailable` is
    `True` while any target node is behind, and also while a node this run released still needs its cleanup Jobs (its
-   `released-by` annotation names this MutexRunConfig and the target version). `UpgradeReady` is `True` once, in
+   `released-by` annotation names this MutexRunConfig, for any version, so a node released before the cluster moved
+   on to a newer version still counts). `UpgradeReady` is `True` once, in
    addition, `status.history[0]` is `Completed` for the target version.
 4. **Pause** (`TargetPoolsPaused`). As soon as an upgrade is available, before the control plane has finished, the
    target pools are paused and annotated with `paused-by`. The operator does not watch ClusterVersion. It notices the
@@ -413,7 +416,11 @@ original selectors.
    MutexRunConfig. Target pools get `<mutex label> Exists` per rule, and the canary gets its kept expressions plus
    `<mutex label> DoesNotExist` per rule.
 7. **Run, node by node** (`JobRun`, `NodeUpgrade`), once `UpgradeReady` is `True`. Nodes this run has already released
-   come first and resume at the wait. A node already at the target version without a `released-by` annotation for this
+   come first and resume at the wait. Target nodes MCO is already updating (`desiredConfig` differs from
+   `currentConfig`, for example because the update started before the pools were paused) come next: before anything
+   else the operator waits, with the same timeout, until MCO reports the node `Done` and `Ready`, so no other node
+   goes down meanwhile. A node whose update does not finish, for example because its MCO daemon is degraded, stops
+   the run before any other node. A node already at the target version without a `released-by` annotation for this
    run is skipped (`NodeUpgrade=True`, `NodeAlreadyUpgraded`). Otherwise the pre-upgrade Jobs run, the node's mutex
    labels are removed and `released-by` is set, the operator waits until the node has finished its upgrade (version
    label, MCO state `Done`, `currentConfig` equal to `desiredConfig`, `Ready`) and the cleanup Jobs run (see
@@ -537,8 +544,9 @@ targets='[]'
    done
    ```
 
-2. Remove its mutex labels from the nodes whose `labelled-by` names it and from the nodes of its MutexTargets, and
-   remove its `labelled-by` and `released-by` annotations:
+2. Remove its mutex labels from the nodes whose `labelled-by` names it and from the nodes of its MutexTargets that
+   have no `labelled-by` at all, and remove its `labelled-by` and `released-by` annotations. A node whose
+   `labelled-by` names another MutexRunConfig is left alone:
 
    ```sh
    # the mutex label of each MutexRule of the MutexRunConfig
@@ -550,7 +558,8 @@ targets='[]'
    oc get nodes -o json | jq -r --arg mrc "$mrc" --argjson labels "$labels" --argjson targets "$targets" '
      .items[] | .metadata as $m | ($m.annotations // {}) as $a
      | ($a["openshift-optional.skrzypek.io/labelled-by"] == $mrc) as $ours
-     | [$labels[] | select($m.labels[.] != null and ($ours or any($targets[]; . == $m.name)))] as $drop
+     | [$labels[] | select($m.labels[.] != null
+         and ($ours or ($a["openshift-optional.skrzypek.io/labelled-by"] == null and any($targets[]; . == $m.name))))] as $drop
      | [if $ours then "openshift-optional.skrzypek.io/labelled-by" else empty end,
         if ($a["openshift-optional.skrzypek.io/released-by"] // "" | startswith($mrc + "|"))
         then "openshift-optional.skrzypek.io/released-by" else empty end] as $unmark
@@ -579,8 +588,10 @@ targets='[]'
 
 To **retry** after fixing the cause of a `Degraded=True`, do nothing: the next retry (see [Retries](#retries)), at
 most about 17 minutes later, continues where the run stopped. A Job that failed is run again. To retry at once,
-restart the operator pod (`oc delete pod -n <operator namespace> -l control-plane=controller-manager`). On start it
-reconciles every resource, and a run in progress continues where it was (Jobs that already completed are reused).
+restart the operator with
+`oc rollout restart deployment/openshift-node-upgrade-mutex-operator-controller-manager -n <operator namespace>`.
+On start it reconciles every resource, and a run in progress continues where it was (Jobs that already completed are
+reused).
 
 ## Permissions
 
@@ -635,6 +646,10 @@ aggregated roles for these CRDs in every namespace. That is why CRs outside the 
   another, so plan the maintenance window for the sum of their runs. While one works through its nodes, the others
   are not reconciled at all (see [One MutexRunConfig at a time](#one-mutexrunconfig-at-a-time)).
 * A node that does not finish its upgrade within 2 hours stops the run with the pools paused.
+* Editing the MutexRunConfig or its MutexTargets during a run takes effect at the next reconcile. A pool that is no
+  longer a target keeps its labels and selectors until the end of the run and is then restored and unpaused, so its
+  remaining nodes upgrade without their Jobs. The Jobs of a MutexRule removed from `spec.mutexRules` no longer run,
+  and its label goes when the node is released.
 * A failure is retried with a backoff of up to about 17 minutes, and a failed Job is started again on each retry.
 * Deleting a MutexRunConfig takes effect only after the node in progress is finished, or, while another
   MutexRunConfig works through its nodes, after that whole run. It does not run the pending cleanup Jobs of a node
@@ -688,8 +703,10 @@ To use your own binary, pass its path, for example `make bundle OPM=/usr/local/b
 `.envrc` holds the release settings: `MAJOR`, `MINOR`, `PATCH`, `IMAGE_TAG_BASE`, and `USE_IMAGE_DIGESTS=true`, which
 pins the operator image by digest in the bundle. [direnv](https://direnv.net) exports them. Without direnv the
 Makefile still reads the version from `.envrc`, but `IMAGE_TAG_BASE` falls back to the placeholder
-`example.com/openshift-node-upgrade-mutex-operator`, which `make release` refuses. Set `IMAGE_TAG_BASE` to a registry
-you can push to before you push anything.
+`example.com/openshift-node-upgrade-mutex-operator`, which `make release` refuses, and `USE_IMAGE_DIGESTS` to `false`,
+so the bundle references the operator image by tag. Pass both, for example
+`make release IMAGE_TAG_BASE=<registry>/openshift-node-upgrade-mutex-operator USE_IMAGE_DIGESTS=true`. Set
+`IMAGE_TAG_BASE` to a registry you can push to before you push anything.
 
 ### Make targets
 

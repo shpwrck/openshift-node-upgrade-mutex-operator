@@ -36,8 +36,10 @@ To use your own binary, pass its path, for example `make bundle OPM=/usr/local/b
 `.envrc` holds the release settings: `MAJOR`, `MINOR`, `PATCH`, `IMAGE_TAG_BASE`, and `USE_IMAGE_DIGESTS=true`, which
 pins the operator image by digest in the bundle. [direnv](https://direnv.net) exports them. Without direnv the
 Makefile still reads the version from `.envrc`, but `IMAGE_TAG_BASE` falls back to the placeholder
-`example.com/openshift-node-upgrade-mutex-operator`, which `make release` refuses. Set `IMAGE_TAG_BASE` to a registry
-you can push to before you push anything.
+`example.com/openshift-node-upgrade-mutex-operator`, which `make release` refuses, and `USE_IMAGE_DIGESTS` to `false`,
+so the bundle references the operator image by tag. Pass both, for example
+`make release IMAGE_TAG_BASE=<registry>/openshift-node-upgrade-mutex-operator USE_IMAGE_DIGESTS=true`. Set
+`IMAGE_TAG_BASE` to a registry you can push to before you push anything.
 
 ### Make targets
 

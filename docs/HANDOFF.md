@@ -57,9 +57,11 @@ release. The longer the group is published, the more users it breaks.
 * **Version.** `.envrc` is at 0.3.0, because 0.2.67 and 0.2.68 are already published.
 * **The 0.2.x to 0.3.0 upgrade.** `make release` publishes 0.3.0 in `alpha` as the upgrade of 0.2.68, so 0.2.x
   installs with `Automatic` approval take it unattended. 0.3.0 drops `SingleNamespace`, reconciles only CRs in the
-  operator namespace, and its CRDs validate fields that 0.2.x accepted freely. The release notes for 0.3.0 should
-  point to [Upgrading from 0.2.x](USAGE.md#upgrading-from-02x) in `docs/USAGE.md`, which is also in the CSV
-  description. Publishing 0.3.0 in a new channel instead, so that 0.2.x users opt in, is the alternative.
+  operator namespace, and its CRDs validate fields that 0.2.x accepted freely. Publishing `bundles/0.3.0` to the
+  community catalogs has the same effect there: their `updateGraph: semver-mode` makes 0.3.0 the upgrade of 0.2.66.
+  The release notes for 0.3.0 should point to [Upgrading from 0.2.x](USAGE.md#upgrading-from-02x) in
+  `docs/USAGE.md`, which is also in the CSV description. Publishing 0.3.0 in a new channel instead, so that 0.2.x
+  users opt in, is the alternative.
 * **Job namespaces.** `MutexRule.spec.jobNamespace` accepts any namespace, and the Jobs can use any ServiceAccount
   there. Only users who can write in the operator namespace can use it. An allow-list, or a namespaced Role for Jobs,
   would narrow it.
