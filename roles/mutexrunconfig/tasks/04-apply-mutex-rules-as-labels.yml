@@ -2,7 +2,7 @@
 # Labels every target node that is behind desired_version with one mutex label
 # per MutexRule, and marks it with the labelled-by annotation in the same
 # patch. Nodes already at desired_version are not labelled (they need no
-# jobs), and neither are nodes this run already released for desired_version
+# jobs), and neither are nodes this run already released (for any version)
 # or nodes MCO is already updating through the canary (see 02). This keeps a
 # re-entered run from re-labelling nodes it released, which would pull them
 # back into a paused pool.

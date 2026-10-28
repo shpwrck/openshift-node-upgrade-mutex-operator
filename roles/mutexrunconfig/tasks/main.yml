@@ -76,6 +76,7 @@
     targetNodeList: []
     machineConfigPoolList: []
     mutexrunconfig_released_nodes: []
+    mutexrunconfig_inflight_nodes: []
 
 - name: Resolve References
   ansible.builtin.include_tasks: 00-resolve-references.yml
@@ -163,7 +164,10 @@
 # before any other node starts. ('difference' would reorder the list.)
 - name: Run Job
   ansible.builtin.include_tasks: 06-execute-jobs.yml
-  loop: "{{ mutexrunconfig_released_nodes + (targetNodeList | reject('in', mutexrunconfig_released_nodes) | list) }}"
+  loop: >-
+    {{ mutexrunconfig_released_nodes
+       + (mutexrunconfig_inflight_nodes | reject('in', mutexrunconfig_released_nodes) | list)
+       + (targetNodeList | reject('in', mutexrunconfig_released_nodes + mutexrunconfig_inflight_nodes) | list) }}
   loop_control:
     extended: true
     loop_var: targetNode

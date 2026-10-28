@@ -10,12 +10,19 @@
 #      whose MutexTarget is gone and a pool an administrator paused. A pool
 #      changed before modified-by existed (no modified-by) is restored when it
 #      is in mutexrunconfig_restore_pools or paused by this MutexRunConfig;
-#      a pool modified by another MutexRunConfig is never touched;
-#   2. this run's mutex labels are removed from the target nodes and from the
-#      nodes whose labelled-by annotation names this MutexRunConfig (only
-#      those, so a MutexRunConfig that shares a MutexRule but targets other
-#      pools keeps its labels, also when no MutexTarget of this one is left),
-#      and this MutexRunConfig's labelled-by and released-by annotations are
+#      a pool modified by another MutexRunConfig is never touched. An empty
+#      saved list removes matchExpressions, because a pool without the key
+#      (the usual case) is saved as [];
+#   2. this run's mutex labels are removed from the nodes whose labelled-by
+#      annotation names this MutexRunConfig and from nodes without any
+#      labelled-by (labelled before it existed) that are target nodes or,
+#      when no MutexTarget is left, any node. A node whose labelled-by names
+#      another MutexRunConfig keeps its labels, also when it is a target node,
+#      so deleting a MutexRunConfig that shares a MutexRule or a pool with
+#      another one leaves that one's held nodes in its paused pool. A node
+#      whose labelled-by names this MutexRunConfig loses every mutex label,
+#      also that of a MutexRule removed from spec.mutexRules during the run.
+#      This MutexRunConfig's labelled-by and released-by annotations are
 #      removed from every node;
 #   3. every pool whose paused-by annotation names this MutexRunConfig is
 #      unpaused and loses the annotation. Pools paused by someone else are
@@ -66,8 +73,9 @@
           openshift-optional.skrzypek.io/original-match-expressions: null
           openshift-optional.skrzypek.io/modified-by: null
       spec:
-        nodeSelector:
-          matchExpressions: "{{ item.metadata.annotations[mutexrunconfig_annotation_original_expressions] | from_json }}"
+        nodeSelector: "{{ {'matchExpressions': mutexrunconfig_saved_expressions if mutexrunconfig_saved_expressions | length > 0 else none} }}"
+  vars:
+    mutexrunconfig_saved_expressions: "{{ item.metadata.annotations[mutexrunconfig_annotation_original_expressions] | from_json }}"
   loop: "{{ mutexrunconfig_selector_pools }}"
   loop_control:
     label: "{{ item.metadata.name }}"
@@ -90,15 +98,22 @@
       {%- set held_by_us = annotations[mutexrunconfig_annotation_labelled_by] | default('') == mutexrunconfig_owner -%}
       {%- set released_by_us = (annotations[mutexrunconfig_annotation_released_by] | default('')).startswith(mutexrunconfig_owner ~ '|') -%}
       {%- set has_labels = mutexrunconfig_remove_labels.keys() | select('in', labels) | list | length > 0 -%}
-      {%- set unlabel = has_labels and (held_by_us or node.metadata.name in mutexrunconfig_restore_nodes
-                                       or (mutexrunconfig_restore_nodes | length == 0
-                                           and annotations[mutexrunconfig_annotation_labelled_by] is not defined)) -%}
+      {%- set unmarked = annotations[mutexrunconfig_annotation_labelled_by] is not defined -%}
+      {%- set unlabel = has_labels and (held_by_us
+                                       or (unmarked and (node.metadata.name in mutexrunconfig_restore_nodes
+                                                         or mutexrunconfig_restore_nodes | length == 0))) -%}
+      {%- set node_ns = namespace(drop=(mutexrunconfig_remove_labels if unlabel else {})) -%}
+      {%- if held_by_us -%}
+      {%- for key in labels.keys() if key.startswith(mutexrunconfig_label_prefix) -%}
+      {%- set node_ns.drop = node_ns.drop | combine({key: none}) -%}
+      {%- endfor -%}
+      {%- endif -%}
       {%- set unmark = {} -%}
       {%- if held_by_us -%}{%- set unmark = unmark | combine({mutexrunconfig_annotation_labelled_by: none}) -%}{%- endif -%}
       {%- if released_by_us -%}{%- set unmark = unmark | combine({mutexrunconfig_annotation_released_by: none}) -%}{%- endif -%}
-      {%- if unlabel or unmark | length > 0 -%}
+      {%- if node_ns.drop | length > 0 or unmark | length > 0 -%}
       {%- set ns.patches = ns.patches + [{'name': node.metadata.name,
-                                          'labels': mutexrunconfig_remove_labels if unlabel else {},
+                                          'labels': node_ns.drop,
                                           'annotations': unmark}] -%}
       {%- endif -%}
       {%- endfor -%}

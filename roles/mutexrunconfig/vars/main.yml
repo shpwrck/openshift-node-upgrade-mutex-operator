@@ -31,13 +31,14 @@ mutexrunconfig_annotation_paused_by: "openshift-optional.skrzypek.io/paused-by"
 
 # Annotations this role writes on target nodes.
 # labelled-by: owner, set together with the mutex labels and removed with
-#   them. The restore removes mutex labels only from the target nodes and from
-#   nodes carrying this owner value, so MutexRunConfigs that share a MutexRule
-#   never remove each other's labels.
+#   them. The restore removes mutex labels only from nodes carrying this
+#   owner value and from target nodes without labelled-by, so MutexRunConfigs
+#   that share a MutexRule or a pool never remove each other's labels.
 # released-by: '<owner>|<desired version>', set in the same patch that removes
 #   the node's mutex labels and cleared once its cleanup Jobs have completed.
-#   A node carrying it for the desired version was released by this run and
-#   still needs its cleanup Jobs, also after a failure or an operator restart.
+#   A node carrying it with this owner (for any version) was released by this
+#   run and still needs its cleanup Jobs, also after a failure, an operator
+#   restart or a move of the cluster to a newer version.
 mutexrunconfig_annotation_labelled_by: "openshift-optional.skrzypek.io/labelled-by"
 mutexrunconfig_annotation_released_by: "openshift-optional.skrzypek.io/released-by"
 mutexrunconfig_released_marker: "{{ mutexrunconfig_owner }}|{{ desired_version | default('') }}"
@@ -122,10 +123,14 @@ mutexrunconfig_wait_ready: >-
   {{ mutexrunconfig_wait_node.status.conditions | default([], true) | selectattr('type', 'equalto', 'Ready')
      | map(attribute='status') | first | default('missing') }}
 mutexrunconfig_wait_problems: >-
+  {{ ([] if mutexrunconfig_wait_version == desired_version
+      else ["its " ~ mutexrunconfig_version_label ~ " label is '" ~ mutexrunconfig_wait_version ~ "'"])
+     + mutexrunconfig_wait_mco_problems }}
+# The same without the version label: MCO has finished whatever update it was
+# applying to the node.
+mutexrunconfig_wait_mco_problems: >-
   {{ (['the node could not be read: ' ~ (mutexrunconfig_wait_info.msg | default('not found'))]
       if mutexrunconfig_wait_info.resources | default([]) | length == 0 else [])
-     + ([] if mutexrunconfig_wait_version == desired_version
-        else ["its " ~ mutexrunconfig_version_label ~ " label is '" ~ mutexrunconfig_wait_version ~ "'"])
      + ([] if mutexrunconfig_wait_state == 'Done'
         else ["machineconfiguration.openshift.io/state is '" ~ mutexrunconfig_wait_state ~ "', not 'Done'"])
      + ([] if mutexrunconfig_wait_current_config == mutexrunconfig_wait_desired_config

@@ -240,16 +240,25 @@
              else (item.resources[0].spec.nodeSelector.matchExpressions | default([], true)
                    | rejectattr('key', 'match', mutexrunconfig_label_prefix | regex_escape) | list) }}
 
+    # During a run, an expression that was added to the canary's live
+    # matchExpressions (for example the one a canary-overlap message
+    # suggests) is added to the saved copy, so it is kept for the rest of the
+    # run and restored with the others.
     - name: Read Original Canary Expressions
       ansible.builtin.set_fact:
         mutexrunconfig_canary_original_expressions: >-
-          {{ (mutexrunconfig_pool_annotations[mutexrunconfig_annotation_original_expressions] | from_json)
+          {{ (mutexrunconfig_canary_saved_expressions
+              + (mutexrunconfig_canary_live_expressions | reject('in', mutexrunconfig_canary_saved_expressions) | list))
              if mutexrunconfig_pool_annotations[mutexrunconfig_annotation_original_expressions] is defined
-             else (canaryPool.resources[0].spec.nodeSelector.matchExpressions | default([], true)
-                   | rejectattr('key', 'match', mutexrunconfig_label_prefix | regex_escape) | list) }}
+             else mutexrunconfig_canary_live_expressions }}
         mutexrunconfig_canary_match_labels: "{{ canaryPool.resources[0].spec.nodeSelector.matchLabels }}"
       vars:
         mutexrunconfig_pool_annotations: "{{ canaryPool.resources[0].metadata.annotations | default({}, true) }}"
+        mutexrunconfig_canary_saved_expressions: >-
+          {{ mutexrunconfig_pool_annotations[mutexrunconfig_annotation_original_expressions] | default('[]') | from_json }}
+        mutexrunconfig_canary_live_expressions: >-
+          {{ canaryPool.resources[0].spec.nodeSelector.matchExpressions | default([], true)
+             | rejectattr('key', 'match', mutexrunconfig_label_prefix | regex_escape) | list }}
 
     # Target nodes released from their pool must be able to join the canary.
     - name: Gather Nodes Matching The Canary Labels
@@ -322,6 +331,16 @@
           matchExpressions: "{{ mutexrunconfig_canary_kept_expressions }}"
       register: mutexrunconfig_canary_run_nodes
 
+    # A pool that is no longer a target but still carries this
+    # MutexRunConfig's modified-by (it was removed from the MutexTargets during
+    # a run) keeps its labelled nodes until the restore at the end of the run
+    # puts back the canary first, so its nodes are not counted as overlap.
+    - name: Gather MachineConfigPools Re-pointed By This MutexRunConfig
+      kubernetes.core.k8s_info:
+        api_version: "machineconfiguration.openshift.io/v1"
+        kind: MachineConfigPool
+      register: mutexrunconfig_validate_all_pools
+
     - name: Find Nodes That Would Belong To Two Pools
       ansible.builtin.set_fact:
         mutexrunconfig_canary_conflicts: "{{ mutexrunconfig_canary_conflicts + [item.metadata.name ~ ' (pool ' ~ mutexrunconfig_node_pool ~ ')'] }}"
@@ -333,9 +352,17 @@
         mutexrunconfig_node_pool: >-
           {{ (item.metadata.annotations | default({}, true))['machineconfiguration.openshift.io/currentConfig'] | default('')
              | regex_replace('^rendered-', '') | regex_replace('-[0-9a-f]+$', '') }}
+        mutexrunconfig_held_pools: >-
+          {%- set ns = namespace(names=[]) -%}
+          {%- for pool in mutexrunconfig_validate_all_pools.resources -%}
+          {%- if (pool.metadata.annotations | default({}, true))[mutexrunconfig_annotation_modified_by] | default('') == mutexrunconfig_owner -%}
+          {%- set ns.names = ns.names + [pool.metadata.name] -%}
+          {%- endif -%}
+          {%- endfor -%}
+          {{ ns.names }}
       when:
         - mutexrunconfig_node_pool | length > 0
-        - mutexrunconfig_node_pool not in ([mutexrunconfig_canary_name] + machineConfigPoolList)
+        - mutexrunconfig_node_pool not in ([mutexrunconfig_canary_name] + machineConfigPoolList + mutexrunconfig_held_pools)
 
     # The expressions to suggest: 'K Exists' for a matchLabels key K of a
     # target pool that every target node carries and no conflicting node does,
@@ -370,13 +397,15 @@
       ansible.builtin.fail:
         msg: >-
           During a run the canary MachineConfigPool {{ mutexrunconfig_canary_name }} would also select
-          {{ mutexrunconfig_canary_conflicts | join(', ') }}, which belong to no target pool. MCO would move
-          them into the canary and upgrade them with it, or refuse them for matching two pools. Add to the
+          {{ mutexrunconfig_canary_conflicts | length }} node(s) that belong to no target pool. Add to the
           canary's nodeSelector.matchExpressions an expression that every target node satisfies and these
           nodes do not, here {{ mutexrunconfig_canary_suggestions
           if mutexrunconfig_canary_suggestions | length > 0
           else "for example 'node-role.kubernetes.io/<role of the target nodes> Exists'" }}. It is kept
-          during runs.
+          during runs. Otherwise MCO would move these nodes into the canary and upgrade them with it, or
+          refuse them for matching two pools. The nodes: {{ mutexrunconfig_canary_conflicts[:10] | join(', ') }}{{
+          (' and ' ~ (mutexrunconfig_canary_conflicts | length - 10) ~ ' more')
+          if mutexrunconfig_canary_conflicts | length > 10 else '' }}.
       when: mutexrunconfig_canary_conflicts | length > 0
 
     - name: Report Configuration Results
