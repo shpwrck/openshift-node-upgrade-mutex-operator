@@ -14,6 +14,31 @@
 # stay paused (see main.yml). The loop's own 'when' is evaluated for every
 # node before the first one runs, so the block checks JobRun itself (through
 # a copy, because block conditions also apply to the rescue).
+#
+# A delete does not interrupt a running reconcile: ansible-operator runs the
+# finalizer only after this reconcile returns. So before each node the
+# MutexRunConfig is read again and, once it is being deleted, the remaining
+# nodes are skipped and the finalizer takes over.
+- name: Read The MutexRunConfig Again
+  kubernetes.core.k8s_info:
+    api_version: "openshift-optional.skrzypek.io/v1alpha1"
+    kind: MutexRunConfig
+    name: "{{ ansible_operator_meta.name }}"
+    namespace: "{{ ansible_operator_meta.namespace }}"
+  register: mutexrunconfig_current
+  when: JobRun | bool
+
+- name: Stop When The MutexRunConfig Is Being Deleted
+  ansible.builtin.set_fact:
+    JobRun: false
+    mutexrunconfig_failure: >-
+      The MutexRunConfig is being deleted, so {{ targetNode }} and the nodes after it were not processed.
+      Its finalizer restores the pools, labels and selectors next.
+  when:
+    - JobRun | bool
+    - (mutexrunconfig_current.resources | length == 0)
+      or ((mutexrunconfig_current.resources[0].metadata.deletionTimestamp | default('', true)) | length > 0)
+
 - name: Decide Whether To Process This Node
   ansible.builtin.set_fact:
     mutexrunconfig_node_enabled: "{{ JobRun }}"
