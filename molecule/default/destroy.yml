@@ -7,7 +7,7 @@
     - vars/e2e.yml
 
   tasks:
-    - name: Refuse to run where OLM manages the operator
+    - name: Refuse to run where the operator is installed
       ansible.builtin.include_tasks: tasks/olm_guard.yml
 
     # First, while the operator still runs, so it can run the finalizers.

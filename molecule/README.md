@@ -6,7 +6,7 @@ end. `tests/Scenarios.md` lists what each one covers.
 | Scenario | Cluster | Use it for |
 | --- | --- | --- |
 | `kind` | a new kind cluster (1 control plane, 2 workers) with fake OpenShift APIs | the full run: simulated upgrade and finalizer; runs in CI (`.github/workflows/e2e.yaml`) |
-| `default` | whatever `KUBECONFIG` points at, e.g. an OpenShift test cluster | checks that are safe on a real cluster; never simulates an upgrade |
+| `default` | whatever `KUBECONFIG` points at, e.g. an OpenShift test cluster where the operator and its CRDs are not installed by any method | checks that are safe on a real cluster; never simulates an upgrade |
 
 ## Requirements
 
@@ -21,6 +21,8 @@ end. `tests/Scenarios.md` lists what each one covers.
   (https://kind.sigs.k8s.io/docs/user/rootless/).
 - `default`: an operator image the cluster can pull (`OPERATOR_IMAGE`), and
   for the MutexRunConfig checks a `canary` MachineConfigPool (see the README).
+  The cluster must not have the operator or its CRDs installed by any method
+  (OLM, `make install`, `make deploy`, kustomize), see below.
 
 No registry login is needed: the image builds from public base images, and
 the cluster pulls the sample Job image from registry.access.redhat.com
@@ -35,9 +37,21 @@ export KUSTOMIZE_PATH=$PWD/bin/kustomize-v5.8.3   # after: make kustomize
 molecule test -s kind
 CONTAINER_TOOL=docker molecule test -s kind
 
-# A real cluster; destroy removes what converge installed
+# A real cluster without the operator; destroy deletes only the CRDs converge created
 OPERATOR_IMAGE=quay.io/<org>/openshift-node-upgrade-mutex-operator:<tag> molecule test -s default
 ```
+
+The `default` scenario's destroy, which `molecule test` also runs first,
+deletes the operator's CRDs, and deleting a CRD deletes every MutexRule,
+MutexTarget and MutexRunConfig in the cluster. converge therefore labels the
+CRDs it creates with
+`molecule.openshift-optional.skrzypek.io/test-namespace=<TEST_OPERATOR_NAMESPACE>`,
+and prepare, converge and destroy refuse to run when an operator CRD exists
+without that label (the operator is installed some other way, or by a run
+with another `TEST_OPERATOR_NAMESPACE`) or when a MutexRule, MutexTarget or
+MutexRunConfig exists outside the test namespace (and the
+`<TEST_OPERATOR_NAMESPACE>-foreign` namespace of the namespace boundary
+check). On a cluster without the CRDs, both checks pass.
 
 `molecule converge -s kind` then `molecule verify -s kind` keeps the cluster
 for debugging (`molecule destroy -s kind` removes it); verify can be re-run on
@@ -73,4 +87,5 @@ molecule never edits tracked files: the image, pull policy and namespace go
 into a throwaway kustomize overlay in `$MOLECULE_EPHEMERAL_DIRECTORY`.
 
 Lint: `yamllint -c hack/yamllint.yaml molecule/` and
-`ansible-lint -c molecule/.ansible-lint molecule/`.
+`ansible-lint -c molecule/.ansible-lint --project-dir . molecule/`, from the
+repository root.

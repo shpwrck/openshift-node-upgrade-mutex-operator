@@ -10,8 +10,14 @@
 # namespace boundary and, when the cluster is not upgrading and a canary
 # pool exists, the MutexRunConfig no-upgrade path. It never simulates an
 # upgrade; that runs only in the 'kind' scenario against fake OpenShift APIs.
-# destroy removes the CRDs it installed, so prepare refuses to run where the
-# operator is already installed through OLM.
+#
+# It needs a cluster where the operator and its CRDs are not installed by any
+# method (OLM, make install, make deploy, kustomize): destroy, which also runs
+# first, deletes the CRDs, and with them every MutexRule, MutexTarget and
+# MutexRunConfig in the cluster. converge labels the CRDs it creates, and
+# prepare, converge and destroy refuse to run when an operator CRD lacks that
+# label or such a CR exists outside the test namespace (tasks/olm_guard.yml),
+# so destroy only deletes CRDs this scenario created.
 dependency:
   name: galaxy
   options:
