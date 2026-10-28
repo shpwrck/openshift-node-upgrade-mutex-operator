@@ -7,8 +7,8 @@ metadata:
     categories: OpenShift Optional
     certified: "false"
     containerImage: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator
-    description: |
-      This software injects required operations into the worker node upgrade process.
+    description: Runs required Jobs before each worker node is upgraded, one node
+      at a time, by gating MachineConfigPool rollouts during an OpenShift upgrade.
     features.operators.openshift.io/cnf: "false"
     features.operators.openshift.io/cni: "false"
     features.operators.openshift.io/csi: "false"
@@ -21,7 +21,7 @@ metadata:
     features.operators.openshift.io/token-auth-gcp: "false"
     operatorframework.io/suggested-namespace: node-upgrade-mutex-operator
     provider: Jason Skrzypek
-    repository: https://github.com/shpwrck/openshift-upgrade-rollout-operator
+    repository: https://github.com/shpwrck/openshift-node-upgrade-mutex-operator
     support: Best Effort
   name: openshift-node-upgrade-mutex-operator.v0.0.0
   namespace: placeholder
@@ -29,21 +29,130 @@ spec:
   apiservicedefinitions: {}
   customresourcedefinitions:
     owned:
-    - description: A node mutex rule definition in the form of a kubernetes job spec
+    - description: A Kubernetes Job (and an optional cleanup Job) that must run for
+        each target node before and after the node is upgraded.
       displayName: Mutex Rule
       kind: MutexRule
       name: mutexrules.openshift-optional.skrzypek.io
+      resources:
+      - kind: Job
+        name: ""
+        version: v1
+      specDescriptors:
+      - description: Prefix of the generated Jobs (DNS-1123 label, at most 52 characters).
+        displayName: Job Name
+        path: jobName
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:text
+      - description: Namespace the Jobs run in. Defaults to the namespace of the MutexRule.
+        displayName: Job Namespace
+        path: jobNamespace
+        x-descriptors:
+        - urn:alm:descriptor:io.kubernetes:Namespace
+      - description: batch/v1 JobSpec run for each target node before it is upgraded.
+          NODE_NAME and MUTEX_RULE are added to every container.
+        displayName: Job Spec
+        path: jobSpec
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:advanced
+      - description: Optional batch/v1 JobSpec run for each target node after it reports
+          the desired version.
+        displayName: Cleanup Job Spec
+        path: cleanUpJobSpec
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:advanced
+      - description: Rule type. Only kubernetes is supported.
+        displayName: Type
+        path: type
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:select:kubernetes
+      - description: Maximum run time of each Job of this rule. Defaults to 3600.
+        displayName: Job Timeout (seconds)
+        path: timeoutSeconds
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:number
+      statusDescriptors:
+      - description: ValidConfig reports whether the Job specs passed a server-side
+          dry-run create.
+        displayName: Conditions
+        path: conditions
+        x-descriptors:
+        - urn:alm:descriptor:io.kubernetes.conditions
       version: v1alpha1
-    - description: Lists of Targets and Rules to apply to them, as well as an upgrade
-        facilitating Machine Config Pool
+    - description: Runs the referenced MutexRules for every node of the referenced
+        MutexTargets during an upgrade, releasing one node at a time into a canary
+        MachineConfigPool.
       displayName: Mutex Run Config
       kind: MutexRunConfig
       name: mutexrunconfigs.openshift-optional.skrzypek.io
+      resources:
+      - kind: Job
+        name: ""
+        version: v1
+      - kind: Node
+        name: ""
+        version: v1
+      - kind: MachineConfigPool
+        name: machineconfigpools
+        version: v1
+      specDescriptors:
+      - description: The MachineConfigPool that target nodes are upgraded through.
+        displayName: Canary Pool
+        path: canary
+      - description: Name of an existing, unpaused MachineConfigPool that is not a
+          target pool.
+        displayName: Canary Pool Name
+        path: canary.name
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:text
+      - description: MutexRules (in the operator namespace) whose Jobs run for every
+          target node, in this order.
+        displayName: Mutex Rules
+        path: mutexRules
+      - description: MutexTargets (in the operator namespace) whose nodes are upgraded
+          one at a time.
+        displayName: Mutex Targets
+        path: mutexTargets
+      - description: Deprecated, no effect.
+        displayName: Skip TLS Verify (deprecated)
+        path: skipTLSVerify
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:booleanSwitch
+        - urn:alm:descriptor:com.tectonic.ui:advanced
+      statusDescriptors:
+      - description: One condition per step of the run; Degraded=True means a failure
+          left MachineConfigPools paused.
+        displayName: Conditions
+        path: conditions
+        x-descriptors:
+        - urn:alm:descriptor:io.kubernetes.conditions
       version: v1alpha1
-    - description: A list of Machine Config Pools to enforce upgrade procedure.
+    - description: A set of MachineConfigPools whose nodes are upgraded one at a time,
+        with the MutexRule Jobs run before each node.
       displayName: Mutex Target
       kind: MutexTarget
       name: mutextargets.openshift-optional.skrzypek.io
+      resources:
+      - kind: MachineConfigPool
+        name: machineconfigpools
+        version: v1
+      - kind: Node
+        name: ""
+        version: v1
+      specDescriptors:
+      - description: Names of existing MachineConfigPools whose nodes are the target
+          nodes.
+        displayName: Machine Config Pools
+        path: machineConfigPools
+      statusDescriptors:
+      - description: Nodes that MCO assigns to the target pools.
+        displayName: Nodes
+        path: nodes
+      - description: ValidConfig and NodeListGathered.
+        displayName: Conditions
+        path: conditions
+        x-descriptors:
+        - urn:alm:descriptor:io.kubernetes.conditions
       version: v1alpha1
   description: |
     ## Introduction
@@ -505,11 +614,11 @@ spec:
   installModes:
   - supported: true
     type: OwnNamespace
-  - supported: true
+  - supported: false
     type: SingleNamespace
   - supported: false
     type: MultiNamespace
-  - supported: false
+  - supported: true
     type: AllNamespaces
   keywords:
   - OpenShift Optional
@@ -522,7 +631,7 @@ spec:
   - email: jskrzype@redhat.com
     name: Jason Skrzypek
   maturity: alpha
-  minKubeVersion: 1.27.0
+  minKubeVersion: 1.29.0
   provider:
     name: Jason Skrzypek
     url: https://github.com/shpwrck
