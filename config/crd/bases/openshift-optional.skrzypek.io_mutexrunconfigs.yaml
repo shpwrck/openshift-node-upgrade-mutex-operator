@@ -18,19 +18,53 @@ spec:
     additionalPrinterColumns:
     - name: Canary
       type: string
-      description: Name of Canary Machine Config Pool
+      description: Canary MachineConfigPool
       jsonPath: .spec.canary.name
+    - name: Validated
+      type: string
+      description: Status of the ConfigValidated condition
+      jsonPath: .status.conditions[?(@.type=="ConfigValidated")].status
+    - name: Upgrade
+      type: string
+      description: Status of the UpgradeAvailable condition (True while a target node is behind the desired version)
+      jsonPath: .status.conditions[?(@.type=="UpgradeAvailable")].status
+    - name: Paused
+      type: string
+      description: Status of the TargetPoolsPaused condition (True while this MutexRunConfig keeps pools paused)
+      jsonPath: .status.conditions[?(@.type=="TargetPoolsPaused")].status
+    - name: Degraded
+      type: string
+      description: Status of the Degraded condition (True when a failure left pools paused)
+      jsonPath: .status.conditions[?(@.type=="Degraded")].status
     - name: Rules
       type: string
-      description: List of Mutex Rules
-      jsonPath: .spec.mutexRules
+      description: Referenced MutexRules
+      jsonPath: .spec.mutexRules[*].name
+      priority: 1
     - name: Targets
       type: string
-      description: List of Mutex Targets
-      jsonPath: .spec.mutexTargets
+      description: Referenced MutexTargets
+      jsonPath: .spec.mutexTargets[*].name
+      priority: 1
+    - name: Age
+      type: date
+      jsonPath: .metadata.creationTimestamp
     schema:
       openAPIV3Schema:
-        description: 'MutexRunConfig is the Schema for the mutexrunconfigs API'
+        description: |-
+          MutexRunConfig ties MutexRules to MutexTargets and names the canary MachineConfigPool
+          that target nodes are upgraded through. While the cluster moves to a new version
+          (ClusterVersion 'version' status.desired.version) and a target node is behind it, the
+          operator pauses the target pools, labels the target nodes, re-points the canary and
+          target pool node selectors, and then, one node at a time, runs the MutexRule Jobs,
+          releases the node into the canary pool, waits for it to report the desired version and
+          runs the cleanup Jobs. At the end it restores the selectors and unpauses the pools it
+          paused. Deleting the MutexRunConfig runs the same restore through its finalizer.
+          MutexRunConfigs are only reconciled in the namespace of the operator, and all
+          referenced MutexRules and MutexTargets must be in that namespace too.
+        type: object
+        required:
+        - spec
         properties:
           apiVersion:
             description: 'APIVersion defines the versioned schema of this representation
@@ -45,64 +79,126 @@ spec:
           metadata:
             type: object
           spec:
-            description: 'Spec defines the desired state of MutexRunConfig'
+            description: Spec defines the desired state of MutexRunConfig.
             type: object
+            required:
+            - canary
+            - mutexRules
+            - mutexTargets
             properties:
               skipTLSVerify:
-                description: 'Skip tls verification on desired-image for update'
+                description: |-
+                  Deprecated, no effect: the target version is read from ClusterVersion
+                  status.desired.version and no release image is pulled. Accepted for
+                  compatibility with existing resources.
                 type: boolean
-                default: false
               canary:
-                description: 'Information pertaining to the **existing** machineConfigPool in which upgrades can occur'
+                description: The existing MachineConfigPool that target nodes are upgraded through.
                 type: object
+                required:
+                - name
                 properties:
                   name:
-                    description: 'Name of an existing machineConfigPool not included in any mutexTargets'
+                    description: |-
+                      Name of an existing, unpaused MachineConfigPool that is not a target pool
+                      and whose nodeSelector.matchLabels select every target node (for example
+                      node-role.kubernetes.io/worker: ""). During a run the operator keeps those
+                      of its matchExpressions that every target node satisfies and adds one
+                      '<mutex label> DoesNotExist' expression per MutexRule; the original
+                      expressions are restored afterwards. During a run it must not select a
+                      node that belongs to another custom pool or to the master pool.
                     type: string
+                    minLength: 1
+                    maxLength: 253
               mutexRules:
-                description: 'Information pertaining to the **existing** mutexRules'
+                description: |-
+                  MutexRules whose Jobs run for every target node, one after another in this
+                  order. Each needs ValidConfig=True.
                 type: array
+                minItems: 1
+                maxItems: 64
                 items:
                   type: object
+                  required:
+                  - name
                   properties:
                     name:
-                      description: 'Name of an existing mutexRule resource'
+                      description: |-
+                        Name of an existing MutexRule. Must not contain '.', because the rule
+                        is tracked with the node label
+                        mutexrule.openshift-optional.skrzypek.io/<name>.<namespace>.
                       type: string
+                      minLength: 1
+                      maxLength: 61
+                      pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
                     namespace:
-                      description: 'Namespace of an existing mutexRule resource'
+                      description: |-
+                        Namespace of the MutexRule. Defaults to the namespace of the
+                        MutexRunConfig. When the operator runs in a namespace (POD_NAMESPACE),
+                        it must be that namespace, so it is best left out.
                       type: string
+                      minLength: 1
+                      maxLength: 63
+                      pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+                  x-kubernetes-validations:
+                  - rule: '!has(self.__namespace__) || size(self.name) + size(self.__namespace__) <= 62'
+                    message: >-
+                      '<name>.<namespace>' must be at most 63 characters: it is the name part
+                      of the node label mutexrule.openshift-optional.skrzypek.io/<name>.<namespace>
               mutexTargets:
-                description: 'Information pertaining to the **existing** mutexTargets'
+                description: |-
+                  MutexTargets whose nodes are upgraded one at a time. Each needs
+                  ValidConfig=True, NodeListGathered=True and a non-empty status.nodes.
                 type: array
+                minItems: 1
                 items:
                   type: object
+                  required:
+                  - name
                   properties:
                     name:
-                      description: 'Name of an existing mutexRule resource'
+                      description: Name of an existing MutexTarget.
                       type: string
+                      minLength: 1
+                      maxLength: 253
                     namespace:
-                      description: 'Namespace of an existing mutexTarget resource'
+                      description: |-
+                        Namespace of the MutexTarget. Defaults to the namespace of the
+                        MutexRunConfig. When the operator runs in a namespace (POD_NAMESPACE),
+                        it must be that namespace, so it is best left out.
                       type: string
+                      minLength: 1
+                      maxLength: 63
+                      pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
           status:
-            description: 'Status defines the observed state of MutexRule'
+            description: |-
+              Status defines the observed state of MutexRunConfig. Written by the operator, one
+              condition per step: ConfigValidated, ClusterStateValidated, UpgradeChecked,
+              NodeVersionsKnown, UpgradeAvailable, UpgradeReady, TargetPoolsPaused,
+              MutexRulesApplied, MCPUpdated, JobRun, NodeUpgrade, Degraded, and Reconciled
+              (False/NamespaceNotAllowed outside the namespace of the operator). See the
+              operator documentation for every reason.
+            type: object
+            x-kubernetes-preserve-unknown-fields: true
             properties:
               conditions:
+                description: Conditions, at most one per type, merged by type on every reconcile.
+                type: array
                 items:
+                  type: object
                   properties:
                     lastTransitionTime:
+                      description: RFC 3339 UTC time (YYYY-MM-DDTHH:MM:SSZ) at which status, reason or message last changed.
                       type: string
                     message:
                       type: string
                     reason:
                       type: string
                     status:
+                      description: True, False or Unknown.
                       type: string
                     type:
                       type: string
-                  type: object
-                type: array
-            type: object
-        type: object
     served: true
     storage: true
     subresources:

@@ -18,15 +18,30 @@ spec:
     additionalPrinterColumns:
     - name: Machine Config Pools
       type: string
-      description: List of target Machine Config Pools
+      description: Target MachineConfigPools
       jsonPath: .spec.machineConfigPools
     - name: Nodes
       type: string
-      description: List of target Nodes
+      description: Nodes the target MachineConfigPools select
       jsonPath: .status.nodes
+    - name: ValidConfig
+      type: string
+      description: Status of the ValidConfig condition
+      jsonPath: .status.conditions[?(@.type=="ValidConfig")].status
+    - name: Age
+      type: date
+      jsonPath: .metadata.creationTimestamp
     schema:
       openAPIV3Schema:
-        description: 'MutexTarget is the Schema for the mutextargets API'
+        description: |-
+          MutexTarget is a set of existing MachineConfigPools whose nodes are upgraded one at a
+          time, with the MutexRule Jobs run before each node. The operator checks that the pools
+          exist and publishes their nodes in status.nodes. It never changes a pool or a node
+          because of a MutexTarget alone. MutexTargets are only reconciled in the namespace of
+          the operator.
+        type: object
+        required:
+        - spec
         properties:
           apiVersion:
             description: 'APIVersion defines the versioned schema of this representation
@@ -41,40 +56,64 @@ spec:
           metadata:
             type: object
           spec:
-            description: Spec defines the desired state of MutexTarget
+            description: Spec defines the desired state of MutexTarget.
             type: object
+            required:
+            - machineConfigPools
             properties:
               machineConfigPools:
-                description: 'A list of machineConfigPool resources to gather node membership and apply mutex rules to.'
+                description: |-
+                  Names of existing MachineConfigPools. Their nodes are the target nodes. Each
+                  pool needs a non-empty nodeSelector, and the canary pool of a MutexRunConfig
+                  must not be one of them.
                 type: array
+                minItems: 1
                 items:
                   type: string
+                  minLength: 1
+                  maxLength: 253
           status:
-            description: 'Status defines the observed state of MutexRule'
+            description: |-
+              Status defines the observed state of MutexTarget. Written by the operator.
+              Conditions: ValidConfig (True/MachineConfigPoolFetchSucceeded or
+              False/MachineConfigPoolFetchFailed), NodeListGathered (True/MachineConfigPoolFetchSucceeded
+              or False/MachineConfigPoolFetchFailed) and Reconciled (False/NamespaceNotAllowed
+              outside the namespace of the operator).
+            type: object
+            x-kubernetes-preserve-unknown-fields: true
             properties:
               nodes:
-                description: 'A list of all nodes belonging to specified Machine Config Pools'
+                description: |-
+                  The nodes that MCO assigns to the target pools, sorted by name. A node belongs
+                  to the custom pool its labels match, else to 'master' if it matches master,
+                  else to 'worker', so a worker-labelled node in the canary, infra or another
+                  custom pool is not a node of the 'worker' target. Both matchLabels and
+                  matchExpressions of each pool are used. While a MutexRunConfig run has changed
+                  the selector of a pool, the original matchExpressions saved in its
+                  openshift-optional.skrzypek.io/original-match-expressions annotation are used,
+                  so the list stays the same for the whole run.
                 type: array
                 items:
-                  description: "Node Name"
+                  description: Node name
                   type: string
               conditions:
+                description: Conditions, at most one per type, merged by type on every reconcile.
+                type: array
                 items:
+                  type: object
                   properties:
                     lastTransitionTime:
+                      description: RFC 3339 UTC time (YYYY-MM-DDTHH:MM:SSZ) at which status, reason or message last changed.
                       type: string
                     message:
                       type: string
                     reason:
                       type: string
                     status:
+                      description: True, False or Unknown.
                       type: string
                     type:
                       type: string
-                  type: object
-                type: array
-            type: object
-        type: object
     served: true
     storage: true
     subresources:
