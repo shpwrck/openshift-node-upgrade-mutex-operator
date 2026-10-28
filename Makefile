@@ -116,7 +116,9 @@ lint: ## Lint roles/, the tests, the samples and the build YAML (needs yamllint 
 	yamllint -c hack/yamllint.yaml roles/ playbooks/ watches.yaml requirements.yml .ansible-lint hack/ .github/ \
 		molecule/ config/samples/ config/testing/ config/scorecard/ sample-manifests/ tests/
 	ansible-lint roles/
-	ansible-lint -c molecule/.ansible-lint molecule/
+	@# Without --project-dir, ansible-lint takes molecule/ (the directory of -c) as the
+	@# project, does not install ./requirements.yml and cannot resolve kubernetes.core.
+	ansible-lint -c molecule/.ansible-lint --project-dir . molecule/
 
 ##@ Build
 

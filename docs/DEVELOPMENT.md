@@ -46,7 +46,7 @@ you can push to before you push anything.
 | Target | What it does |
 | --- | --- |
 | `document` | Regenerates `README.md` (`docs/USAGE.md`, then `docs/DEVELOPMENT.md`) and the CSV `spec.description` (from `docs/USAGE.md`). |
-| `lint` | `yamllint` (with `hack/yamllint.yaml`) and `ansible-lint roles/`. |
+| `lint` | `yamllint` (with `hack/yamllint.yaml`), `ansible-lint roles/`, and `ansible-lint` on `molecule/` with `molecule/.ansible-lint`. |
 | `run` | Runs ansible-operator locally against the cluster in your kubeconfig. |
 | `docker-build` / `docker-push` | Builds or pushes the operator image `IMG` (default `$(IMAGE_TAG_BASE):$(VERSION)`). |
 | `docker-buildx` | Builds and pushes a multi-arch image for `PLATFORMS`. |
@@ -74,8 +74,10 @@ not resolve there. Keep its permissions table in step with `config/rbac/role.yam
 
 ### Running and testing
 
-* **Lint:** `make lint`. Run `ansible-lint` with `--offline`, or with a scratch `ANSIBLE_COLLECTIONS_PATH`, when you
-  do not want it to install `requirements.yml` into your own collections path.
+* **Lint:** `make lint`. `ansible-lint` installs `requirements.yml` into `./.ansible/collections` (git-ignored), so
+  the first run needs network access. Both runs use the repository root as the project directory; that is why the
+  molecule run passes `--project-dir .`. With `--offline` nothing is installed, and the collections must already be
+  in your collections path.
 * **Against a cluster:** `make install` to apply the CRDs, then either `make run` (local) or
   `make docker-build docker-push deploy IMG=<image>`. `make run` does not set `POD_NAMESPACE`, so every namespace is
   allowed. Export `POD_NAMESPACE=<namespace>` first to test the namespace boundary. Only an OpenShift cluster has the
