@@ -31,6 +31,7 @@
 - name: Stop When The MutexRunConfig Is Being Deleted
   ansible.builtin.set_fact:
     JobRun: false
+    mutexrunconfig_deleting: true
     mutexrunconfig_failure: >-
       The MutexRunConfig is being deleted, so {{ targetNode }} and the nodes after it were not processed.
       Its finalizer restores the pools, labels and selectors next.

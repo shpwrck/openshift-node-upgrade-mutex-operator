@@ -50,6 +50,8 @@
           {{ ('No MachineConfigPool is paused by this MutexRunConfig.'
               ~ ((' Last error: ' ~ mutexrunconfig_failure) if mutexrunconfig_failure | length > 0 else ''))
              if mutexrunconfig_paused_pools | length == 0
+             else ((mutexrunconfig_failure ~ ' MachineConfigPools still paused: ' ~ (mutexrunconfig_paused_pools | join(', ')) ~ '.')
+                   if mutexrunconfig_deleting | bool
              else (('MachineConfigPools ' ~ (mutexrunconfig_paused_pools | join(', ')) ~ ' stay paused after a failure, and nodes keep their'
                     ~ ' mutex labels and the pools their changed node selectors, so no target node is upgraded without its jobs.'
                     ~ ' Error: ' ~ mutexrunconfig_failure ~ ' The operator retries on the next reconcile. To abort instead,'
@@ -57,5 +59,5 @@
                     ~ ' the node selectors, and MCO then upgrades the remaining nodes WITHOUT running their MutexRule jobs.')
                    if mutexrunconfig_failure | length > 0
                    else ('MachineConfigPools ' ~ (mutexrunconfig_paused_pools | join(', ')) ~ ' are paused while the upgrade to '
-                         ~ (desired_version | default('the desired version')) ~ ' is in progress.')) | truncate(2000) }}
+                         ~ (desired_version | default('the desired version')) ~ ' is in progress.'))) | truncate(2000) }}
         lastTransitionTime: "{{ mutexrunconfig_now }}"
