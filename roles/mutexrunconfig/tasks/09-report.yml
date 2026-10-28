@@ -56,7 +56,7 @@
     mutexrunconfig_degraded_reason: >-
       {{ 'PoolsLeftPaused'
          if mutexrunconfig_failure | length > 0
-            and (mutexrunconfig_paused_pools + mutexrunconfig_other_paused_pools + mutexrunconfig_modified_pools) | length > 0
+            and (mutexrunconfig_paused_pools + mutexrunconfig_modified_pools) | length > 0
          else ('RunInProgress' if (mutexrunconfig_paused_pools + mutexrunconfig_modified_pools) | length > 0 else 'NoPoolsPaused') }}
 
 - name: Report Paused

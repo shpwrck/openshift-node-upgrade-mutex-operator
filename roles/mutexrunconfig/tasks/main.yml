@@ -75,6 +75,7 @@
     mutexrunconfig_deleting: false
     targetNodeList: []
     machineConfigPoolList: []
+    mutexrunconfig_released_nodes: []
 
 - name: Resolve References
   ansible.builtin.include_tasks: 00-resolve-references.yml
@@ -158,9 +159,11 @@
     - MCPUpdated | bool
 
 # A node that fails sets JobRun to false, which skips the remaining nodes.
+# Nodes this run already released go first, so their cleanup Jobs finish
+# before any other node starts. ('difference' would reorder the list.)
 - name: Run Job
   ansible.builtin.include_tasks: 06-execute-jobs.yml
-  loop: "{{ targetNodeList }}"
+  loop: "{{ mutexrunconfig_released_nodes + (targetNodeList | reject('in', mutexrunconfig_released_nodes) | list) }}"
   loop_control:
     extended: true
     loop_var: targetNode

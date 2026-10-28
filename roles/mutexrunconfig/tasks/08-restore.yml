@@ -90,7 +90,9 @@
       {%- set held_by_us = annotations[mutexrunconfig_annotation_labelled_by] | default('') == mutexrunconfig_owner -%}
       {%- set released_by_us = (annotations[mutexrunconfig_annotation_released_by] | default('')).startswith(mutexrunconfig_owner ~ '|') -%}
       {%- set has_labels = mutexrunconfig_remove_labels.keys() | select('in', labels) | list | length > 0 -%}
-      {%- set unlabel = has_labels and (held_by_us or node.metadata.name in mutexrunconfig_restore_nodes) -%}
+      {%- set unlabel = has_labels and (held_by_us or node.metadata.name in mutexrunconfig_restore_nodes
+                                       or (mutexrunconfig_restore_nodes | length == 0
+                                           and annotations[mutexrunconfig_annotation_labelled_by] is not defined)) -%}
       {%- set unmark = {} -%}
       {%- if held_by_us -%}{%- set unmark = unmark | combine({mutexrunconfig_annotation_labelled_by: none}) -%}{%- endif -%}
       {%- if released_by_us -%}{%- set unmark = unmark | combine({mutexrunconfig_annotation_released_by: none}) -%}{%- endif -%}
