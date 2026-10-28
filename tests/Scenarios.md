@@ -32,14 +32,15 @@ test:
 1. sets the node's `desiredConfig` to the canary's rendered config and its
    `state` to `Working`;
 2. sets its `machineconfiguration.openshift.io/release-image-version` label
-   to the new version, as NFD can before the reboot, and checks that no
-   cleanup Job has started for the node yet;
+   to the new version, as NFD can before the reboot, and for 70 seconds
+   checks that no cleanup Job starts for the node;
 3. sets `state` to `Done` and `currentConfig` to the `desiredConfig`, as MCO
    does after the reboot. The kind nodes report `Ready` themselves.
 
 Only then does the operator count the node as upgraded and run its cleanup
-Jobs. The check in step 2 runs right after the label is set, so it can only
-catch a cleanup Job that starts at once.
+Jobs. The check in step 2 lasts longer than the operator's 60-second node poll
+(`mutexrunconfig_node_upgrade_delay`), so an operator that trusted the label
+alone would start its cleanup Job inside that window.
 
 ## Not automated (needs OpenShift)
 

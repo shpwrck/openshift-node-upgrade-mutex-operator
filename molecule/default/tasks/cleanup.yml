@@ -5,7 +5,8 @@
 # deployed. A MutexRunConfig still there after e2e_timeout (the operator did
 # not finalize it, for example because it is not running) has its finalizer
 # removed, so cleanup and the CRD deletion in destroy do not hang; nothing is
-# restored for it then.
+# restored for it then. Last, the Jobs the operator started in the test
+# namespace are deleted, so verify can run again on the same cluster.
 - name: List the MutexRunConfigs left in the test namespace
   kubernetes.core.k8s_info:
     api_version: "{{ e2e_api_version }}"
@@ -65,4 +66,21 @@
   loop:
     - MutexRule
     - MutexTarget
+  failed_when: false
+
+# The operator's Jobs have no owner and no TTL, so they outlive the
+# MutexRunConfigs. A re-run would see them in the dry-run and early-cleanup
+# checks, and the operator would reuse the Complete ones (same job-key).
+- name: Delete the Jobs the operator started in the test namespace
+  kubernetes.core.k8s:
+    api_version: batch/v1
+    kind: Job
+    namespace: "{{ e2e_namespace }}"
+    label_selectors:
+      - openshift-optional.skrzypek.io/job-key
+    delete_all: true
+    state: absent
+    delete_options:
+      propagationPolicy: Background
+    wait: true
   failed_when: false

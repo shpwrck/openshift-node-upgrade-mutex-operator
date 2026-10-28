@@ -60,20 +60,21 @@
       metadata:
         labels: "{{ {e2e_version_label: e2e_to_version} }}"
 
-- name: "List the Jobs while MCO is still updating {{ e2e_node }}"
+# The operator re-checks a released node every mutexrunconfig_node_upgrade_delay
+# (60 s). Keep it Working with the new label for longer than that, so an
+# operator that trusts the label alone starts its cleanup Job inside the window.
+- name: "Watch for a cleanup Job while MCO is still updating {{ e2e_node }}"
   kubernetes.core.k8s_info:
     api_version: batch/v1
     kind: Job
     namespace: "{{ e2e_namespace }}"
   register: e2e_early_jobs
-
-- name: "Check that no cleanup Job started while MCO is still updating {{ e2e_node }}"
-  ansible.builtin.assert:
-    that:
-      - e2e_early_cleanup | length == 0
-    fail_msg: "Cleanup Job(s) {{ e2e_early_cleanup }} started while MCO still reports {{ e2e_node }} Working"
+  until: e2e_early_cleanup | length > 0
+  retries: 35
+  delay: 2
+  failed_when: false
   vars:
-    e2e_early_cleanup: >-
+    e2e_early_cleanup: &e2e_early_cleanup >-
       {%- set ns = namespace(names=[]) -%}
       {%- for job in e2e_early_jobs.resources | default([]) -%}
       {%- set a = job.metadata.annotations | default({}, true) -%}
@@ -84,6 +85,14 @@
       {%- endif -%}
       {%- endfor -%}
       {{ ns.names | join(', ') }}
+
+- name: "Check that no cleanup Job started while MCO is still updating {{ e2e_node }}"
+  ansible.builtin.assert:
+    that:
+      - e2e_early_cleanup | length == 0
+    fail_msg: "Cleanup Job(s) {{ e2e_early_cleanup }} started while MCO still reports {{ e2e_node }} Working"
+  vars:
+    e2e_early_cleanup: *e2e_early_cleanup
 
 # After the reboot the daemon reports the new config as current and state
 # Done. The kind and kwok nodes report Ready themselves.

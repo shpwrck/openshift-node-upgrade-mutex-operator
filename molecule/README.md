@@ -83,8 +83,9 @@ updating (`machineconfiguration.openshift.io/state: Done`, and
 There is no MCO: for each released node the verify playbook plays its part
 (`default/tasks/upgrade_node.yml`). It sets `desiredConfig` to the canary's
 rendered config and `state` to `Working`, sets the release-image-version
-label to the new version and checks that no cleanup Job has started yet,
-then sets `state` to `Done` and `currentConfig` to the `desiredConfig`. The
+label to the new version and, for longer than the operator's 60-second node
+poll, checks that no cleanup Job starts, then sets `state` to `Done` and
+`currentConfig` to the `desiredConfig`. The
 kind nodes report `Ready` themselves. The MutexRunConfigs the verify
 playbook creates carry the annotation
 `ansible.sdk.operatorframework.io/reconcile-period: 15s`, so the operator
