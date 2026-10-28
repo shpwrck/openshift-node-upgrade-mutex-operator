@@ -1,31 +1,99 @@
 ---
-- name: Loop Through And Convert Label Selectors
-  ansible.builtin.set_fact:
-    labelSelector: "{{ item.key }} = {{ item.value }}"
-  loop: '{{ lookup("ansible.builtin.dict", mcp.resources[0].spec.nodeSelector.matchLabels, wantlist=True) }}'
-  register: labelSelectorResults
-
-- name: Reconfigure Label Selector Data Format
-  ansible.builtin.set_fact:
-    labelSelectors: "{{ labelSelectorResults.results | map(attribute='ansible_facts.labelSelector') | list }}"
-
-- name: Get All Nodes
-  kubernetes.core.k8s_info:
-    kind: Node
-    label_selectors: "{{ labelSelectors }}"
-  register: Nodes
-
+# Publishes in status.nodes the nodes that MCO assigns to the target pools.
+#
+# A pool's nodes are found with its nodeSelector, using both matchLabels
+# ('k=v') and matchExpressions (In, NotIn, Exists, DoesNotExist). While a
+# MutexRunConfig run has changed a pool's selector, the original
+# matchExpressions saved in its annotation are used, so status.nodes stays
+# the same for the whole run.
+#
+# A node can match several pools, so the pool it belongs to follows MCO's
+# rule: the custom pool it matches, else 'master' if it matches master, else
+# 'worker'. A worker-labelled node in the canary, infra or another custom pool
+# is therefore not a node of the 'worker' target.
+#
+# A target pool with an empty selector is an error: MCO selects no nodes from
+# it, and an empty label selector would list every node in the cluster.
 - name: Update Status
   block:
+    - name: Reset Node Facts
+      ansible.builtin.set_fact:
+        mutextarget_target_pools: "{{ machineConfigPools.results | map(attribute='item') | list }}"
+        mutextarget_pool_selectors: []
+        mutextarget_selector_problems: []
+        mutextarget_pool_nodes: {}
+        AllNodes: []
+
+    - name: List All Machine Config Pools
+      kubernetes.core.k8s_info:
+        api_version: "machineconfiguration.openshift.io/v1"
+        kind: MachineConfigPool
+      register: mutextarget_all_pools
+
+    - name: Loop Through And Convert Label Selectors
+      ansible.builtin.set_fact:
+        mutextarget_pool_selectors: >-
+          {{ mutextarget_pool_selectors + ([{'pool': item.metadata.name, 'selector': mutextarget_selector}]
+                                           if mutextarget_selector | length > 0 else []) }}
+        mutextarget_selector_problems: >-
+          {{ mutextarget_selector_problems
+             + ([item.metadata.name ~ ' has an empty nodeSelector']
+                if (mutextarget_selector | length == 0 and item.metadata.name in mutextarget_target_pools) else [])
+             + ([item.metadata.name ~ ' uses an unsupported matchExpressions operator']
+                if (item.metadata.name in mutextarget_target_pools
+                    and mutextarget_selector_source.matchExpressions | map(attribute='operator', default='')
+                        | reject('in', mutextarget_selector_operators) | list | length > 0) else []) }}
+      loop: "{{ mutextarget_all_pools.resources }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"
+      vars:
+        mutextarget_pool_annotations: "{{ item.metadata.annotations | default({}, true) }}"
+        mutextarget_selector_source:
+          matchLabels: "{{ item.spec.nodeSelector.matchLabels | default({}, true) }}"
+          matchExpressions: >-
+            {{ (mutextarget_pool_annotations[mutextarget_annotation_original_expressions] | from_json)
+               if mutextarget_pool_annotations[mutextarget_annotation_original_expressions] is defined
+               else (item.spec.nodeSelector.matchExpressions | default([], true)
+                     | rejectattr('key', 'match', mutextarget_label_prefix | regex_escape) | list) }}
+
+    - name: Fail On Unusable Selectors
+      ansible.builtin.fail:
+        msg: "MachineConfigPool {{ mutextarget_selector_problems | join('; ') }}."
+      when: mutextarget_selector_problems | length > 0
+
     - name: Get All Nodes
       kubernetes.core.k8s_info:
+        api_version: "v1"
         kind: Node
-        label_selectors: "{{ labelSelectors }}"
+        label_selectors:
+          - "{{ item.selector }}"
+      loop: "{{ mutextarget_pool_selectors }}"
+      loop_control:
+        label: "{{ item.pool }}: {{ item.selector }}"
       register: Nodes
+
+    - name: Map Pools To Nodes
+      ansible.builtin.set_fact:
+        mutextarget_pool_nodes: >-
+          {{ mutextarget_pool_nodes | combine({item.item.pool: item.resources | map(attribute='metadata.name') | list}) }}
+      loop: "{{ Nodes.results }}"
+      loop_control:
+        label: "{{ item.item.pool }}"
 
     - name: Set Cummulative Nodes
       ansible.builtin.set_fact:
-        AllNodes: "{{ (AllNodes | default([])) + (Nodes | community.general.json_query('resources[*].metadata.name')) | unique }}"
+        AllNodes: "{{ AllNodes + [item] }}"
+      loop: >-
+        {{ mutextarget_pool_nodes | dict2items | map(attribute='value') | flatten | unique | sort }}
+      vars:
+        mutextarget_matching_pools: >-
+          {{ mutextarget_pool_nodes | dict2items | selectattr('value', 'contains', item) | map(attribute='key') | list }}
+        mutextarget_custom_pools: "{{ mutextarget_matching_pools | reject('in', ['master', 'worker']) | list }}"
+        mutextarget_node_pools: >-
+          {{ mutextarget_custom_pools if mutextarget_custom_pools | length > 0
+             else (['master'] if 'master' in mutextarget_matching_pools
+                   else (['worker'] if 'worker' in mutextarget_matching_pools else [])) }}
+      when: mutextarget_node_pools | intersect(mutextarget_target_pools) | length > 0
 
     - name: Report Configuration Results
       operator_sdk.util.k8s_status:
@@ -41,26 +109,29 @@
             status: "True"
             reason: MachineConfigPoolFetchSucceeded
             message: All nodes were successfully fetched.
-            lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
-      when: ansible_loop.last
+            lastTransitionTime: "{{ mutextarget_now }}"
+
+    - name: Set Configuration Status
+      ansible.builtin.set_fact:
+        NodeListGathered: true
 
   rescue:
+    - name: Set Configuration Status
+      ansible.builtin.set_fact:
+        NodeListGathered: false
+
     - name: Report Invalid Config
       operator_sdk.util.k8s_status:
         api_version: "openshift-optional.skrzypek.io/v1alpha1"
         kind: MutexTarget
         name: "{{ ansible_operator_meta.name }}"
         namespace: "{{ ansible_operator_meta.namespace }}"
+        replace_lists: true
         status:
           nodes: []
         conditions:
           - type: NodeListGathered
-            status: "True"
+            status: "False"
             reason: MachineConfigPoolFetchFailed
-            message: All nodes were not successfully fetched.
-            lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
-
-  always:
-    - name: Set Configuration Status
-      ansible.builtin.set_fact:
-        NodeListGathered: "{{ (ansible_failed_result is not defined) | ternary('true', 'false') }}"
+            message: "{{ mutextarget_failed_msg | truncate(1000) }}"
+            lastTransitionTime: "{{ mutextarget_now }}"

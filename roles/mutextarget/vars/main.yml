@@ -1,2 +1,47 @@
 ---
 # vars file for MutexTarget
+
+# RFC 3339 UTC timestamp used for every status condition. It is a lazy
+# template, so each use renders the current time.
+mutextarget_now: "{{ now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') }}"
+
+# Written by the MutexRunConfig role while a run has changed a pool's
+# selector: the pool's original matchExpressions, as JSON. When it is present
+# the target is computed from it, so status.nodes stays the same for the
+# whole run.
+mutextarget_annotation_original_expressions: "openshift-optional.skrzypek.io/original-match-expressions"
+mutextarget_label_prefix: "mutexrule.openshift-optional.skrzypek.io/"
+
+mutextarget_selector_operators:
+  - In
+  - NotIn
+  - Exists
+  - DoesNotExist
+
+# Builds a label selector string ("k=v,k in (a,b),k notin (c),k,!k") from
+# mutextarget_selector_source, a dict with matchLabels and matchExpressions,
+# which the calling task passes as a task var.
+mutextarget_selector: >-
+  {%- set ns = namespace(parts=[]) -%}
+  {%- for key, value in (mutextarget_selector_source.matchLabels | default({}, true)) | dictsort -%}
+  {%- set ns.parts = ns.parts + [key ~ '=' ~ value] -%}
+  {%- endfor -%}
+  {%- for expression in mutextarget_selector_source.matchExpressions | default([], true) -%}
+  {%- if expression.operator == 'In' -%}
+  {%- set ns.parts = ns.parts + [expression.key ~ ' in (' ~ (expression['values'] | default([], true) | join(',')) ~ ')'] -%}
+  {%- elif expression.operator == 'NotIn' -%}
+  {%- set ns.parts = ns.parts + [expression.key ~ ' notin (' ~ (expression['values'] | default([], true) | join(',')) ~ ')'] -%}
+  {%- elif expression.operator == 'Exists' -%}
+  {%- set ns.parts = ns.parts + [expression.key] -%}
+  {%- elif expression.operator == 'DoesNotExist' -%}
+  {%- set ns.parts = ns.parts + ['!' ~ expression.key] -%}
+  {%- endif -%}
+  {%- endfor -%}
+  {{- ns.parts | join(',') -}}
+
+# Error text for a rescue: the failed task's msg plus the msg of each failed
+# loop item.
+mutextarget_failed_msg: >-
+  {{ ([ansible_failed_result.msg | default('')]
+      + (ansible_failed_result.results | default([]) | map(attribute='msg', default='') | list))
+     | select | unique | join(': ') | default('unknown error', true) }}
