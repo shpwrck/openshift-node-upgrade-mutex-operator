@@ -112,9 +112,11 @@ document: yq operator-sdk ## Regenerate README.md from DOCS and the CSV descript
 	awk 'FNR == 1 && NR != 1 { print "" } { print }' $(DOCS) > README.md
 
 .PHONY: lint
-lint: ## Lint roles/ and the build YAML (needs yamllint and ansible-lint on PATH).
-	yamllint -c hack/yamllint.yaml roles/ playbooks/ watches.yaml requirements.yml .ansible-lint hack/ .github/
+lint: ## Lint roles/, the tests, the samples and the build YAML (needs yamllint and ansible-lint on PATH).
+	yamllint -c hack/yamllint.yaml roles/ playbooks/ watches.yaml requirements.yml .ansible-lint hack/ .github/ \
+		molecule/ config/samples/ config/testing/ config/scorecard/ sample-manifests/ tests/
 	ansible-lint roles/
+	ansible-lint -c molecule/.ansible-lint molecule/
 
 ##@ Build
 

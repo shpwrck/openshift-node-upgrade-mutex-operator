@@ -2,7 +2,7 @@
 # End-to-end test of the operator on a kind cluster (molecule scenario
 # 'kind'): fake OpenShift MachineConfigPool and ClusterVersion APIs, the real
 # operator image, a simulated upgrade in which the test plays the MCO, and
-# the finalizer. Also lints the molecule playbooks and the sample manifests.
+# the finalizer. The tests and samples are linted by 'make lint' in ci.yaml.
 # Runs on demand and on pull requests that touch the operator or the tests.
 # No secrets are used and nothing is pushed.
 name: E2E
@@ -33,35 +33,6 @@ env:
   KIND_SHA256: aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d
 
 jobs:
-  lint:
-    name: Lint tests and samples
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Check out
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: "3.12"
-
-      - name: Install linters
-        run: >-
-          python -m pip install --no-cache-dir
-          yamllint==1.38.0 ansible-core==2.18.18 ansible-lint==26.9.0
-
-      - name: yamllint
-        run: >-
-          yamllint -c hack/yamllint.yaml
-          molecule/ config/samples/ config/testing/ config/scorecard/ sample-manifests/ tests/
-
-      # The playbooks use kubernetes.core and operator_sdk.util modules.
-      - name: Install the collections
-        run: ansible-galaxy collection install -r requirements.yml
-
-      - name: ansible-lint
-        run: ansible-lint -c molecule/.ansible-lint molecule/
-
   kind:
     name: Molecule on kind
     runs-on: ubuntu-24.04
