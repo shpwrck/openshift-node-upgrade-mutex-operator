@@ -74,12 +74,19 @@ labels, Jobs, pods and the operator log.
 `prepare` installs CRDs for `machineconfigpools.machineconfiguration.openshift.io`
 and `clusterversions.config.openshift.io` (status subresource, no schema),
 the `master`, `worker` and README `canary` pools, a ClusterVersion `version`
-at a completed 4.16.4, and labels the nodes like OpenShift does
-(`node-role.kubernetes.io/master` or `/worker`, plus the
-`machineconfiguration.openshift.io/release-image-version` label NFD would
-publish). There is no MCO: the verify playbook plays its part by setting a
-released node's release-image-version label to the new version. The
-MutexRunConfigs it creates carry the annotation
+at a completed 4.16.4, and labels and annotates the nodes like OpenShift
+does (`default/tasks/fake_reset.yml`): `node-role.kubernetes.io/master` or
+`/worker`, the `machineconfiguration.openshift.io/release-image-version`
+label NFD would publish, and the MCO annotations of a node that is not
+updating (`machineconfiguration.openshift.io/state: Done`, and
+`currentConfig` and `desiredConfig` both `rendered-<master|worker>-<hash>`).
+There is no MCO: for each released node the verify playbook plays its part
+(`default/tasks/upgrade_node.yml`). It sets `desiredConfig` to the canary's
+rendered config and `state` to `Working`, sets the release-image-version
+label to the new version and checks that no cleanup Job has started yet,
+then sets `state` to `Done` and `currentConfig` to the `desiredConfig`. The
+kind nodes report `Ready` themselves. The MutexRunConfigs it creates carry
+the annotation
 `ansible.sdk.operatorframework.io/reconcile-period: 15s`, so the operator
 notices the ClusterVersion change quickly (it does not watch ClusterVersion).
 
