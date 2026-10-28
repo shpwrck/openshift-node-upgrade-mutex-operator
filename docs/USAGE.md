@@ -96,7 +96,9 @@ expression that every target node satisfies and those nodes do not. The message 
 the sample canary below and a custom target pool, for example `apps` with `matchLabels`
 `node-role.kubernetes.io/app: ""`, the canary would select every worker node during a run, so add
 `node-role.kubernetes.io/app Exists`. The canary keeps that expression outside runs too, so nodes in the canary that
-lack the label move out of it. Give them the same label if they should stay in the canary.
+lack the label move out of it. To keep such a node in the canary, give it the label with a value the target pool does
+not select, for example `node-role.kubernetes.io/app=canary`. With the empty value it would also match `apps`, and MCO
+refuses a node that matches two custom pools.
 
 The canary should render the same MachineConfigs as the target pools, so a node gets the same configuration in either
 pool:
@@ -500,12 +502,25 @@ wait. They change only what the deleted MutexRunConfig changed, so they leave th
 If the operator is gone or cannot run, do the same by hand, in this order. The commands need `jq`. They select the
 pools by the deleted MutexRunConfig's `modified-by` and `paused-by` annotations, and the nodes by its `labelled-by` and
 `released-by` annotations and by its MutexTargets' `status.nodes`. To see what a step would change, run its
-`oc get ... | jq` part on its own (in step 2, everything but the last line). First set the MutexRunConfig:
+`oc get ... | jq` part on its own (in step 2, everything but the last line, without the `|` at the end). First set the
+MutexRunConfig:
 
 ```sh
 ns=<namespace>   # namespace of the deleted MutexRunConfig
 name=<name>      # its name
 mrc="$ns/$name"
+```
+
+If the MutexRunConfig no longer exists, for example when a `ConfigValidated` message names a pool whose `modified-by`
+or `paused-by` value is a MutexRunConfig that is gone, set `ns` and `name` from that value and leave out step 4. Steps
+1 and 3 work as they are. In step 2, set `labels` and `targets` this way instead, because the MutexRunConfig cannot
+be read:
+
+```sh
+labels=$(oc get nodes -o json | jq -c --arg mrc "$mrc" '[.items[].metadata
+  | select((.annotations // {})["openshift-optional.skrzypek.io/labelled-by"] == $mrc)
+  | .labels // {} | keys[] | select(startswith("mutexrule.openshift-optional.skrzypek.io/"))] | unique')
+targets='[]'
 ```
 
 1. Restore the selectors of the pools whose `modified-by` names it, and remove that annotation and
@@ -535,7 +550,7 @@ mrc="$ns/$name"
    oc get nodes -o json | jq -r --arg mrc "$mrc" --argjson labels "$labels" --argjson targets "$targets" '
      .items[] | .metadata as $m | ($m.annotations // {}) as $a
      | ($a["openshift-optional.skrzypek.io/labelled-by"] == $mrc) as $ours
-     | [$labels[] | select($m.labels[.] != null and ($ours or ($m.name | IN($targets[]))))] as $drop
+     | [$labels[] | select($m.labels[.] != null and ($ours or any($targets[]; . == $m.name)))] as $drop
      | [if $ours then "openshift-optional.skrzypek.io/labelled-by" else empty end,
         if ($a["openshift-optional.skrzypek.io/released-by"] // "" | startswith($mrc + "|"))
         then "openshift-optional.skrzypek.io/released-by" else empty end] as $unmark
