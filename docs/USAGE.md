@@ -495,40 +495,71 @@ through its nodes, the operator finishes the node it is working on (its Jobs, up
 wait for the node to finish its upgrade, up to 2 hours), skips the remaining nodes and then runs the finalizer. If
 another MutexRunConfig is working through its nodes, the finalizer waits until that whole run has ended (see
 [One MutexRunConfig at a time](#one-mutexrunconfig-at-a-time)). Use the manual steps below if that is too long to
-wait. While another MutexRunConfig is running, apply them only to the deleted MutexRunConfig's own pools and to the
-nodes in its MutexTargets' `status.nodes`: the running one's pools carry the same `original-match-expressions`
-annotation, and a MutexRule both of them use labels the running one's nodes too.
+wait. They change only what the deleted MutexRunConfig changed, so they leave the running one's pools and nodes alone.
 
-If the operator is gone or cannot run, do the same by hand, in this order:
+If the operator is gone or cannot run, do the same by hand, in this order. The commands need `jq`. They select the
+pools by the deleted MutexRunConfig's `modified-by` and `paused-by` annotations, and the nodes by its `labelled-by` and
+`released-by` annotations and by its MutexTargets' `status.nodes`. To see what a step would change, run its
+`oc get ... | jq` part on its own (in step 2, everything but the last line). First set the MutexRunConfig:
 
-1. Restore the selectors. For each MachineConfigPool whose `modified-by` annotation names the MutexRunConfig:
+```sh
+ns=<namespace>   # namespace of the deleted MutexRunConfig
+name=<name>      # its name
+mrc="$ns/$name"
+```
+
+1. Restore the selectors of the pools whose `modified-by` names it, and remove that annotation and
+   `original-match-expressions`:
 
    ```sh
-   oc get mcp -o custom-columns='NAME:.metadata.name,PAUSED:.spec.paused,PAUSED-BY:.metadata.annotations.openshift-optional\.skrzypek\.io/paused-by,MODIFIED-BY:.metadata.annotations.openshift-optional\.skrzypek\.io/modified-by,SAVED:.metadata.annotations.openshift-optional\.skrzypek\.io/original-match-expressions'
-   # put the SAVED JSON back (use [] when it is empty) and drop both annotations:
-   oc patch mcp <pool> --type=merge -p '{"metadata":{"annotations":{"openshift-optional.skrzypek.io/original-match-expressions":null,"openshift-optional.skrzypek.io/modified-by":null}},"spec":{"nodeSelector":{"matchExpressions":<SAVED JSON>}}}'
+   for pool in $(oc get mcp -o json | jq -r --arg mrc "$mrc" '.items[]
+       | select(.metadata.annotations["openshift-optional.skrzypek.io/modified-by"] == $mrc) | .metadata.name'); do
+     oc patch mcp "$pool" --type=merge -p "$(oc get mcp "$pool" -o json | jq -c '{
+       metadata: {annotations: {"openshift-optional.skrzypek.io/original-match-expressions": null,
+                                "openshift-optional.skrzypek.io/modified-by": null}},
+       spec: {nodeSelector: {matchExpressions:
+         (.metadata.annotations["openshift-optional.skrzypek.io/original-match-expressions"] | fromjson)}}}')"
+   done
    ```
 
-2. Remove the mutex labels and the node annotations, on each node whose `labelled-by` or `released-by` annotation
-   names the MutexRunConfig:
+2. Remove its mutex labels from the nodes whose `labelled-by` names it and from the nodes of its MutexTargets, and
+   remove its `labelled-by` and `released-by` annotations:
 
    ```sh
-   oc get nodes -o custom-columns='NAME:.metadata.name,LABELLED-BY:.metadata.annotations.openshift-optional\.skrzypek\.io/labelled-by,RELEASED-BY:.metadata.annotations.openshift-optional\.skrzypek\.io/released-by'
-   # once per rule of the MutexRunConfig:
-   oc label node <node> 'mutexrule.openshift-optional.skrzypek.io/<rule>.<namespace>-'
-   oc annotate node <node> openshift-optional.skrzypek.io/labelled-by- openshift-optional.skrzypek.io/released-by-
+   # the mutex label of each MutexRule of the MutexRunConfig
+   labels=$(oc get mutexrunconfig "$name" -n "$ns" -o json | jq -c --arg ns "$ns" '[.spec.mutexRules[]
+     | "mutexrule.openshift-optional.skrzypek.io/\(.name).\(if (.namespace // "") == "" then $ns else .namespace end)"]')
+   # the nodes of its MutexTargets
+   targets=$(for t in $(oc get mutexrunconfig "$name" -n "$ns" -o json | jq -r '.spec.mutexTargets[].name'); do
+     oc get mutextarget "$t" -n "$ns" --ignore-not-found -o json; done | jq -s -c '[.[].status.nodes[]?]')
+   oc get nodes -o json | jq -r --arg mrc "$mrc" --argjson labels "$labels" --argjson targets "$targets" '
+     .items[] | .metadata as $m | ($m.annotations // {}) as $a
+     | ($a["openshift-optional.skrzypek.io/labelled-by"] == $mrc) as $ours
+     | [$labels[] | select($m.labels[.] != null and ($ours or ($m.name | IN($targets[]))))] as $drop
+     | [if $ours then "openshift-optional.skrzypek.io/labelled-by" else empty end,
+        if ($a["openshift-optional.skrzypek.io/released-by"] // "" | startswith($mrc + "|"))
+        then "openshift-optional.skrzypek.io/released-by" else empty end] as $unmark
+     | select(($drop + $unmark) | length > 0)
+     | {metadata: {labels: ($drop | map({(.): null}) | add // {}),
+                   annotations: ($unmark | map({(.): null}) | add // {})}} as $patch
+     | "\($m.name) \($patch | tojson)"' |
+   while read -r node patch; do oc patch node "$node" --type=merge -p "$patch"; done
    ```
 
-3. Unpause the pools whose `paused-by` names the MutexRunConfig:
+3. Unpause the pools whose `paused-by` names it, and remove that annotation:
 
    ```sh
-   oc patch mcp <pool> --type=merge -p '{"metadata":{"annotations":{"openshift-optional.skrzypek.io/paused-by":null}},"spec":{"paused":false}}'
+   for pool in $(oc get mcp -o json | jq -r --arg mrc "$mrc" '.items[]
+       | select(.metadata.annotations["openshift-optional.skrzypek.io/paused-by"] == $mrc) | .metadata.name'); do
+     oc patch mcp "$pool" --type=merge -p '{"metadata":{"annotations":{"openshift-optional.skrzypek.io/paused-by":null}},"spec":{"paused":false}}'
+   done
    ```
 
-4. If the operator is uninstalled, remove the finalizer so the MutexRunConfig can be deleted:
+4. If the operator is uninstalled, remove the finalizer so the MutexRunConfig can be deleted. Do this last, because
+   step 2 reads the MutexRunConfig:
 
    ```sh
-   oc patch mutexrunconfig <name> -n <namespace> --type=merge -p '{"metadata":{"finalizers":null}}'
+   oc patch mutexrunconfig "$name" -n "$ns" --type=merge -p '{"metadata":{"finalizers":null}}'
    ```
 
 To **retry** after fixing the cause of a `Degraded=True`, do nothing: the next retry (see [Retries](#retries)), at
