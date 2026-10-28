@@ -1,13 +1,38 @@
 ---
-- name: Reset status
+# Reconciles a MutexRule: validates its Job templates and reports ValidConfig.
+# Status is merged condition by condition; it is not wiped on each reconcile,
+# so a MutexRunConfig never reads a MutexRule with an empty status.
+
+# Trust boundary: only MutexRules in the operator's own namespace
+# (POD_NAMESPACE) are acted on. Without POD_NAMESPACE (e.g. 'make run') every
+# namespace is allowed.
+- name: Check Namespace
+  ansible.builtin.set_fact:
+    mutexrule_operator_namespace: "{{ lookup('ansible.builtin.env', 'POD_NAMESPACE', default='') }}"
+
+- name: Report Namespace Not Allowed
   operator_sdk.util.k8s_status:
     api_version: "openshift-optional.skrzypek.io/v1alpha1"
     kind: MutexRule
     name: "{{ ansible_operator_meta.name }}"
     namespace: "{{ ansible_operator_meta.namespace }}"
-    replace: true
-    replace_lists: true
-    conditions: []
+    conditions:
+      - type: Reconciled
+        status: "False"
+        reason: NamespaceNotAllowed
+        message: >-
+          MutexRules are only reconciled in the operator namespace
+          '{{ mutexrule_operator_namespace }}'. Nothing was done.
+        lastTransitionTime: "{{ mutexrule_now }}"
+  when:
+    - mutexrule_operator_namespace | length > 0
+    - ansible_operator_meta.namespace != mutexrule_operator_namespace
+
+- name: Stop Outside The Operator Namespace
+  ansible.builtin.meta: end_play
+  when:
+    - mutexrule_operator_namespace | length > 0
+    - ansible_operator_meta.namespace != mutexrule_operator_namespace
 
 - name: Validate
   ansible.builtin.include_tasks: 01-validate.yml

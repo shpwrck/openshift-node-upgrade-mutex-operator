@@ -1,46 +1,316 @@
 ---
+# Validates the MutexRunConfig before anything is changed in the cluster.
+# Every check here is read-only; ConfigValidated=False blocks all later steps.
 - name: Validate Resources
   block:
+    - name: Reset Validation Facts
+      ansible.builtin.set_fact:
+        mutexrunconfig_label_problems: []
+        mutexrunconfig_rule_problems: []
+        mutexrunconfig_target_problems: []
+        mutexrunconfig_rules: []
+        mutexrunconfig_original_expressions: {}
+        mutexrunconfig_canary_kept_expressions: []
+        mutexrunconfig_canary_conflicts: []
+
+    - name: Check References Are Present
+      ansible.builtin.fail:
+        msg: "{{ item.msg }}"
+      loop:
+        - msg: spec.canary.name is empty.
+          failed: "{{ mutexrunconfig_canary_name | length == 0 }}"
+        - msg: spec.mutexRules is empty.
+          failed: "{{ mutexrunconfig_rule_refs | length == 0 }}"
+        - msg: spec.mutexTargets is empty.
+          failed: "{{ mutexrunconfig_target_refs | length == 0 }}"
+      loop_control:
+        label: "{{ item.msg }}"
+      when: item.failed | bool
+
+    # The node label key is mutexrule.openshift-optional.skrzypek.io/<rule>.<namespace>.
+    # Its name part must be a valid label name, and the rule name must not
+    # contain '.', so the key maps back to exactly one rule.
+    - name: Check MutexRule Label Keys
+      ansible.builtin.set_fact:
+        mutexrunconfig_label_problems: "{{ mutexrunconfig_label_problems + [item.namespace ~ '/' ~ item.name] }}"
+      loop: "{{ mutexrunconfig_rule_refs }}"
+      loop_control:
+        label: "{{ item.namespace }}/{{ item.name }}"
+      when: >-
+        item.name | length == 0
+        or '.' in item.name
+        or not ((item.name ~ '.' ~ item.namespace) is match(mutexrunconfig_label_name_regex))
+
+    - name: Fail On Invalid MutexRule Label Keys
+      ansible.builtin.fail:
+        msg: >-
+          MutexRule references {{ mutexrunconfig_label_problems | join(', ') }} cannot be used:
+          each rule is tracked with the node label
+          {{ mutexrunconfig_label_prefix }}<name>.<namespace>, so the rule name must
+          not contain '.' and '<name>.<namespace>' must be a valid label name of at
+          most 63 characters.
+      when: mutexrunconfig_label_problems | length > 0
+
+    - name: Check References Stay In The Operator Namespace
+      ansible.builtin.fail:
+        msg: >-
+          MutexRules and MutexTargets must live in the operator namespace
+          '{{ mutexrunconfig_operator_namespace }}'; this MutexRunConfig references the
+          namespace(s) {{ mutexrunconfig_foreign_namespaces | join(', ') }}.
+      vars:
+        mutexrunconfig_foreign_namespaces: >-
+          {{ (mutexrunconfig_rule_refs + mutexrunconfig_target_refs)
+             | map(attribute='namespace') | reject('equalto', mutexrunconfig_operator_namespace) | unique | list }}
+      when:
+        - mutexrunconfig_operator_namespace | length > 0
+        - mutexrunconfig_foreign_namespaces | length > 0
+
     - name: Gather MutexRules
       kubernetes.core.k8s_info:
         api_version: "openshift-optional.skrzypek.io/v1alpha1"
         kind: MutexRule
         name: "{{ item.name }}"
-        namespace: "{{ item.namespace | default(ansible_operator_meta.namespace) }}"
-      loop: "{{ _openshift_optional_skrzypek_io_mutexrunconfig_spec.mutexRules }}"
-      failed_when:
-        - mutexRules.resources == []
+        namespace: "{{ item.namespace }}"
+      loop: "{{ mutexrunconfig_rule_refs }}"
+      loop_control:
+        label: "{{ item.namespace }}/{{ item.name }}"
       register: mutexRules
 
-    - name: Check CRD Status
-      ansible.builtin.assert:
-        that: item.resources[0].status.conditions[0].status == "True"
+    - name: Check MutexRule Status
+      ansible.builtin.set_fact:
+        mutexrunconfig_rule_problems: >-
+          {{ mutexrunconfig_rule_problems
+             + [item.item.namespace ~ '/' ~ item.item.name ~ (' was not found' if item.resources | length == 0 else ' is not ValidConfig=True')] }}
       loop: "{{ mutexRules.results }}"
+      loop_control:
+        label: "{{ item.item.namespace }}/{{ item.item.name }}"
+      when: >-
+        item.resources | length == 0
+        or (item.resources[0].status.conditions | default([], true)
+            | selectattr('type', 'equalto', 'ValidConfig') | selectattr('status', 'equalto', 'True') | list | length == 0)
+
+    - name: Fail On Invalid MutexRules
+      ansible.builtin.fail:
+        msg: "MutexRule {{ mutexrunconfig_rule_problems | join(', ') }}."
+      when: mutexrunconfig_rule_problems | length > 0
+
+    - name: Collect MutexRule Specs
+      ansible.builtin.set_fact:
+        mutexrunconfig_rules: >-
+          {{ mutexrunconfig_rules
+             + [item.item | combine({'spec': item.resources[0].spec,
+                                      'has_cleanup': (item.resources[0].spec.cleanUpJobSpec | default(none)) is mapping})] }}
+      loop: "{{ mutexRules.results }}"
+      loop_control:
+        label: "{{ item.item.namespace }}/{{ item.item.name }}"
 
     - name: Gather MutexTargets
       kubernetes.core.k8s_info:
         api_version: "openshift-optional.skrzypek.io/v1alpha1"
         kind: MutexTarget
         name: "{{ item.name }}"
-        namespace: "{{ item.namespace | default(ansible_operator_meta.namespace) }}"
-      loop: "{{ _openshift_optional_skrzypek_io_mutexrunconfig_spec.mutexTargets }}"
-      failed_when:
-        - mutexTargets.resources == []
+        namespace: "{{ item.namespace }}"
+      loop: "{{ mutexrunconfig_target_refs }}"
+      loop_control:
+        label: "{{ item.namespace }}/{{ item.name }}"
       register: mutexTargets
 
-    - name: Check CRD Status
-      ansible.builtin.assert:
-        that: item.resources[0].status.conditions[0].status == "True"
+    # A target is usable only once it reported ValidConfig=True and
+    # NodeListGathered=True and listed at least one node.
+    - name: Check MutexTarget Status
+      ansible.builtin.set_fact:
+        mutexrunconfig_target_problems: >-
+          {{ mutexrunconfig_target_problems
+             + [item.item.namespace ~ '/' ~ item.item.name ~ (' was not found' if item.resources | length == 0
+                else ' has not reported ValidConfig=True, NodeListGathered=True and a non-empty status.nodes')] }}
       loop: "{{ mutexTargets.results }}"
+      loop_control:
+        label: "{{ item.item.namespace }}/{{ item.item.name }}"
+      when: >-
+        item.resources | length == 0
+        or (item.resources[0].status.conditions | default([], true)
+            | selectattr('type', 'equalto', 'ValidConfig') | selectattr('status', 'equalto', 'True') | list | length == 0)
+        or (item.resources[0].status.conditions | default([], true)
+            | selectattr('type', 'equalto', 'NodeListGathered') | selectattr('status', 'equalto', 'True') | list | length == 0)
+        or (item.resources[0].status.nodes | default([], true) | length == 0)
+
+    - name: Fail On Invalid MutexTargets
+      ansible.builtin.fail:
+        msg: "MutexTarget {{ mutexrunconfig_target_problems | join(', ') }}."
+      when: mutexrunconfig_target_problems | length > 0
+
+    - name: Collect Target Nodes And Pools
+      ansible.builtin.set_fact:
+        targetNodeList: "{{ (targetNodeList + item.resources[0].status.nodes) | unique }}"
+        machineConfigPoolList: "{{ (machineConfigPoolList + item.resources[0].spec.machineConfigPools) | unique }}"
+      loop: "{{ mutexTargets.results }}"
+      loop_control:
+        label: "{{ item.item.namespace }}/{{ item.item.name }}"
 
     - name: Gather Canary
       kubernetes.core.k8s_info:
         api_version: "machineconfiguration.openshift.io/v1"
         kind: MachineConfigPool
-        name: "{{ _openshift_optional_skrzypek_io_mutexrunconfig_spec.canary.name }}"
-      failed_when:
-        - canaryPool.resources == []
+        name: "{{ mutexrunconfig_canary_name }}"
       register: canaryPool
+
+    - name: Fail On Missing Canary
+      ansible.builtin.fail:
+        msg: "The canary MachineConfigPool {{ mutexrunconfig_canary_name }} was not found."
+      when: canaryPool.resources | length == 0
+
+    - name: Check Canary
+      ansible.builtin.fail:
+        msg: "{{ item.msg }}"
+      loop:
+        - msg: >-
+            The canary MachineConfigPool {{ mutexrunconfig_canary_name }} is also a target pool.
+          failed: "{{ mutexrunconfig_canary_name in machineConfigPoolList }}"
+        - msg: >-
+            The canary MachineConfigPool {{ mutexrunconfig_canary_name }} is paused, so nodes
+            released into it would never be upgraded.
+          failed: "{{ canaryPool.resources[0].spec.paused | default(false) | bool }}"
+        - msg: >-
+            The canary MachineConfigPool {{ mutexrunconfig_canary_name }} has no
+            nodeSelector.matchLabels (for example node-role.kubernetes.io/worker: "").
+          failed: "{{ canaryPool.resources[0].spec.nodeSelector.matchLabels | default({}, true) | length == 0 }}"
+      loop_control:
+        label: "{{ item.msg }}"
+      when: item.failed | bool
+
+    - name: Gather Target MachineConfigPools
+      kubernetes.core.k8s_info:
+        api_version: "machineconfiguration.openshift.io/v1"
+        kind: MachineConfigPool
+        name: "{{ item }}"
+      loop: "{{ machineConfigPoolList }}"
+      register: mutexrunconfig_target_pools
+
+    - name: Fail On Missing Target MachineConfigPools
+      ansible.builtin.fail:
+        msg: >-
+          Target MachineConfigPool(s) {{ mutexrunconfig_target_pools.results | selectattr('resources', 'equalto', [])
+          | map(attribute='item') | join(', ') }} were not found.
+      when: mutexrunconfig_target_pools.results | selectattr('resources', 'equalto', []) | list | length > 0
+
+    # The original matchExpressions of a pool: the copy saved in the
+    # original-match-expressions annotation during a run, or else the live
+    # list (without any expression on a mutex label key).
+    - name: Read Original Target Pool Expressions
+      ansible.builtin.set_fact:
+        mutexrunconfig_original_expressions: >-
+          {{ mutexrunconfig_original_expressions | combine({item.item: mutexrunconfig_pool_original}) }}
+      loop: "{{ mutexrunconfig_target_pools.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+      vars:
+        mutexrunconfig_pool_annotations: "{{ item.resources[0].metadata.annotations | default({}, true) }}"
+        mutexrunconfig_pool_original: >-
+          {{ (mutexrunconfig_pool_annotations[mutexrunconfig_annotation_original_expressions] | from_json)
+             if mutexrunconfig_pool_annotations[mutexrunconfig_annotation_original_expressions] is defined
+             else (item.resources[0].spec.nodeSelector.matchExpressions | default([], true)
+                   | rejectattr('key', 'match', mutexrunconfig_label_prefix | regex_escape) | list) }}
+
+    - name: Read Original Canary Expressions
+      ansible.builtin.set_fact:
+        mutexrunconfig_canary_original_expressions: >-
+          {{ (mutexrunconfig_pool_annotations[mutexrunconfig_annotation_original_expressions] | from_json)
+             if mutexrunconfig_pool_annotations[mutexrunconfig_annotation_original_expressions] is defined
+             else (canaryPool.resources[0].spec.nodeSelector.matchExpressions | default([], true)
+                   | rejectattr('key', 'match', mutexrunconfig_label_prefix | regex_escape) | list) }}
+        mutexrunconfig_canary_match_labels: "{{ canaryPool.resources[0].spec.nodeSelector.matchLabels }}"
+      vars:
+        mutexrunconfig_pool_annotations: "{{ canaryPool.resources[0].metadata.annotations | default({}, true) }}"
+
+    # Target nodes released from their pool must be able to join the canary.
+    - name: Gather Nodes Matching The Canary Labels
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Node
+        label_selectors:
+          - "{{ mutexrunconfig_selector }}"
+      vars:
+        mutexrunconfig_selector_source:
+          matchLabels: "{{ mutexrunconfig_canary_match_labels }}"
+      register: mutexrunconfig_canary_label_nodes
+
+    - name: Fail When The Canary Labels Do Not Select The Target Nodes
+      ansible.builtin.fail:
+        msg: >-
+          The nodeSelector.matchLabels of the canary MachineConfigPool {{ mutexrunconfig_canary_name }}
+          do not select target node(s) {{ mutexrunconfig_unreachable | join(', ') }}, so they could
+          never be upgraded through the canary.
+      vars:
+        mutexrunconfig_unreachable: >-
+          {{ targetNodeList | difference(mutexrunconfig_canary_label_nodes.resources | map(attribute='metadata.name') | list) }}
+      when: mutexrunconfig_unreachable | length > 0
+
+    # During a run the canary keeps those of its own matchExpressions that
+    # every target node already satisfies (for example
+    # 'node-role.kubernetes.io/infra DoesNotExist'). Expressions that would
+    # keep released target nodes out, such as 'isCanary Exists', are dropped
+    # for the duration of the run and restored afterwards.
+    - name: Gather Nodes Matching Each Canary Expression
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Node
+        label_selectors:
+          - "{{ mutexrunconfig_selector }}"
+      vars:
+        mutexrunconfig_selector_source:
+          matchExpressions: "{{ [item] }}"
+      loop: "{{ mutexrunconfig_canary_original_expressions }}"
+      loop_control:
+        label: "{{ item.key }} {{ item.operator }}"
+      register: mutexrunconfig_canary_expression_nodes
+
+    - name: Keep Canary Expressions Satisfied By Every Target Node
+      ansible.builtin.set_fact:
+        mutexrunconfig_canary_kept_expressions: "{{ mutexrunconfig_canary_kept_expressions + [item.item] }}"
+      loop: "{{ mutexrunconfig_canary_expression_nodes.results }}"
+      loop_control:
+        label: "{{ item.item.key }} {{ item.item.operator }}"
+      when: targetNodeList | difference(item.resources | map(attribute='metadata.name') | list) | length == 0
+
+    # MCO refuses a node that matches two custom pools ("belongs to 2 custom
+    # roles") or the master pool and a custom pool. During a run the canary
+    # selects its matchLabels plus the kept expressions (once a node has no
+    # mutex labels), so every node it would select must belong today to the
+    # worker pool, the canary itself or a target pool.
+    - name: Gather Nodes The Canary Can Select During A Run
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Node
+        label_selectors:
+          - "{{ mutexrunconfig_selector }}"
+      vars:
+        mutexrunconfig_selector_source:
+          matchLabels: "{{ mutexrunconfig_canary_match_labels }}"
+          matchExpressions: "{{ mutexrunconfig_canary_kept_expressions }}"
+      register: mutexrunconfig_canary_run_nodes
+
+    - name: Find Nodes That Would Belong To Two Pools
+      ansible.builtin.set_fact:
+        mutexrunconfig_canary_conflicts: "{{ mutexrunconfig_canary_conflicts + [item.metadata.name ~ ' (pool ' ~ mutexrunconfig_node_pool ~ ')'] }}"
+      loop: "{{ mutexrunconfig_canary_run_nodes.resources }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"
+      vars:
+        mutexrunconfig_node_pool: >-
+          {{ (item.metadata.annotations | default({}, true))['machineconfiguration.openshift.io/currentConfig'] | default('')
+             | regex_replace('^rendered-', '') | regex_replace('-[0-9a-f]+$', '') }}
+      when:
+        - mutexrunconfig_node_pool | length > 0
+        - mutexrunconfig_node_pool not in (['worker', mutexrunconfig_canary_name] + machineConfigPoolList)
+
+    - name: Fail On Canary Overlap
+      ansible.builtin.fail:
+        msg: >-
+          During a run the canary MachineConfigPool {{ mutexrunconfig_canary_name }} would also select
+          {{ mutexrunconfig_canary_conflicts | join(', ') }}, which MCO refuses for nodes in two pools.
+          Add a matchExpression to the canary that excludes them (for example
+          'node-role.kubernetes.io/infra DoesNotExist'); it is kept during runs.
+      when: mutexrunconfig_canary_conflicts | length > 0
 
     - name: Report Configuration Results
       operator_sdk.util.k8s_status:
@@ -52,10 +322,22 @@
           - type: ConfigValidated
             status: "True"
             reason: FetchSucceeded
-            message: Canary, MutexRules, and MutexTargets were successfully fetched.
-            lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
+            message: >-
+              Canary, MutexRules, and MutexTargets were successfully fetched and validated
+              ({{ mutexrunconfig_rules | length }} rule(s), pool(s) {{ machineConfigPoolList | join(', ') }},
+              {{ targetNodeList | length }} target node(s)).
+            lastTransitionTime: "{{ mutexrunconfig_now }}"
+
+    - name: Set Configuration Status
+      ansible.builtin.set_fact:
+        ConfigValidated: true
 
   rescue:
+    - name: Set Configuration Status
+      ansible.builtin.set_fact:
+        ConfigValidated: false
+        mutexrunconfig_failure: "ConfigValidated: {{ mutexrunconfig_failed_msg }}"
+
     - name: Report Invalid Config
       operator_sdk.util.k8s_status:
         api_version: "openshift-optional.skrzypek.io/v1alpha1"
@@ -65,52 +347,77 @@
         conditions:
           - type: ConfigValidated
             status: "False"
-            reason: FetchFailed
-            message: Canary, MutexRules, MutexTargets were not successfully fetched.
-            lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
+            reason: ValidationFailed
+            message: "{{ mutexrunconfig_failed_msg | truncate(1000) }}"
+            lastTransitionTime: "{{ mutexrunconfig_now }}"
 
-  always:
-    - name: Set Configuration Status
-      ansible.builtin.set_fact:
-        ConfigValidated: "{{ (ansible_failed_result is not defined) | ternary('true', 'false') }}"
+# Any APIService that is not Available blocks the run (ConfigValidated=False),
+# because API discovery and the operator's own calls are unreliable then.
+# The block is gated on a copy of ConfigValidated, because block conditions
+# also apply to the rescue, which sets ConfigValidated to false.
+- name: Decide Whether To Check The Cluster
+  ansible.builtin.set_fact:
+    mutexrunconfig_check_cluster: "{{ ConfigValidated }}"
 
 - name: Validate Cluster
+  when: mutexrunconfig_check_cluster | bool
   block:
-      - name: Gather API Services
-        kubernetes.core.k8s_info:
-          api_version: "apiregistration.k8s.io/v1"
-          kind: APIService
-        register: APIServices
+    - name: Gather API Services
+      kubernetes.core.k8s_info:
+        api_version: "apiregistration.k8s.io/v1"
+        kind: APIService
+      register: APIServices
+      until:
+        - APIServices.resources is defined
+        - mutexrunconfig_unavailable_apiservices | length == 0
+      retries: "{{ mutexrunconfig_apiservice_retries }}"
+      delay: "{{ mutexrunconfig_apiservice_delay }}"
+      failed_when: false
+      vars:
+        mutexrunconfig_unavailable_apiservices: &unavailable_apiservices >-
+          {{ APIServices.resources | default([]) | map(attribute='metadata.name')
+             | difference(APIServices.resources | default([]) | subelements('status.conditions', skip_missing=True)
+                          | selectattr('1.type', 'equalto', 'Available') | selectattr('1.status', 'equalto', 'True')
+                          | map(attribute='0.metadata.name') | list) }}
 
-      - name: Flatten List
-        ansible.builtin.set_fact:
-          serviceConditions: "{{ APIServices | community.general.json_query(query) }}"
-        vars:
-          query: resources[*].status.conditions[*][]
+    - name: Fail When API Services Cannot Be Listed
+      ansible.builtin.fail:
+        msg: "APIServices could not be listed: {{ APIServices.msg | default('unknown error') }}"
+      when: APIServices.resources is not defined
 
-      - name: Identify Failing Services
-        assert:
-          that:
-            - item.status == "True"
-        loop: "{{ serviceConditions }}"
-        when:
-        - item.type == "Available"
+    - name: Identify Failing Services
+      ansible.builtin.fail:
+        msg: >-
+          APIService condition Available is not True for {{ mutexrunconfig_unavailable_apiservices | join(', ') }}.
+      vars:
+        mutexrunconfig_unavailable_apiservices: *unavailable_apiservices
+      when: mutexrunconfig_unavailable_apiservices | length > 0
 
-      - name: Report Configuration Results
-        operator_sdk.util.k8s_status:
-          api_version: "openshift-optional.skrzypek.io/v1alpha1"
-          kind: MutexRunConfig
-          name: "{{ ansible_operator_meta.name }}"
-          namespace: "{{ ansible_operator_meta.namespace }}"
-          conditions:
-            - type: ClusterStateValidated
-              status: "True"
-              reason: APIServicesUp
-              message: APIService condition Available is True for all APIServices
-              lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
+    - name: Report Configuration Results
+      operator_sdk.util.k8s_status:
+        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        kind: MutexRunConfig
+        name: "{{ ansible_operator_meta.name }}"
+        namespace: "{{ ansible_operator_meta.namespace }}"
+        conditions:
+          - type: ClusterStateValidated
+            status: "True"
+            reason: APIServicesUp
+            message: APIService condition Available is True for all APIServices
+            lastTransitionTime: "{{ mutexrunconfig_now }}"
+
+    - name: Set Cluster Status
+      ansible.builtin.set_fact:
+        ClusterStateValidated: true
 
   rescue:
-    - name: Report Invalid Config
+    - name: Set Cluster Status
+      ansible.builtin.set_fact:
+        ClusterStateValidated: false
+        ConfigValidated: false
+        mutexrunconfig_failure: "ClusterStateValidated: {{ mutexrunconfig_failed_msg }}"
+
+    - name: Report Invalid Cluster State
       operator_sdk.util.k8s_status:
         api_version: "openshift-optional.skrzypek.io/v1alpha1"
         kind: MutexRunConfig
@@ -120,10 +427,12 @@
           - type: ClusterStateValidated
             status: "False"
             reason: APIServicesDown
-            message: APIService condition Available is not True for all APIServices
-            lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
-
-  always:
-    - name: Set Configuration Status
-      ansible.builtin.set_fact:
-        ConfigValidated: "{{ (ansible_failed_result is not defined) | ternary('true', 'false') }}"
+            message: "{{ mutexrunconfig_failed_msg | truncate(1000) }}"
+            lastTransitionTime: "{{ mutexrunconfig_now }}"
+          - type: ConfigValidated
+            status: "False"
+            reason: ClusterStateInvalid
+            message: >-
+              The cluster state check failed, so nothing is paused, labelled or run:
+              {{ mutexrunconfig_failed_msg | truncate(900) }}
+            lastTransitionTime: "{{ mutexrunconfig_now }}"

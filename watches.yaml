@@ -4,19 +4,29 @@
   kind: MutexRule
   role: mutexrule
   reconcilePeriod: 10m
-  manageStatus: False
+  manageStatus: false
 
 - version: v1alpha1
   group: openshift-optional.skrzypek.io
   kind: MutexTarget
   role: mutextarget
   reconcilePeriod: 10m
-  manageStatus: False
+  manageStatus: false
 
+# Deleting a MutexRunConfig runs the mutexrunconfig role once more with
+# state=absent before the finalizer is removed. That run unpauses the
+# MachineConfigPools this MutexRunConfig paused, removes its mutex labels from
+# the nodes and restores the canary and target pool node selectors. Deleting a
+# MutexRunConfig in the middle of an upgrade therefore lets MCO upgrade the
+# remaining nodes without running their MutexRule jobs.
 - version: v1alpha1
   group: openshift-optional.skrzypek.io
   kind: MutexRunConfig
   role: mutexrunconfig
   reconcilePeriod: 10m
-  manageStatus: False
+  manageStatus: false
+  finalizer:
+    name: openshift-optional.skrzypek.io/finalizer
+    vars:
+      state: absent
 #+kubebuilder:scaffold:watch

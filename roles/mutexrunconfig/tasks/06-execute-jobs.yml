@@ -1,168 +1,72 @@
 ---
+# Processes one target node (loop var targetNode):
+#   1. a node already at desired_version is skipped: no pre-upgrade and no
+#      cleanup Jobs, only leftover mutex labels are removed;
+#   2. otherwise the pre-upgrade Job of every rule whose label the node still
+#      carries runs (a Job that already completed for this node, rule and
+#      version is reused, see 07-run-job.yml);
+#   3. the node's mutex labels are removed, so it joins the canary pool and
+#      MCO upgrades it;
+#   4. the role waits until the node's release-image-version label equals
+#      desired_version (mutexrunconfig_node_upgrade_retries x _delay);
+#   5. the cleanup Job of every rule that has a cleanUpJobSpec runs.
+# Any failure sets JobRun=false, which skips the remaining nodes; the pools
+# stay paused (see main.yml). The loop's own 'when' is evaluated for every
+# node before the first one runs, so the block checks JobRun itself (through
+# a copy, because block conditions also apply to the rescue).
+- name: Decide Whether To Process This Node
+  ansible.builtin.set_fact:
+    mutexrunconfig_node_enabled: "{{ JobRun }}"
+
 - name: Job Execution Block
+  when: mutexrunconfig_node_enabled | bool
   block:
+    - name: Start Node
+      ansible.builtin.set_fact:
+        mutexrunconfig_node_step: jobs
+        mutexrunconfig_node_position: "{{ ansible_loop.index }} of {{ ansible_loop.length }}"
+
     - name: Get Node Details
       kubernetes.core.k8s_info:
+        api_version: "v1"
         kind: Node
         name: "{{ targetNode }}"
       register: nodeResource
 
-    - name: Set MutexRuleList Fact
+    - name: Fail On Missing Node
+      ansible.builtin.fail:
+        msg: Node {{ targetNode }} was not found.
+      when: nodeResource.resources | length == 0
+
+    - name: Set Node Facts
       ansible.builtin.set_fact:
-        mutexRuleList: "{{ nodeResource | community.general.json_query(query) }}"
-      vars:
-        query: "resources[0].metadata.labels.keys(@) | [?starts_with(@,'mutexrule')]"
+        mutexrunconfig_node_labels: "{{ nodeResource.resources[0].metadata.labels | default({}, true) }}"
 
-    - name: Get Rule Details (from labels)
+    - name: Set Node Rule Facts
       ansible.builtin.set_fact:
-        nodeMutexRulesItem: "{{ mutexRules | community.general.json_query(query) }}"
-      vars:
-        itemName: "{{ item | split('/') | last | split('.') | first }}"
-        itemNamespace: "{{ item | split('/') | last | split('.') | last }}"
-        query: "results[?resources[?metadata.name=='{{ itemName }}' && metadata.namespace=='{{ itemNamespace }}']]"
-      loop: "{{ mutexRuleList }}"
-      register: nodeMutexRulesResults
+        mutexrunconfig_node_version: "{{ mutexrunconfig_node_labels[mutexrunconfig_version_label] | default('') }}"
+        mutexrunconfig_held_rules: "{{ mutexrunconfig_rules | selectattr('label', 'in', mutexrunconfig_node_labels) | list }}"
 
-    - name: Set List (flattened)
+    - name: Check Whether The Node Is Already Upgraded
       ansible.builtin.set_fact:
-        nodeMutexRules: "{{ nodeMutexRulesResults.results | map(attribute='ansible_facts.nodeMutexRulesItem') | list | flatten(2) }}"
+        mutexrunconfig_node_upgraded: >-
+          {{ mutexrunconfig_node_version is match(mutexrunconfig_semver_regex)
+             and not (mutexrunconfig_node_version is version(desired_version, 'lt', version_type='semver')) }}
 
-    - name: Stage Job Updates (inject variables)
-      ansible.builtin.set_fact:
-        update_list: "{{ update_list + update }}"
-      loop: "{{ nodeMutexRules }}"
-      loop_control:
-        index_var: loopIndex
-      vars:
-        update_list: []
-        update:
-          - path: "nodeMutexRules[{{ loopIndex }}].resources[0].spec.jobSpec.template.spec.containers[0].env"
-            value:
-              - name: NODE_NAME
-                value: "{{ targetNode }}"
-              - name: MUTEX_RULE
-                value: "{{ nodeMutexRules[loopIndex].resources[0].metadata.name }}"
-          - path: "nodeMutexRules[{{ loopIndex }}].resources[0].spec.jobSpec.template.spec.affinity"
-            value:
-              nodeAffinity:
-                requiredDuringSchedulingIgnoredDuringExecution:
-                  nodeSelectorTerms:
-                    - matchExpressions:
-                        - key: kubernetes.io/hostname
-                          operator: NotIn
-                          values:
-                            - "{{ targetNode }}"
-
-    - name: Commit Job Updates
-      ansible.utils.update_fact:
-        updates: "{{ update_list }}"
-      register: updatedK8sMutexRules
-
-    - name: Launch K8s Jobs
+    - name: Remove Leftover Mutex Labels From An Upgraded Node
       kubernetes.core.k8s:
-        api_version: "batch/v1"
-        kind: Job
-        generate_name: "{{ item.resources[0].spec.jobName }}-"
-        namespace: "{{ item.resources[0].spec.jobNamespace }}"
-        definition:
-          spec: "{{ item.resources[0].spec.jobSpec }}"
-        state: present
-        wait: true
-        wait_condition:
-          status: "True"
-          type: "Complete"
-      loop: "{{ updatedK8sMutexRules.nodeMutexRules }}"
-
-    - name: Report Job Run Finish
-      operator_sdk.util.k8s_status:
-        api_version: "openshift-optional.skrzypek.io/v1alpha1"
-        kind: MutexRunConfig
-        name: "{{ ansible_operator_meta.name }}"
-        namespace: "{{ ansible_operator_meta.namespace }}"
-        conditions:
-          - type: JobRun
-            status: "True"
-            reason: JobRunSucceeded
-            message: |-
-              Jobs for {{ targetNode }} have run successfully.
-              Node is {{ ansible_loop.index }} of {{ ansible_loop.length }}
-            lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
-
-    - name: Clear JSON_Patch Fact
-      ansible.builtin.set_fact:
-        jsonPatch: []
-
-    - name: Set JSON_Patch Fact
-      ansible.builtin.set_fact:
-        jsonPatch: "{{ jsonPatch + [{'op': 'remove', 'path': '/metadata/labels/' + (item | regex_replace('/', '~1'))}] }}"
-      loop: "{{ mutexRuleList }}"
-
-    - name: Remove Mutex Labels
-      kubernetes.core.k8s_json_patch:
-        kind: Node
-        api_version: "v1"
-        name: "{{ targetNode }}"
-        patch: "{{ jsonPatch }}"
-
-    - name: Wait Until Node Version Matches Desired Version
-      kubernetes.core.k8s_info:
+        state: patched
         api_version: "v1"
         kind: Node
         name: "{{ targetNode }}"
-      register: actual_version
-      until: desired_version == ( actual_version.resources[0].metadata.labels['machineconfiguration.openshift.io/release-image-version'] | default('0.0.0') )
-      retries: 100
-      delay: 60
-
-    - name: Stage CleanUp Job Updates (inject variables)
-      ansible.builtin.set_fact:
-        clean_up_update_list: "{{ update_list + update }}"
-      when: nodeMutexRules[{{ loopIndex }}].resources[0].spec.cleanUpJobSpec is defined
-      loop: "{{ nodeMutexRules }}"
-      loop_control:
-        index_var: loopIndex
-      vars:
-        update_list: []
-        update:
-          - path: "nodeMutexRules[{{ loopIndex }}].resources[0].spec.cleanUpJobSpec.template.spec.containers[0].env"
-            value:
-              - name: NODE_NAME
-                value: "{{ targetNode }}"
-              - name: MUTEX_RULE
-                value: "{{ nodeMutexRules[loopIndex].resources[0].metadata.name }}"
-          - path: "nodeMutexRules[{{ loopIndex }}].resources[0].spec.cleanUpJobSpec.template.spec.affinity"
-            value:
-              nodeAffinity:
-                requiredDuringSchedulingIgnoredDuringExecution:
-                  nodeSelectorTerms:
-                    - matchExpressions:
-                        - key: kubernetes.io/hostname
-                          operator: NotIn
-                          values:
-                            - "{{ targetNode }}"
-
-    - name: Commit Clean Up Job Updates
-      ansible.utils.update_fact:
-        updates: "{{ clean_up_update_list }}"
-      register: updatedK8sMutexCleanUpRules
-
-    - name: Launch K8s Clean Up Jobs
-      kubernetes.core.k8s:
-        api_version: "batch/v1"
-        kind: Job
-        generate_name: "cleanup-{{ item.resources[0].spec.jobName }}-"
-        namespace: "{{ item.resources[0].spec.jobNamespace }}"
         definition:
-          spec: "{{ item.resources[0].spec.cleanUpJobSpec }}"
-        state: present
-        wait: true
-        wait_condition:
-          status: "True"
-          type: "Complete"
-      loop: "{{ updatedK8sMutexCleanUpRules.nodeMutexRules }}"
-      when: item.resources[0].spec.cleanUpJobSpec is defined
+          metadata:
+            labels: "{{ mutexrunconfig_remove_labels }}"
+      when:
+        - mutexrunconfig_node_upgraded | bool
+        - mutexrunconfig_held_rules | length > 0
 
-    - name: Report Upgrade Finish
+    - name: Report Node Already Upgraded
       operator_sdk.util.k8s_status:
         api_version: "openshift-optional.skrzypek.io/v1alpha1"
         kind: MutexRunConfig
@@ -171,28 +75,113 @@
         conditions:
           - type: NodeUpgrade
             status: "True"
-            reason: NodeUpgradeSucceeded
-            message: |-
-              Upgrade for {{ targetNode }} has run successfully.
-              Node is {{ ansible_loop.index }} of {{ ansible_loop.length }}
-            lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
+            reason: NodeAlreadyUpgraded
+            message: >-
+              {{ targetNode }} already runs {{ mutexrunconfig_node_version }}; its jobs were skipped.
+              Node is {{ mutexrunconfig_node_position }}
+            lastTransitionTime: "{{ mutexrunconfig_now }}"
+      when: mutexrunconfig_node_upgraded | bool
 
-    - name: Report Upgrade Unavailable (Finished)
-      operator_sdk.util.k8s_status:
-        api_version: "openshift-optional.skrzypek.io/v1alpha1"
-        kind: MutexRunConfig
-        name: "{{ ansible_operator_meta.name }}"
-        namespace: "{{ ansible_operator_meta.namespace }}"
-        conditions:
-          - type: UpgradeAvailable
-            status: "False"
-            reason: "UpgradeUnavailable"
-            message: An upgrade is not available.
-            lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
-      when:
-        - ansible_loop.last
+    - name: Upgrade Node
+      when: not mutexrunconfig_node_upgraded | bool
+      block:
+        - name: Launch K8s Jobs
+          ansible.builtin.include_tasks: 07-run-job.yml
+          loop: "{{ mutexrunconfig_held_rules }}"
+          loop_control:
+            loop_var: mutexrunconfig_rule
+            label: "{{ mutexrunconfig_rule.namespace }}/{{ mutexrunconfig_rule.name }}"
+          vars:
+            mutexrunconfig_job_phase: pre
+
+        - name: Report Job Run Finish
+          operator_sdk.util.k8s_status:
+            api_version: "openshift-optional.skrzypek.io/v1alpha1"
+            kind: MutexRunConfig
+            name: "{{ ansible_operator_meta.name }}"
+            namespace: "{{ ansible_operator_meta.namespace }}"
+            conditions:
+              - type: JobRun
+                status: "True"
+                reason: JobRunSucceeded
+                message: |-
+                  Jobs for {{ targetNode }} have run successfully.
+                  Node is {{ mutexrunconfig_node_position }}
+                lastTransitionTime: "{{ mutexrunconfig_now }}"
+
+        - name: Remove Mutex Labels
+          kubernetes.core.k8s:
+            state: patched
+            api_version: "v1"
+            kind: Node
+            name: "{{ targetNode }}"
+            definition:
+              metadata:
+                labels: "{{ mutexrunconfig_remove_labels }}"
+          when: mutexrunconfig_held_rules | length > 0
+
+        - name: Set Node Step
+          ansible.builtin.set_fact:
+            mutexrunconfig_node_step: wait
+
+        - name: Wait Until Node Version Matches Desired Version
+          kubernetes.core.k8s_info:
+            api_version: "v1"
+            kind: Node
+            name: "{{ targetNode }}"
+          register: actual_version
+          until: mutexrunconfig_actual_version == desired_version
+          retries: "{{ mutexrunconfig_node_upgrade_retries }}"
+          delay: "{{ mutexrunconfig_node_upgrade_delay }}"
+          failed_when: false
+          vars:
+            mutexrunconfig_actual_version: &actual_version >-
+              {{ (actual_version.resources | default([]) | first | default({})).metadata.labels[mutexrunconfig_version_label] | default('') }}
+
+        - name: Fail When The Node Did Not Reach The Desired Version
+          ansible.builtin.fail:
+            msg: >-
+              {{ targetNode }} did not report {{ mutexrunconfig_version_label }}={{ desired_version }}
+              within {{ (mutexrunconfig_node_upgrade_retries | int) * (mutexrunconfig_node_upgrade_delay | int) }}s
+              (it reports '{{ mutexrunconfig_actual_version }}').
+          vars:
+            mutexrunconfig_actual_version: *actual_version
+          when: mutexrunconfig_actual_version != desired_version
+
+        - name: Set Node Step
+          ansible.builtin.set_fact:
+            mutexrunconfig_node_step: cleanup
+
+        - name: Launch K8s Clean Up Jobs
+          ansible.builtin.include_tasks: 07-run-job.yml
+          loop: "{{ mutexrunconfig_rules | selectattr('has_cleanup') | list }}"
+          loop_control:
+            loop_var: mutexrunconfig_rule
+            label: "{{ mutexrunconfig_rule.namespace }}/{{ mutexrunconfig_rule.name }}"
+          vars:
+            mutexrunconfig_job_phase: cleanup
+
+        - name: Report Upgrade Finish
+          operator_sdk.util.k8s_status:
+            api_version: "openshift-optional.skrzypek.io/v1alpha1"
+            kind: MutexRunConfig
+            name: "{{ ansible_operator_meta.name }}"
+            namespace: "{{ ansible_operator_meta.namespace }}"
+            conditions:
+              - type: NodeUpgrade
+                status: "True"
+                reason: NodeUpgradeSucceeded
+                message: |-
+                  Upgrade for {{ targetNode }} has run successfully.
+                  Node is {{ mutexrunconfig_node_position }}
+                lastTransitionTime: "{{ mutexrunconfig_now }}"
 
   rescue:
+    - name: Set JobRun
+      ansible.builtin.set_fact:
+        JobRun: false
+        mutexrunconfig_failure: "{{ targetNode }} ({{ mutexrunconfig_node_step | default('jobs') }}): {{ mutexrunconfig_failed_msg }}"
+
     - name: Report Job Run Failure
       operator_sdk.util.k8s_status:
         api_version: "openshift-optional.skrzypek.io/v1alpha1"
@@ -204,10 +193,10 @@
             status: "False"
             reason: JobRunFailed
             message: |-
-              Jobs for {{ targetNode }} have run not successfully.
-              Node is {{ ansible_loop.index }} of {{ ansible_loop.length }}
-            lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
-      when: ansible_failed_task.name == 'Launch K8s Jobs'
+              Jobs for {{ targetNode }} have run not successfully: {{ mutexrunconfig_failed_msg | truncate(900) }}
+              Node is {{ mutexrunconfig_node_position | default('') }}
+            lastTransitionTime: "{{ mutexrunconfig_now }}"
+      when: mutexrunconfig_node_step | default('jobs') != 'wait'
 
     - name: Report Upgrade Failure
       operator_sdk.util.k8s_status:
@@ -220,16 +209,7 @@
             status: "False"
             reason: NodeUpgradeFailed
             message: |-
-              Upgrade for {{ targetNode }} has run not successfully.
-              Node is {{ ansible_loop.index }} of {{ ansible_loop.length }}
-            lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
-      when: ansible_failed_task.name == 'Wait Until Node Version Matches Desired Version'
-
-    - name: Break Loop
-      ansible.builtin.fail:
-        msg: "Failed to run job or upgrade node."
-
-  always:
-    - name: Set JobRun
-      ansible.builtin.set_fact:
-        JobRun: "{{ (ansible_failed_result is not defined) | ternary('true', 'false') }}"
+              Upgrade for {{ targetNode }} has run not successfully: {{ mutexrunconfig_failed_msg | truncate(900) }}
+              Node is {{ mutexrunconfig_node_position | default('') }}
+            lastTransitionTime: "{{ mutexrunconfig_now }}"
+      when: mutexrunconfig_node_step | default('jobs') == 'wait'

@@ -1,2 +1,21 @@
 ---
 # defaults file for MutexRunConfig
+
+# How long to wait for a node to report the desired
+# machineconfiguration.openshift.io/release-image-version label after its mutex
+# labels were removed and MCO started to update it: retries x delay seconds
+# (default 120 x 60s = 2 hours per node).
+mutexrunconfig_node_upgrade_retries: 120
+mutexrunconfig_node_upgrade_delay: 60
+
+# Used when a MutexRule has no spec.timeoutSeconds: how long one pre-upgrade or
+# cleanup Job may run before the run stops with JobRun=False.
+mutexrunconfig_job_timeout_seconds: 3600
+
+# How often a running Job is polled for a Complete or Failed condition.
+mutexrunconfig_job_poll_delay: 10
+
+# APIService availability check: attempts and delay between them, so that a
+# short flap of an aggregated API does not fail the reconcile.
+mutexrunconfig_apiservice_retries: 3
+mutexrunconfig_apiservice_delay: 10

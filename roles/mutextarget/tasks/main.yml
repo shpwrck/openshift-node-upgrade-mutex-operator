@@ -1,13 +1,44 @@
 ---
-- name: Reset status
+# Reconciles a MutexTarget: checks its MachineConfigPools and publishes the
+# nodes they select in status.nodes. Status is merged condition by condition;
+# it is not wiped on each reconcile, so a MutexRunConfig never reads a target
+# with an empty status in the middle of a reconcile.
+
+# Trust boundary: only MutexTargets in the operator's own namespace
+# (POD_NAMESPACE) are acted on. Without POD_NAMESPACE (e.g. 'make run') every
+# namespace is allowed.
+- name: Check Namespace
+  ansible.builtin.set_fact:
+    mutextarget_operator_namespace: "{{ lookup('ansible.builtin.env', 'POD_NAMESPACE', default='') }}"
+
+- name: Report Namespace Not Allowed
   operator_sdk.util.k8s_status:
     api_version: "openshift-optional.skrzypek.io/v1alpha1"
     kind: MutexTarget
     name: "{{ ansible_operator_meta.name }}"
     namespace: "{{ ansible_operator_meta.namespace }}"
-    replace: true
-    replace_lists: true
-    conditions: []
+    conditions:
+      - type: Reconciled
+        status: "False"
+        reason: NamespaceNotAllowed
+        message: >-
+          MutexTargets are only reconciled in the operator namespace
+          '{{ mutextarget_operator_namespace }}'. Nothing was done.
+        lastTransitionTime: "{{ mutextarget_now }}"
+  when:
+    - mutextarget_operator_namespace | length > 0
+    - ansible_operator_meta.namespace != mutextarget_operator_namespace
+
+- name: Stop Outside The Operator Namespace
+  ansible.builtin.meta: end_play
+  when:
+    - mutextarget_operator_namespace | length > 0
+    - ansible_operator_meta.namespace != mutextarget_operator_namespace
+
+- name: Initialize Gates
+  ansible.builtin.set_fact:
+    ValidConfig: false
+    NodeListGathered: false
 
 - name: Validate
   ansible.builtin.include_tasks: 01-validate.yml
@@ -15,8 +46,4 @@
 - name: Gather Nodes
   ansible.builtin.include_tasks: 02-gather-nodes.yml
   when:
-    - ValidConfig
-  loop: "{{ machineConfigPools.results }}"
-  loop_control:
-    extended: true
-    loop_var: mcp
+    - ValidConfig | bool
