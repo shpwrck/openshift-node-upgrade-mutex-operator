@@ -1,25 +1,22 @@
 ---
-# Resolves which nodes belong to a MutexTarget's MachineConfigPools, using the
-# same membership rules as the Machine Config Operator.
-- name: List MachineConfigPools
-  kubernetes.core.k8s_info:
-    api_version: machineconfiguration.openshift.io/v1
-    kind: MachineConfigPool
-  register: mutextarget_pools
-
-- name: List nodes
-  kubernetes.core.k8s_info:
-    api_version: v1
-    kind: Node
-  register: mutextarget_nodes
-
-- name: Report the result
+- name: Reset status
   operator_sdk.util.k8s_status:
-    api_version: nodeupgrade.redhat-na-ssa.github.io/v1alpha1
+    api_version: "openshift-optional.skrzypek.io/v1alpha1"
     kind: MutexTarget
     name: "{{ ansible_operator_meta.name }}"
     namespace: "{{ ansible_operator_meta.namespace }}"
+    replace: true
     replace_lists: true
-    status: >-
-      {{ _nodeupgrade_redhat_na_ssa_github_io_mutextarget | nodeupgrade_target_status(
-           mutextarget_pools.resources, mutextarget_nodes.resources, mutextarget_pools.api_found) }}
+    conditions: []
+
+- name: Validate
+  ansible.builtin.include_tasks: 01-validate.yml
+
+- name: Gather Nodes
+  ansible.builtin.include_tasks: 02-gather-nodes.yml
+  when:
+    - ValidConfig
+  loop: "{{ machineConfigPools.results }}"
+  loop_control:
+    extended: true
+    loop_var: mcp

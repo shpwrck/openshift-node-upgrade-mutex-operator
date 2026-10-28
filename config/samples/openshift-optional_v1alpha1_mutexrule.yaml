@@ -1,0 +1,27 @@
+apiVersion: openshift-optional.skrzypek.io/v1alpha1
+kind: MutexRule
+metadata:
+  labels:
+    app.kubernetes.io/name: mutexrule
+    app.kubernetes.io/instance: mutexrule-sample
+    app.kubernetes.io/part-of: openshift-node-upgrade-mutex-operator
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/created-by: openshift-node-upgrade-mutex-operator
+  name: mutexrule-sample
+spec:
+  jobName: example
+  jobNamespace: node-upgrade-mutex-operator
+  jobSpec:
+    selector: {}
+    template:
+      metadata:
+        name: mutex
+      spec:
+        containers:
+        - command:
+          - sleep
+          - "20"
+          image: ubi9/toolbox
+          name: mutex
+        restartPolicy: Never
+  type: kubernetes

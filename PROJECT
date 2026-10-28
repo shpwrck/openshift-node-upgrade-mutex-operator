@@ -2,7 +2,7 @@
 # This file is used to track the info used to scaffold your project
 # and allow the plugins properly work.
 # More info: https://book.kubebuilder.io/reference/project-config.html
-domain: redhat-na-ssa.github.io
+domain: skrzypek.io
 layout:
 - ansible.sdk.operatorframework.io/v1
 plugins:
@@ -13,22 +13,22 @@ resources:
 - api:
     crdVersion: v1
     namespaced: true
-  domain: redhat-na-ssa.github.io
-  group: nodeupgrade
+  domain: skrzypek.io
+  group: openshift-optional
   kind: MutexRule
   version: v1alpha1
 - api:
     crdVersion: v1
     namespaced: true
-  domain: redhat-na-ssa.github.io
-  group: nodeupgrade
+  domain: skrzypek.io
+  group: openshift-optional
   kind: MutexTarget
   version: v1alpha1
 - api:
     crdVersion: v1
     namespaced: true
-  domain: redhat-na-ssa.github.io
-  group: nodeupgrade
+  domain: skrzypek.io
+  group: openshift-optional
   kind: MutexRunConfig
   version: v1alpha1
 version: "3"
