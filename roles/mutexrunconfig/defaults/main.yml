@@ -8,10 +8,6 @@
 mutexrunconfig_node_upgrade_retries: 120
 mutexrunconfig_node_upgrade_delay: 60
 
-# Used when a MutexRule has no spec.timeoutSeconds: how long one pre-upgrade or
-# cleanup Job may run before the run stops with JobRun=False.
-mutexrunconfig_job_timeout_seconds: 3600
-
 # How often a running Job is polled for a Complete or Failed condition.
 mutexrunconfig_job_poll_delay: 10
 

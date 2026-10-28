@@ -19,7 +19,7 @@ procedure to the task files.
 | `04-apply-mutex-rules-as-labels.yml` | Labels every target node that is behind with one mutex label per rule. Nodes MCO is already updating through the canary are skipped. |
 | `05-modify-machineconfigpool.yml` | Saves each pool's original `matchExpressions` in `openshift-optional.skrzypek.io/original-match-expressions`. Target pools then get `<label> Exists` per rule. The canary gets the expressions every target node satisfies plus `<label> DoesNotExist` per rule. |
 | `06-execute-jobs.yml` | Runs once per target node, one node at a time: the pre-upgrade Jobs, then removing the node's mutex labels, then waiting for the node to report the desired version, then the cleanup Jobs. A node that is already upgraded is skipped. |
-| `07-run-job.yml` | Runs one Job: injects `NODE_NAME`/`MUTEX_RULE` and the hostname `NotIn` affinity, reuses a Job with the same `openshift-optional.skrzypek.io/job-key` label, creates it with `generateName`, and polls until it is Complete or Failed or `timeoutSeconds` runs out. |
+| `07-run-job.yml` | Runs one Job: injects `NODE_NAME`/`MUTEX_RULE` and the hostname `NotIn` affinity, reuses a Job with the same `openshift-optional.skrzypek.io/job-key` label, creates it with `generateName`, and polls until it is Complete or Failed or the rule's `timeoutSeconds` (CRD default 3600) runs out. |
 | `08-restore.yml` | Restores the saved selectors, removes this run's mutex labels and unpauses only the pools whose `paused-by` names this MutexRunConfig. It is used at the end of a run and by the finalizer. |
 | `09-report.yml` | Writes `TargetPoolsPaused` and `Degraded` (`PoolsLeftPaused`, `RunInProgress` or `NoPoolsPaused`). |
 
@@ -40,12 +40,12 @@ retries. Deleting the MutexRunConfig is the way to abort.
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `mutexrunconfig_node_upgrade_retries` / `_delay` | `120` / `60` | How long to wait (retries × seconds, 2 hours by default) for a released node to report the desired version. |
-| `mutexrunconfig_job_timeout_seconds` | `3600` | Job timeout used when a MutexRule has no `spec.timeoutSeconds`. |
 | `mutexrunconfig_job_poll_delay` | `10` | Seconds between Job status polls. |
 | `mutexrunconfig_apiservice_retries` / `_delay` | `3` / `10` | Attempts at the APIService health check, and the delay between them. |
 
 No CRD field exposes these. To change them for the whole operator, set them under `vars:` of the MutexRunConfig
-entry in `watches.yaml` and rebuild the image.
+entry in `watches.yaml` and rebuild the image. How long a Job may run is set per MutexRule in `spec.timeoutSeconds`
+(the CRD default is 3600) and cannot be changed for the whole operator.
 
 ## Requirements
 
