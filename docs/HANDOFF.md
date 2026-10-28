@@ -80,10 +80,14 @@ RBAC. None of these has MCO, so before relying on it, run on a non-production Op
 2. A real upgrade with at least two target nodes. Check that the pools are paused before MCO reaches them, that each
    node moves into the canary only after its Jobs, that MCO upgrades it there, and that nodes go back to their pool
    at the end without another reboot.
-3. Aborting by deleting a MutexRunConfig in the middle of a run, and a restart of the operator pod mid-run.
+3. Aborting by deleting a MutexRunConfig in the middle of a run, and a restart of the operator pod mid-run. With two
+   MutexRunConfigs, check that the second waits until the first has finished its nodes, and that deleting the
+   waiting one also waits (USAGE, "One MutexRunConfig at a time").
 4. A failing Job, a Job that times out, and a node that never reports the new version: `Degraded=True`, the pools
    stay paused, and the next reconcile retries.
 5. The `release-image-version` label example in `sample-manifests/` (MachineConfig and NFD) on a current release.
 6. `operator-sdk scorecard` against the bundle, and scraping the HTTPS metrics endpoint with the
    `openshift-node-upgrade-mutex-operator-metrics-reader` ClusterRole bound to the scraper (see the binding example
    in the Permissions section of `docs/USAGE.md`).
+7. An OLM upgrade from 0.2.68 to 0.3.0 with CRs in the operator namespace, following "Upgrading from 0.2.x" in
+   `docs/USAGE.md`.
