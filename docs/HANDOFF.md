@@ -84,7 +84,8 @@ RBAC. None of these has MCO, so before relying on it, run on a non-production Op
    node `machineconfiguration.openshift.io/state: Done` with `currentConfig` equal to `desiredConfig` and the node
    is `Ready`, even when its `release-image-version` label changes earlier. This gate was only tested against a fake
    MCO.
-3. Aborting by deleting a MutexRunConfig in the middle of a run, and a restart of the operator pod mid-run. With two
+3. Aborting by deleting a MutexRunConfig in the middle of a run, and a restart of the operator pod mid-run: a node
+   released before the restart resumes at the wait and gets its cleanup Jobs before any other node starts. With two
    MutexRunConfigs, check that the second waits until the first has finished its nodes, and that deleting the
    waiting one also waits (USAGE, "One MutexRunConfig at a time").
 4. A failing Job, a Job that times out, and a node that never finishes its upgrade: `Degraded=True`, the pools

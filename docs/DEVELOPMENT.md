@@ -85,7 +85,9 @@ not resolve there. Keep its permissions table in step with `config/rbac/role.yam
   cluster: its prepare, converge and destroy stop when an operator CRD lacks the label its converge sets, or when a
   MutexRule, MutexTarget or MutexRunConfig exists outside its test namespaces (`molecule/default/tasks/olm_guard.yml`).
   Run it on a fresh cluster instead, or run `make undeploy` (after `make deploy`) or `make uninstall` first. Both
-  delete the CRDs, and with them every MutexRule, MutexTarget and MutexRunConfig in the cluster.
+  delete the CRDs, and with them every MutexRule, MutexTarget and MutexRunConfig in the cluster. Delete the
+  MutexRunConfigs first, while the operator still runs: their finalizer restores the pools and nodes, and without the
+  operator it never completes, so the CRD deletion waits.
 * **Molecule:** `molecule test -s kind` runs the kind scenario in `molecule/kind`. It creates a throwaway kind cluster,
   deploys the operator and checks the reconciles that work without OpenShift. It works with docker, or with podman
   (`KIND_EXPERIMENTAL_PROVIDER=podman`). Rootless podman needs cgroup v2 with the `cpu` controller delegated to the user
