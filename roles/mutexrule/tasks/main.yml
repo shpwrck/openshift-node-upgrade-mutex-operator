@@ -1,24 +1,13 @@
 ---
-# Checks a MutexRule's Job templates with a server-side dry run, so the API
-# server and its admission plugins judge them exactly as they will judge the
-# real Jobs. Nothing is created.
-- name: Read the MutexRule
-  ansible.builtin.set_fact:
-    mutexrule_object: "{{ _nodeupgrade_redhat_na_ssa_github_io_mutexrule }}"
-
-- name: Dry-run the Job templates
-  kubernetes.core.k8s:
-    state: present
-    definition: "{{ mutexrule_object | nodeupgrade_validation_job(item) }}"
-  check_mode: true
-  loop: "{{ ['pre-update', 'post-update'] if mutexrule_object.spec.cleanUpJobSpec is defined else ['pre-update'] }}"
-  register: mutexrule_dry_run
-  ignore_errors: true
-
-- name: Report the result
+- name: Reset status
   operator_sdk.util.k8s_status:
-    api_version: nodeupgrade.redhat-na-ssa.github.io/v1alpha1
+    api_version: "openshift-optional.skrzypek.io/v1alpha1"
     kind: MutexRule
     name: "{{ ansible_operator_meta.name }}"
     namespace: "{{ ansible_operator_meta.namespace }}"
-    status: "{{ mutexrule_object | nodeupgrade_rule_status(mutexrule_dry_run.results) }}"
+    replace: true
+    replace_lists: true
+    conditions: []
+
+- name: Validate
+  ansible.builtin.include_tasks: 01-validate.yml

@@ -1,0 +1,55 @@
+---
+# Cluster Role
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: node-label
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - nodes
+  verbs:
+  - list
+  - get
+  - update
+  - patch
+---
+# Cluster Role Binding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: node-label
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: node-label
+subjects:
+- kind: ServiceAccount
+  name: default
+  namespace: node-upgrade-mutex-operator
+---
+# Job
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: openshift-client
+  namespace: node-upgrade-mutex-operator
+spec:
+  selector: {}
+  template:
+    metadata:
+      name: openshift-client
+    spec:
+      containers:
+        - name: openshift-client
+          image: 'registry.redhat.io/openshift4/ose-cli@sha256:3ca5a910cd00ea8cc81d132892940a4730c9b39a92c974460a8404445842a4dc'
+          command:
+            - oc
+            - label
+            - node
+            - ip-10-0-11-242.us-east-2.compute.internal
+            - success=true
+            - --overwrite
+      restartPolicy: Never
+...

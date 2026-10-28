@@ -4,98 +4,143 @@ kind: ClusterRole
 metadata:
   name: manager-role
 rules:
-  # The operator's own resources
+  ##
+  ## Base operator rules
+  ##
   - apiGroups:
-      - nodeupgrade.redhat-na-ssa.github.io
+      - ""
     resources:
-      - mutexrules
-      - mutextargets
-      - mutexrunconfigs
+      - secrets
+      - pods
+      - pods/exec
+      - pods/log
     verbs:
+      - create
+      - delete
       - get
       - list
       - patch
       - update
       - watch
   - apiGroups:
-      - nodeupgrade.redhat-na-ssa.github.io
+      - apps
     resources:
-      - mutexrules/status
-      - mutextargets/status
-      - mutexrunconfigs/status
+      - deployments
+      - daemonsets
+      - replicasets
+      - statefulsets
     verbs:
+      - create
+      - delete
       - get
+      - list
       - patch
       - update
+      - watch
+  ##
+  ## Rules added for related resources
+  ##
   - apiGroups:
-      - nodeupgrade.redhat-na-ssa.github.io
-    resources:
-      - mutexrules/finalizers
-      - mutextargets/finalizers
-      - mutexrunconfigs/finalizers
-    verbs:
-      - update
-  # Jobs from MutexRules, in any namespace
-  - apiGroups:
-      - batch
+      - "batch"
     resources:
       - jobs
     verbs:
       - create
-      - get
-      - list
-      - watch
-  # Release labels and progress annotations on nodes
-  - apiGroups:
-      - ""
-    resources:
-      - nodes
-    verbs:
+      - delete
       - get
       - list
       - patch
+      - update
       - watch
-  # Pausing pools and pointing the canary pool at released nodes
   - apiGroups:
-      - machineconfiguration.openshift.io
-    resources:
-      - machineconfigpools
-    verbs:
-      - get
-      - list
-      - patch
-      - watch
-  # Rendered MachineConfigs carry the OpenShift version
-  - apiGroups:
-      - machineconfiguration.openshift.io
-    resources:
-      - machineconfigs
-    verbs:
-      - get
-      - list
-      - watch
-  # The version the cluster is updating to
-  - apiGroups:
-      - config.openshift.io
+      - "config.openshift.io"
     resources:
       - clusterversions
     verbs:
       - get
       - list
       - watch
-  # Aggregated APIs must be available before the next node goes
   - apiGroups:
-      - apiregistration.k8s.io
+      - ""
+    resources:
+      - nodes
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - "machineconfiguration.openshift.io"
+    resources:
+      - machineconfigpools
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - "apiregistration.k8s.io"
     resources:
       - apiservices
     verbs:
       - get
       - list
       - watch
+  ##
+  ## Rules for openshift-optional.skrzypek.io/v1alpha1, Kind: MutexRule
+  ##
   - apiGroups:
-      - ""
+      - openshift-optional.skrzypek.io
     resources:
-      - events
+      - mutexrules
+      - mutexrules/status
+      - mutexrules/finalizers
     verbs:
       - create
+      - delete
+      - get
+      - list
       - patch
+      - update
+      - watch
+  ##
+  ## Rules for openshift-optional.skrzypek.io/v1alpha1, Kind: MutexTarget
+  ##
+  - apiGroups:
+      - openshift-optional.skrzypek.io
+    resources:
+      - mutextargets
+      - mutextargets/status
+      - mutextargets/finalizers
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  ##
+  ## Rules for openshift-optional.skrzypek.io/v1alpha1, Kind: MutexRunConfig
+  ##
+  - apiGroups:
+      - openshift-optional.skrzypek.io
+    resources:
+      - mutexrunconfigs
+      - mutexrunconfigs/status
+      - mutexrunconfigs/finalizers
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+#+kubebuilder:scaffold:rules
