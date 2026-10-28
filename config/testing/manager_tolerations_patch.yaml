@@ -1,0 +1,21 @@
+# The manager must run on a control-plane node (see the nodeAffinity in
+# config/manager/manager.yaml). OpenShift taints those nodes with
+# node-role.kubernetes.io/master:NoSchedule, upstream Kubernetes (kind) with
+# node-role.kubernetes.io/control-plane:NoSchedule. Tolerate both, so the
+# same overlay schedules on OpenShift and on kind. Tolerations have no merge
+# key, so this list replaces the one in manager.yaml.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: controller-manager
+  namespace: system
+spec:
+  template:
+    spec:
+      tolerations:
+        - key: node-role.kubernetes.io/master
+          operator: Exists
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
