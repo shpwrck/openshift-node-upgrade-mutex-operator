@@ -1,43 +1,53 @@
-Role Name
-=========
+# mutextarget
 
-A brief description of the role goes here.
+Reconciles `MutexTarget` resources (`openshift-optional.skrzypek.io/v1alpha1`). ansible-operator runs it for every
+MutexTarget event and every 10 minutes (`watches.yaml`). It is not meant to be used outside the operator. It
+reads MachineConfigPools and Nodes and never changes them.
 
-Requirements
-------------
+## What it does
 
-Any pre-requisites that may not be covered by Ansible itself or the role should be mentioned here. For instance,
-if the role uses the EC2 module, it may be a good idea to mention in this section that the boto package is required.
+1. **Namespace check.** If `POD_NAMESPACE` is set and the MutexTarget is in a different namespace, it writes
+   `Reconciled=False` (reason `NamespaceNotAllowed`) and stops.
+2. **Validation** (`tasks/01-validate.yml`). `spec.machineConfigPools` must not be empty, and every pool in it must
+   exist. On success it writes `ValidConfig=True` (reason `MachineConfigPoolFetchSucceeded`). On failure it writes
+   `ValidConfig=False` (reason `MachineConfigPoolFetchFailed`) and an empty `status.nodes`, so a stale node list
+   never survives.
+3. **Node list** (`tasks/02-gather-nodes.yml`):
+   - Every pool's `nodeSelector` is turned into a label selector, using both `matchLabels` and `matchExpressions`
+     (`In`, `NotIn`, `Exists`, `DoesNotExist`).
+   - While a MutexRunConfig run has changed a pool's selector, the role uses the original `matchExpressions`, read
+     from the pool's `openshift-optional.skrzypek.io/original-match-expressions` annotation. The list therefore
+     stays the same for the whole run.
+   - A node is assigned to a pool the way MCO assigns it: the custom pool it matches first, then `master`, then
+     `worker`. A worker-labelled node that sits in the canary, infra or another custom pool is not a node of the
+     `worker` target.
+   - An empty or unsupported selector on a target pool is an error, because an empty label selector would select
+     every node.
+   - The nodes are written, sorted, to `status.nodes`, with `NodeListGathered=True`. On failure it writes `False`
+     (reason `MachineConfigPoolFetchFailed`) and an empty list.
 
-Role Variables
---------------
+The `mutexrunconfig` role only uses MutexTargets that report `ValidConfig=True` and `NodeListGathered=True` and have
+a non-empty `status.nodes`.
 
-A description of the settable variables for this role should go here, including any variables that are in 
-defaults/main.yml, vars/main.yml, and any variables that can/should be set via parameters to the role. Any variables 
-that are read from other roles and/or the global scope (ie. hostvars, group vars, etc.) should be mentioned here as well
+## Inputs
 
-Dependencies
-------------
+| Variable | Source |
+| --- | --- |
+| `_openshift_optional_skrzypek_io_mutextarget_spec` | The MutexTarget `spec`, passed by ansible-operator. |
+| `ansible_operator_meta.name`, `.namespace` | The MutexTarget's name and namespace, passed by ansible-operator. |
+| `POD_NAMESPACE` (environment) | The operator's namespace. Unset means every namespace is allowed. |
 
-A list of other roles hosted on Galaxy should go here, plus any details in regards to parameters that may need to be set
-for other roles, or variables that are used from other roles.
+`vars/main.yml` holds the annotation and label names the MutexRunConfig role uses, the selector builder
+`mutextarget_selector`, the timestamp helper `mutextarget_now` and the rescue message helper. Nothing in it is meant
+to be overridden.
 
-Example Playbook
-----------------
+## Requirements
 
-Including an example of how to use your role (for instance, with variables passed in as parameters) is always nice for
-users too:
+- ansible-core 2.18 or later (the `quay.io/operator-framework/ansible-operator:v1.42.3` base image).
+- Collections `kubernetes.core` and `operator_sdk.util` (see `requirements.yml`).
+- API access: `get` and `list` on `machineconfigpools` and `nodes`, and `get`, `update` and `patch` on
+  `mutextargets/status` (see `config/rbac/role.yaml`).
 
-    - hosts: servers
-      roles:
-         - { role: username.rolename, x: 42 }
+## License
 
-License
--------
-
-BSD
-
-Author Information
-------------------
-
-An optional section for the role authors to include contact information, or a website (HTML is not allowed).
+The repository has no license file yet; see `docs/HANDOFF.md`.
