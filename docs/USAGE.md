@@ -128,6 +128,66 @@ refuses.
 of the references in a MutexRunConfig. They default to the MutexRunConfig's namespace. A reference to another namespace
 fails validation.
 
+### Upgrading from 0.2.x
+
+0.3.0 is published in the `alpha` channel as the upgrade of 0.2.68, with `skipRange: <0.3.0`, so every 0.2.x
+Subscription is offered it. The common install needs no changes: the operator in its own namespace (for example
+`node-upgrade-mutex-operator`, through the console, which creates an `OwnNamespace` OperatorGroup) with every
+MutexRule, MutexTarget and MutexRunConfig in that same namespace keeps working, as long as the CRs pass the new
+schemas (step 3 below). Three changes can break other installs:
+
+* **Only CRs in the operator namespace are reconciled.** 0.2.x reconciled CRs in every namespace. 0.3.0 installed
+  `OwnNamespace` no longer watches CRs in other namespaces, and their status keeps its 0.2.x values, so nothing shows
+  that they stopped working. At the next OpenShift upgrade MCO upgrades their pools without pausing them or running
+  their Jobs. References to MutexRules or MutexTargets in another namespace now fail validation.
+* **`SingleNamespace` is no longer supported.** With an OperatorGroup whose `spec.targetNamespaces` names a namespace
+  other than its own, the 0.3.0 CSV fails with reason `UnsupportedOperatorGroup`, and 0.2.x keeps running.
+* **The CRDs now validate their fields.** Before OLM upgrades a CRD it checks every existing CR against the new schema.
+  If one does not pass, the InstallPlan fails with `error validating existing CRs against new CRD's schema`, names the
+  CR, and 0.2.x keeps running. Every kind needs `spec`. A MutexRule needs `jobName`, a DNS-1123 label of at most 52
+  characters, and `jobSpec`; `jobNamespace`, when set, must be a DNS-1123 label. A MutexTarget needs at least one
+  pool. A MutexRunConfig needs `canary.name` and at least one rule and one target reference, each with a `name`; rule
+  names (at most 61 characters) and every reference `namespace` must be DNS-1123 labels.
+
+Before you approve 0.3.0:
+
+1. Set the Subscription to manual approval, so OLM waits for you. With `Automatic` approval it installs 0.3.0 as soon
+   as the catalog serves it:
+
+   ```sh
+   oc patch subscription <name> -n <operator namespace> --type=merge -p '{"spec":{"installPlanApproval":"Manual"}}'
+   ```
+
+2. Upgrade only when no OpenShift upgrade is in progress and no 0.2.x run is half done. 0.2.x has no finalizer and does
+   not record what it changed, so 0.3.0 can neither finish nor undo a 0.2.x run. No target pool should be paused,
+   except by you, and this must print nothing:
+
+   ```sh
+   oc get nodes,mcp -o yaml | grep 'mutexrule.openshift-optional.skrzypek.io/'
+   ```
+
+   If it prints labels or `matchExpressions`, let the run finish, or put the pools' original `matchExpressions` back,
+   remove the labels and unpause the pools by hand.
+3. List the CRs in all namespaces, and check each one against the schema rules above:
+
+   ```sh
+   oc get mutexrules,mutextargets,mutexrunconfigs -A
+   ```
+
+   Recreate every CR that is outside the operator namespace inside it, with references that leave out `namespace`,
+   then delete the old one.
+4. If the OperatorGroup targets another namespace (`SingleNamespace`), make it `OwnNamespace`. OLM also retries a
+   0.3.0 CSV that has already failed with `UnsupportedOperatorGroup` once the OperatorGroup changes:
+
+   ```sh
+   oc patch operatorgroup <name> -n <operator namespace> --type=merge -p '{"spec":{"targetNamespaces":["<operator namespace>"]}}'
+   ```
+
+5. Approve the InstallPlan. Afterwards `oc get mutexrunconfig -n <operator namespace>` must show every
+   MutexRunConfig as `Validated` `True`. Fix any that is not before the next OpenShift upgrade: 0.3.0 checks more
+   than 0.2.x did (see [Reconcile procedure](#reconcile-procedure)), and a MutexRunConfig that fails validation pauses
+   nothing.
+
 ## Custom resources
 
 All three kinds are `openshift-optional.skrzypek.io/v1alpha1`, namespaced, and in the `numo` category, so
