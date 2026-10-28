@@ -15,7 +15,7 @@ cluster. The automated tests are the molecule scenarios in `molecule/`
 | MutexRule with an invalid `jobSpec` reports `ValidConfig=False InvalidConfig` with the API server's error | yes | yes |
 | MutexTarget `status.nodes` lists the nodes of its pools (exactly the workers on kind) | yes | yes |
 | MutexTarget with a missing pool reports `ValidConfig=False` and no nodes | yes | yes |
-| MutexRunConfig with no upgrade pending: validated, `UpgradeAvailable=False`, nothing paused, labelled or re-pointed, finalizer added | yes | when a `canary` pool exists and the cluster is not upgrading |
+| MutexRunConfig with no upgrade pending: validated, `UpgradeAvailable=False`, nothing paused, labelled or re-pointed, finalizer added | yes | when a `canary` pool exists, the cluster is not upgrading and the target pool is not paused; the canary must pass validation (on a cluster whose infra nodes keep the worker label, the sample canary needs `node-role.kubernetes.io/infra DoesNotExist`) |
 | MutexRunConfig that references a missing MutexRule: `ConfigValidated=False`, nothing changed | yes | same as above |
 | CRs outside the operator namespace get `Reconciled=False NamespaceNotAllowed` | yes | when the operator watches all namespaces |
 | Simulated upgrade: target pool paused, nodes labelled, canary re-pointed, one node at a time; each Job gets `NODE_NAME`/`MUTEX_RULE`, runs off the node being upgraded, `$(NODE_NAME)` expands in its command; no cleanup Job starts while MCO still reports the node `Working`, cleanup Jobs run after the node has finished its upgrade; pools, labels, selectors and node annotations restored; final conditions | yes | no |

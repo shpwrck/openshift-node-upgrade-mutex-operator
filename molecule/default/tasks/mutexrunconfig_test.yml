@@ -3,7 +3,8 @@
 # check finds nothing to do and nothing in the cluster is changed. On a real
 # cluster this only runs when it cannot start a run: a canary pool exists,
 # ClusterVersion history[0] is Completed for status.desired.version and no
-# target node reports an older version.
+# target node reports an older version. It is also skipped while the target
+# pool is paused, because a paused target pool sets TargetPoolsPaused=True.
 - name: Snapshot the canary and target pools
   ansible.builtin.include_tasks: pools.yml
   vars:
@@ -32,6 +33,7 @@
     e2e_versions_known: "{{ e2e_target_versions | select('equalto', '') | list | length == 0 }}"
     e2e_runconfig_safe: >-
       {{ e2e_pools[e2e_canary_pool] | length > 0
+         and not ((e2e_pools[e2e_target_pool].spec | default({})).paused | default(false) | bool)
          and (e2e_cv_status.history | default([], true) | first | default({})).state | default('') == 'Completed'
          and (e2e_cv_status.history | default([], true) | first | default({})).version | default('') == e2e_cv_status.desired.version | default('')
          and e2e_target_versions | reject('equalto', '') | reject('equalto', e2e_cv_status.desired.version | default('')) | list | length == 0 }}
@@ -42,8 +44,9 @@
   ansible.builtin.debug:
     msg: >-
       Skipping the MutexRunConfig checks: they need a '{{ e2e_canary_pool }}' MachineConfigPool
-      (see the README) and a cluster that is not upgrading, otherwise creating the sample
-      would start a real run.
+      (see the README), a cluster that is not upgrading and an unpaused
+      '{{ e2e_target_pool }}' pool, otherwise creating the sample would start a real run or
+      report the paused pool.
   when: not e2e_runconfig_safe | bool
 
 - name: Check a MutexRunConfig with no upgrade pending

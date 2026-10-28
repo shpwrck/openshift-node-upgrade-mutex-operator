@@ -5,9 +5,11 @@
 # must pause the target pool, label the target nodes, re-point the canary and
 # then, one node at a time, run the pre-upgrade Job off that node, release the
 # node and wait. The test plays the MCO: once a node is released (its mutex
-# labels are gone, so it now belongs to the canary) it sets the node's
-# release-image-version label to e2e_to_version. The operator then runs the
-# cleanup Job and moves to the next node, and at the end restores the pools.
+# labels are gone, so it now belongs to the canary) it sets desiredConfig and
+# state Working, then the release-image-version label to e2e_to_version (and
+# checks that no cleanup Job starts yet), then state Done with currentConfig
+# equal to desiredConfig. The operator then runs the cleanup Job and moves to
+# the next node, and at the end restores the pools.
 - name: Snapshot the pools before the run
   ansible.builtin.include_tasks: pools.yml
   vars:

@@ -2,6 +2,7 @@
 # Reads the canary and target pools and the target nodes into
 #   e2e_pools  {<pool name>: MachineConfigPool}
 #   e2e_nodes_now  {<node name>: labels}
+#   e2e_node_info  the k8s_info result for all nodes (assert_restored.yml reads it)
 # and, when e2e_snapshot is true, keeps a copy of the pools in e2e_pools_before.
 - name: Read the canary and target MachineConfigPools
   kubernetes.core.k8s_info:
