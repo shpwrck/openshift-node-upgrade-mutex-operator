@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Guard against two regressions that shipped before: the manager Deployment
 # carrying the deleted gcr.io/kubebuilder/kube-rbac-proxy sidecar, and an
-# args patch that dropped --max-concurrent-reconciles=1. Checks the default
-# and manifests overlays and, when given, the CSV of a generated bundle.
+# args patch that dropped --max-concurrent-reconciles=1. Checks the default,
+# manifests and testing overlays and, when given, the CSV of a generated bundle.
 #
 # Usage: hack/verify-manifests.sh [BUNDLE_DIR]
 #
@@ -29,8 +29,10 @@ check() {
   done
 }
 
-for overlay in default manifests; do
-  "$kustomize" build "config/$overlay" > "$tmp/$overlay.yaml"
+# config/testing (the molecule overlay) loads ../default/manager_metrics_patch.yaml,
+# which needs LoadRestrictionsNone.
+for overlay in default manifests testing; do
+  "$kustomize" build --load-restrictor LoadRestrictionsNone "config/$overlay" > "$tmp/$overlay.yaml"
   check "config/$overlay" "$tmp/$overlay.yaml"
 done
 

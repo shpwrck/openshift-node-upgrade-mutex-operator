@@ -1,18 +1,70 @@
 ---
-- name: Create the openshift-optional.skrzypek.io/v1alpha1.MutexRule
-  k8s:
+# MutexRule: the role validates jobSpec and cleanUpJobSpec with a server-side
+# dry-run create of a Job and reports ValidConfig.
+- name: Create the sample MutexRule
+  kubernetes.core.k8s:
     state: present
-    namespace: '{{ namespace }}'
-    definition: "{{ lookup('template', '/'.join([samples_dir, cr_file])) | from_yaml }}"
-    wait: yes
-    wait_timeout: 300
-    wait_condition:
-      type: Successful
-      status: "True"
-  vars:
-    cr_file: 'openshift-optional_v1alpha1_mutexrule.yaml'
+    namespace: "{{ e2e_namespace }}"
+    definition: "{{ e2e_sample_rule }}"
 
-- name: Add assertions here
-  assert:
-    that: false
-    fail_msg: FIXME Add real assertions for your operator
+- name: Wait for the sample MutexRule to pass the dry run
+  ansible.builtin.include_tasks: conditions.yml
+  vars:
+    e2e_kind: MutexRule
+    e2e_name: "{{ e2e_rule_name }}"
+    e2e_expected:
+      - type: ValidConfig
+        status: "True"
+        reason: ValidConfig
+
+- name: List the Jobs in the test namespace
+  kubernetes.core.k8s_info:
+    api_version: batch/v1
+    kind: Job
+    namespace: "{{ e2e_namespace }}"
+  register: e2e_dry_run_jobs
+
+- name: Check that the dry run created no Job
+  ansible.builtin.assert:
+    that:
+      - e2e_dry_run_jobs.resources | length == 0
+    fail_msg: "Jobs exist although no MutexRunConfig ran: {{ e2e_dry_run_jobs.resources | map(attribute='metadata.name') | list }}"
+
+# restartPolicy Always is valid for a pod but not for a Job, so only the API
+# server's Job validation can reject it.
+- name: Create a MutexRule whose jobSpec the API server rejects
+  kubernetes.core.k8s:
+    state: present
+    namespace: "{{ e2e_namespace }}"
+    definition: >-
+      {{ e2e_sample_rule | combine({'metadata': {'name': 'e2e-invalid-rule'},
+                                    'spec': {'jobSpec': {'template': {'spec': {'restartPolicy': 'Always'}}}}},
+                                   recursive=true) }}
+
+- name: Wait for the invalid MutexRule to report ValidConfig=False
+  ansible.builtin.include_tasks: conditions.yml
+  vars:
+    e2e_kind: MutexRule
+    e2e_name: e2e-invalid-rule
+    e2e_expected:
+      - type: ValidConfig
+        status: "False"
+        reason: InvalidConfig
+
+- name: Check that the API server's validation error is reported
+  ansible.builtin.assert:
+    that:
+      - e2e_message is search('restartPolicy')
+    fail_msg: "ValidConfig message does not name restartPolicy: {{ e2e_message }}"
+  vars:
+    e2e_message: >-
+      {{ (e2e_cr.resources[0].status.conditions | selectattr('type', 'equalto', 'ValidConfig') | first).message | default('') }}
+
+- name: Delete the invalid MutexRule
+  kubernetes.core.k8s:
+    api_version: "{{ e2e_api_version }}"
+    kind: MutexRule
+    name: e2e-invalid-rule
+    namespace: "{{ e2e_namespace }}"
+    state: absent
+    wait: true

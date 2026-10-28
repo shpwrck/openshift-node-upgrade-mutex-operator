@@ -1,18 +1,88 @@
 ---
-- name: Create the openshift-optional.skrzypek.io/v1alpha1.MutexTarget
-  k8s:
+# MutexTarget: the role checks the pools exist and publishes the nodes MCO
+# assigns to them in status.nodes.
+- name: Create the sample MutexTarget
+  kubernetes.core.k8s:
     state: present
-    namespace: '{{ namespace }}'
-    definition: "{{ lookup('template', '/'.join([samples_dir, cr_file])) | from_yaml }}"
-    wait: yes
-    wait_timeout: 300
-    wait_condition:
-      type: Successful
-      status: "True"
-  vars:
-    cr_file: 'openshift-optional_v1alpha1_mutextarget.yaml'
+    namespace: "{{ e2e_namespace }}"
+    definition: "{{ lookup('ansible.builtin.file', samples_dir ~ '/openshift-optional_v1alpha1_mutextarget.yaml') | from_yaml }}"
 
-- name: Add assertions here
-  assert:
-    that: false
-    fail_msg: FIXME Add real assertions for your operator
+- name: Wait for the sample MutexTarget to gather its nodes
+  ansible.builtin.include_tasks: conditions.yml
+  vars:
+    e2e_kind: MutexTarget
+    e2e_name: "{{ e2e_target_name }}"
+    e2e_expected:
+      - type: ValidConfig
+        status: "True"
+        reason: MachineConfigPoolFetchSucceeded
+      - type: NodeListGathered
+        status: "True"
+        reason: MachineConfigPoolFetchSucceeded
+
+- name: Remember the target nodes
+  ansible.builtin.set_fact:
+    e2e_target_nodes: "{{ e2e_cr.resources[0].status.nodes | default([], true) }}"
+
+- name: Read the target nodes
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Node
+    label_selectors:
+      - node-role.kubernetes.io/worker
+  register: e2e_role_workers
+
+- name: Check status.nodes
+  ansible.builtin.assert:
+    that:
+      - e2e_target_nodes | length > 0
+      - e2e_target_nodes == (e2e_target_nodes | unique | sort)
+      # Every listed node is a worker (status.nodes follows MCO pool
+      # assignment, so a worker in a custom pool may be missing, never added).
+      - e2e_target_nodes | difference(e2e_role_workers.resources | map(attribute='metadata.name') | list) | length == 0
+    fail_msg: "status.nodes of {{ e2e_target_name }} is {{ e2e_target_nodes }}"
+
+- name: Check that status.nodes lists exactly the kind workers
+  ansible.builtin.assert:
+    that:
+      - e2e_target_nodes == e2e_worker_nodes
+    fail_msg: "status.nodes is {{ e2e_target_nodes }}, the worker pool selects {{ e2e_worker_nodes }}"
+  when: e2e_fake_openshift | bool
+
+- name: Create a MutexTarget for a pool that does not exist
+  kubernetes.core.k8s:
+    state: present
+    namespace: "{{ e2e_namespace }}"
+    definition:
+      apiVersion: "{{ e2e_api_version }}"
+      kind: MutexTarget
+      metadata:
+        name: e2e-missing-pool
+      spec:
+        machineConfigPools:
+          - e2e-no-such-pool
+
+- name: Wait for the MutexTarget with a missing pool to report ValidConfig=False
+  ansible.builtin.include_tasks: conditions.yml
+  vars:
+    e2e_kind: MutexTarget
+    e2e_name: e2e-missing-pool
+    e2e_expected:
+      - type: ValidConfig
+        status: "False"
+        reason: MachineConfigPoolFetchFailed
+
+- name: Check that the MutexTarget with a missing pool lists no nodes
+  ansible.builtin.assert:
+    that:
+      - e2e_cr.resources[0].status.nodes | default([], true) | length == 0
+    fail_msg: "status.nodes is {{ e2e_cr.resources[0].status.nodes }}"
+
+- name: Delete the MutexTarget with a missing pool
+  kubernetes.core.k8s:
+    api_version: "{{ e2e_api_version }}"
+    kind: MutexTarget
+    name: e2e-missing-pool
+    namespace: "{{ e2e_namespace }}"
+    state: absent
+    wait: true

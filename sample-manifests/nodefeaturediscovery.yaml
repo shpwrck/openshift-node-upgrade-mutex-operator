@@ -1,22 +1,27 @@
+# NodeFeatureDiscovery instance for the Node Feature Discovery operator
+# (install it from OperatorHub into openshift-nfd first). nfd-worker reads the
+# feature file that machineconfig.yaml writes to
+# /etc/kubernetes/node-feature-discovery/features.d/ and labels each node with
+# machineconfiguration.openshift.io/release-image-version. Only the local
+# feature source is needed, and no hooks: the MachineConfig's timer writes the
+# file, nothing is run from nfd-worker.
+#
+# operand.image is left out on purpose, so the NFD operator deploys the
+# operand that matches its own version (pinning one digest would keep the
+# same operand across OpenShift upgrades). To pin it anyway, use the tag of
+# your OpenShift minor version, for example
+# registry.redhat.io/openshift4/ose-node-feature-discovery-rhel9:v4.16.
 apiVersion: nfd.openshift.io/v1
 kind: NodeFeatureDiscovery
 metadata:
   name: nfd-instance
   namespace: openshift-nfd
 spec:
-  enableTaints: false
-  instance: ''
   operand:
-    image: 'registry.redhat.io/openshift4/ose-node-feature-discovery-rhel9@sha256:00208889a98c5b767e201bd1427be07edd4388271d82f09bbe393a545e94ac42'
     imagePullPolicy: IfNotPresent
-    servicePort: 12000
-  prunerOnDelete: false
-  topologyUpdater: false
   workerConfig:
     configData: |
-      sources:
-        hooksEnabled: true
       core:
-        sleepInterval: 10s
-        sources:
-        - local
+        sleepInterval: 60s
+        labelSources:
+          - local

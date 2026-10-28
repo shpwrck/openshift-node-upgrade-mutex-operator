@@ -1,0 +1,9 @@
+---
+# kind talks to docker by default. Without docker, use its podman provider,
+# unless KIND_EXPERIMENTAL_PROVIDER already says otherwise.
+- name: Pick the kind node provider
+  ansible.builtin.set_fact:
+    e2e_kind_env:
+      KIND_EXPERIMENTAL_PROVIDER: >-
+        {{ lookup('ansible.builtin.env', 'KIND_EXPERIMENTAL_PROVIDER')
+           or ('' if lookup('ansible.builtin.pipe', 'command -v docker || true') | length > 0 else 'podman') }}

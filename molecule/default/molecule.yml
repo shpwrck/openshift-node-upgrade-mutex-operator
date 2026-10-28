@@ -1,8 +1,27 @@
 ---
+# Runs against whatever cluster KUBECONFIG points at, for example an
+# OpenShift cluster:
+#
+#   OPERATOR_IMAGE=<registry>/<image>:<tag> molecule test -s default
+#
+# It deploys config/testing with OPERATOR_IMAGE into TEST_OPERATOR_NAMESPACE
+# (default osdk-test) and runs the checks in verify.yml that are safe on a
+# real cluster: MutexRule validation, MutexTarget node lists, the
+# namespace boundary and, when the cluster is not upgrading and a canary
+# pool exists, the MutexRunConfig no-upgrade path. It never simulates an
+# upgrade; that runs only in the 'kind' scenario against fake OpenShift APIs.
+# destroy removes the CRDs it installed, so prepare refuses to run where the
+# operator is already installed through OLM.
 dependency:
   name: galaxy
+  options:
+    requirements-file: ${MOLECULE_PROJECT_DIRECTORY}/requirements.yml
 driver:
-  name: delegated
+  # The 'default' driver (formerly 'delegated'): molecule runs this
+  # scenario's create.yml and destroy.yml and manages no instances itself.
+  name: default
+  options:
+    managed: false
 platforms:
   - name: cluster
     groups:
@@ -12,16 +31,31 @@ provisioner:
   inventory:
     group_vars:
       all:
-        namespace: ${TEST_OPERATOR_NAMESPACE:-osdk-test}
+        e2e_namespace: ${TEST_OPERATOR_NAMESPACE:-osdk-test}
     host_vars:
       localhost:
-        ansible_python_interpreter: '{{ ansible_playbook_python }}'
+        ansible_python_interpreter: "{{ ansible_playbook_python }}"
+        project_dir: ${MOLECULE_PROJECT_DIRECTORY}
         config_dir: ${MOLECULE_PROJECT_DIRECTORY}/config
         samples_dir: ${MOLECULE_PROJECT_DIRECTORY}/config/samples
+        overlay_dir: ${MOLECULE_EPHEMERAL_DIRECTORY}/overlay
         operator_image: ${OPERATOR_IMAGE:-""}
-        operator_pull_policy: ${OPERATOR_PULL_POLICY:-"Always"}
+        operator_pull_policy: ${OPERATOR_PULL_POLICY:-Always}
         kustomize: ${KUSTOMIZE_PATH:-kustomize}
+        e2e_fake_openshift: false
+        e2e_check_job_logs: false
   env:
-    K8S_AUTH_KUBECONFIG: ${KUBECONFIG:-"~/.kube/config"}
+    K8S_AUTH_KUBECONFIG: ${KUBECONFIG:-~/.kube/config}
 verifier:
   name: ansible
+scenario:
+  test_sequence:
+    - dependency
+    - destroy
+    - syntax
+    - create
+    - prepare
+    - converge
+    - idempotence
+    - verify
+    - destroy

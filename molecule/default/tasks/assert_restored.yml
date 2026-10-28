@@ -1,0 +1,43 @@
+---
+# Asserts that no MutexRunConfig has left anything behind: the canary and
+# target pools match the snapshot in e2e_pools_before (paused, matchLabels,
+# matchExpressions) and carry no openshift-optional.skrzypek.io/ annotation,
+# and no node carries a mutexrule.openshift-optional.skrzypek.io/ label.
+# With e2e_expect_version set, every target node must also report it.
+- name: Read the pools and nodes
+  ansible.builtin.include_tasks: pools.yml
+
+- name: "Check that pools and nodes are restored: {{ e2e_restored_context | default('') }}"
+  ansible.builtin.assert:
+    that:
+      - e2e_problems | length == 0
+    fail_msg: "Not restored ({{ e2e_restored_context | default('') }}): {{ e2e_problems }}"
+    success_msg: "Pools and nodes are restored ({{ e2e_restored_context | default('') }})"
+  vars:
+    e2e_problems: >-
+      {%- set ns = namespace(p=[]) -%}
+      {%- for name, before in e2e_pools_before.items() -%}
+      {%- set now = e2e_pools[name] -%}
+      {%- if (now.spec.paused | default(false)) != (before.spec.paused | default(false)) -%}
+      {%- set ns.p = ns.p + [name ~ ': spec.paused is ' ~ (now.spec.paused | default(false))] -%}
+      {%- endif -%}
+      {%- if (now.spec.nodeSelector.matchLabels | default({}, true)) != (before.spec.nodeSelector.matchLabels | default({}, true)) -%}
+      {%- set ns.p = ns.p + [name ~ ': matchLabels ' ~ (now.spec.nodeSelector.matchLabels | default({}, true) | to_json)] -%}
+      {%- endif -%}
+      {%- if (now.spec.nodeSelector.matchExpressions | default([], true)) != (before.spec.nodeSelector.matchExpressions | default([], true)) -%}
+      {%- set ns.p = ns.p + [name ~ ': matchExpressions ' ~ (now.spec.nodeSelector.matchExpressions | default([], true) | to_json)] -%}
+      {%- endif -%}
+      {%- for key in (now.metadata.annotations | default({}, true)).keys() if key.startswith(e2e_annotation_prefix) -%}
+      {%- set ns.p = ns.p + [name ~ ': annotation ' ~ key] -%}
+      {%- endfor -%}
+      {%- endfor -%}
+      {%- for node, labels in e2e_nodes_now.items() -%}
+      {%- for key in labels.keys() if key.startswith(e2e_label_prefix) -%}
+      {%- set ns.p = ns.p + [node ~ ': label ' ~ key] -%}
+      {%- endfor -%}
+      {%- if e2e_expect_version is defined and node in e2e_target_nodes
+            and labels[e2e_version_label] | default('') != e2e_expect_version -%}
+      {%- set ns.p = ns.p + [node ~ ': ' ~ e2e_version_label ~ '=' ~ (labels[e2e_version_label] | default(''))] -%}
+      {%- endif -%}
+      {%- endfor -%}
+      {{ ns.p | join('; ') }}

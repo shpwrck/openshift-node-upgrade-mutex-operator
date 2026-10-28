@@ -1,0 +1,34 @@
+---
+# Reads the canary and target pools and the target nodes into
+#   e2e_pools  {<pool name>: MachineConfigPool}
+#   e2e_nodes_now  {<node name>: labels}
+# and, when e2e_snapshot is true, keeps a copy of the pools in e2e_pools_before.
+- name: Read the canary and target MachineConfigPools
+  kubernetes.core.k8s_info:
+    api_version: machineconfiguration.openshift.io/v1
+    kind: MachineConfigPool
+    name: "{{ item }}"
+  loop:
+    - "{{ e2e_canary_pool }}"
+    - "{{ e2e_target_pool }}"
+  register: e2e_pool_info
+
+- name: Read the target nodes
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Node
+  register: e2e_node_info
+
+- name: Index the pools and nodes
+  ansible.builtin.set_fact:
+    e2e_pools: >-
+      {{ dict(e2e_pool_info.results | map(attribute='item')
+              | zip(e2e_pool_info.results | map(attribute='resources') | map('default', [{}], true) | map('first'))) }}
+    e2e_nodes_now: >-
+      {{ dict(e2e_node_info.resources | map(attribute='metadata.name')
+              | zip(e2e_node_info.resources | map(attribute='metadata.labels', default={}))) }}
+
+- name: Keep a snapshot of the pools
+  ansible.builtin.set_fact:
+    e2e_pools_before: "{{ e2e_pools }}"
+  when: e2e_snapshot | default(false) | bool
