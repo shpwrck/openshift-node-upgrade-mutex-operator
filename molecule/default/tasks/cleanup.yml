@@ -68,9 +68,11 @@
     - MutexTarget
   failed_when: false
 
-# The operator's Jobs have no owner and no TTL, so they outlive the
-# MutexRunConfigs. A re-run would see them in the dry-run and early-cleanup
-# checks, and the operator would reuse the Complete ones (same job-key).
+# Jobs in the MutexRunConfig's namespace are owned by it (ansible-operator
+# adds the ownerReference) and are garbage-collected after it is deleted, but
+# not at once, and Jobs in other namespaces are not owned. A Job still there
+# would fail the dry-run and early-cleanup checks of a re-run, and the
+# operator would reuse a Complete one (same job-key), so delete them here.
 - name: Delete the Jobs the operator started in the test namespace
   kubernetes.core.k8s:
     api_version: batch/v1

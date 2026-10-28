@@ -419,12 +419,16 @@ original selectors.
    come first and resume at the wait. Target nodes MCO is already updating (`desiredConfig` differs from
    `currentConfig`, for example because the update started before the pools were paused) come next: before anything
    else the operator waits, with the same timeout, until MCO reports the node `Done` and `Ready`, so no other node
-   goes down meanwhile. A node whose update does not finish, for example because its MCO daemon is degraded, stops
-   the run before any other node. A node already at the target version without a `released-by` annotation for this
-   run is skipped (`NodeUpgrade=True`, `NodeAlreadyUpgraded`). Otherwise the pre-upgrade Jobs run, the node's mutex
-   labels are removed and `released-by` is set, the operator waits until the node has finished its upgrade (version
-   label, MCO state `Done`, `currentConfig` equal to `desiredConfig`, `Ready`) and the cleanup Jobs run (see
-   [The Job contract](#the-job-contract)). A failure stops the run, and the remaining nodes are not touched.
+   goes down meanwhile. A node whose update does not finish, for example because its MCO daemon is degraded, stops the
+   run before any other node (`NodeUpgrade=False`, `NodeUpgradeFailed`). After the wait the node is handled with what
+   the operator read before it: a node that was behind still gets its pre-upgrade Jobs, is released and gets its
+   cleanup Jobs, also when MCO has meanwhile brought it to the target version. A target node that MCO starts updating
+   while the reconcile runs stops the run too, before the next node is taken down, and the next reconcile waits for it
+   first. A node already at the target version without a `released-by` annotation for this run is skipped
+   (`NodeUpgrade=True`, `NodeAlreadyUpgraded`). Otherwise the pre-upgrade Jobs run, the node's mutex labels are
+   removed and `released-by` is set, the operator waits until the node has finished its upgrade (version label, MCO
+   state `Done`, `currentConfig` equal to `desiredConfig`, `Ready`) and the cleanup Jobs run (see [The Job
+   contract](#the-job-contract)). A failure stops the run, and the remaining nodes are not touched.
 8. **Finish.** When every node is done, or when no target node is behind any more and no released node still needs
    its cleanup Jobs, the selectors are restored, the run's labels and node annotations removed and the pools this
    MutexRunConfig paused are unpaused. `MCPUpdated` becomes `False` (`SelectorsRestored`). When the run has worked
@@ -540,13 +544,14 @@ targets='[]'
        metadata: {annotations: {"openshift-optional.skrzypek.io/original-match-expressions": null,
                                 "openshift-optional.skrzypek.io/modified-by": null}},
        spec: {nodeSelector: {matchExpressions:
-         (.metadata.annotations["openshift-optional.skrzypek.io/original-match-expressions"] | fromjson)}}}')"
+         (.metadata.annotations["openshift-optional.skrzypek.io/original-match-expressions"] | fromjson
+          | if length > 0 then . else null end)}}}')"
    done
    ```
 
-2. Remove its mutex labels from the nodes whose `labelled-by` names it and from the nodes of its MutexTargets that
-   have no `labelled-by` at all, and remove its `labelled-by` and `released-by` annotations. A node whose
-   `labelled-by` names another MutexRunConfig is left alone:
+2. Remove every mutex label from the nodes whose `labelled-by` names it and its mutex labels from the nodes of its
+   MutexTargets that have no `labelled-by` at all, and remove its `labelled-by` and `released-by` annotations. A node
+   whose `labelled-by` names another MutexRunConfig is left alone:
 
    ```sh
    # the mutex label of each MutexRule of the MutexRunConfig
@@ -558,8 +563,9 @@ targets='[]'
    oc get nodes -o json | jq -r --arg mrc "$mrc" --argjson labels "$labels" --argjson targets "$targets" '
      .items[] | .metadata as $m | ($m.annotations // {}) as $a
      | ($a["openshift-optional.skrzypek.io/labelled-by"] == $mrc) as $ours
-     | [$labels[] | select($m.labels[.] != null
-         and ($ours or ($a["openshift-optional.skrzypek.io/labelled-by"] == null and any($targets[]; . == $m.name))))] as $drop
+     | [($m.labels // {}) | keys[] | select(startswith("mutexrule.openshift-optional.skrzypek.io/"))
+         | select($ours or (. as $k | $a["openshift-optional.skrzypek.io/labelled-by"] == null
+                            and any($labels[]; . == $k) and any($targets[]; . == $m.name)))] as $drop
      | [if $ours then "openshift-optional.skrzypek.io/labelled-by" else empty end,
         if ($a["openshift-optional.skrzypek.io/released-by"] // "" | startswith($mrc + "|"))
         then "openshift-optional.skrzypek.io/released-by" else empty end] as $unmark
@@ -648,7 +654,8 @@ aggregated roles for these CRDs in every namespace. That is why CRs outside the 
 * A node that does not finish its upgrade within 2 hours stops the run with the pools paused.
 * Editing the MutexRunConfig or its MutexTargets during a run takes effect at the next reconcile. A pool that is no
   longer a target keeps its labels and selectors until the end of the run and is then restored and unpaused, so its
-  remaining nodes upgrade without their Jobs. The Jobs of a MutexRule removed from `spec.mutexRules` no longer run,
+  remaining nodes upgrade without their Jobs. A node of it that the run already released still gets its cleanup Jobs
+  first. The Jobs of a MutexRule removed from `spec.mutexRules` no longer run,
   and its label goes when the node is released.
 * A failure is retried with a backoff of up to about 17 minutes, and a failed Job is started again on each retry.
 * Deleting a MutexRunConfig takes effect only after the node in progress is finished, or, while another
