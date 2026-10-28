@@ -30,7 +30,7 @@ spec:
       jsonPath: .status.conditions[?(@.type=="UpgradeAvailable")].status
     - name: Paused
       type: string
-      description: Status of the TargetPoolsPaused condition (True while this MutexRunConfig keeps pools paused or a target pool is paused by someone else)
+      description: Status of the TargetPoolsPaused condition (True while this MutexRunConfig keeps pools paused or one of its pools is paused by someone else)
       jsonPath: .status.conditions[?(@.type=="TargetPoolsPaused")].status
     - name: Degraded
       type: string
@@ -106,7 +106,9 @@ spec:
                       of its matchExpressions that every target node satisfies and adds one
                       '<mutex label> DoesNotExist' expression per MutexRule; the original
                       expressions are restored afterwards. During a run it must not select a
-                      node that belongs to another custom pool or to the master pool.
+                      node outside the canary and the target pools: no node of another custom
+                      pool, of the master pool or, when worker is not a target pool, of the
+                      worker pool. It must not be paused or re-pointed by another MutexRunConfig.
                     type: string
                     minLength: 1
                     maxLength: 253

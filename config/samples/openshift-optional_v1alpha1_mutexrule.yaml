@@ -3,7 +3,7 @@
 #
 # Job contract: for every target node the operator creates one Job from
 # jobSpec before it releases the node to the canary pool, and one from
-# cleanUpJobSpec after the node reports the desired version. It appends
+# cleanUpJobSpec after the node has finished its upgrade. It appends
 # NODE_NAME (the node being upgraded) and MUTEX_RULE (this MutexRule's name)
 # to the env of every container, and keeps the pod off that node with a
 # 'kubernetes.io/hostname NotIn [<node>]' node affinity. Use $(NODE_NAME) in

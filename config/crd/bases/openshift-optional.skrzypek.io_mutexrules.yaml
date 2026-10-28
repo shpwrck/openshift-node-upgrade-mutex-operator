@@ -104,7 +104,8 @@ spec:
               cleanUpJobSpec:
                 description: |-
                   Optional batch/v1 JobSpec that runs once for each target node after the node
-                  reports the desired release-image-version label. The operator makes the same
+                  has finished its upgrade (release-image-version label, MCO state Done,
+                  currentConfig equal to desiredConfig, Ready). The operator makes the same
                   additions as for jobSpec.
                 type: object
                 x-kubernetes-preserve-unknown-fields: true
