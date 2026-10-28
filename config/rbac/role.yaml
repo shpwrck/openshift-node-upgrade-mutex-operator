@@ -106,10 +106,13 @@ rules:
       - get
       - update
       - patch
-  # The ansible-operator proxy sets an ownerReference with
-  # blockOwnerDeletion on the Jobs created for a MutexRule (dry run) or a
-  # MutexRunConfig. The OwnerReferencesPermissionEnforcement admission plugin
-  # requires update on the owner's finalizers subresource for that.
+  # The OwnerReferencesPermissionEnforcement admission plugin (enabled on
+  # OpenShift) requires update on the owner's finalizers subresource to set an
+  # ownerReference with blockOwnerDeletion: true. The ansible-operator v1.42
+  # proxy owns the Jobs it creates to the MutexRule (dry run) or
+  # MutexRunConfig without blockOwnerDeletion, so this is not exercised
+  # today; it is kept, as in the operator-sdk scaffold, so such references
+  # stay admissible. It grants nothing else.
   - apiGroups:
       - openshift-optional.skrzypek.io
     resources:
