@@ -72,7 +72,7 @@
           {{ mutexrunconfig_node_versions | combine({item.metadata.name: mutexrunconfig_labels[mutexrunconfig_version_label] | default('')}) }}
         mutexrunconfig_canary_updating_nodes: >-
           {{ mutexrunconfig_canary_updating_nodes
-             + ([item.metadata.name] if (mutexrunconfig_desired_config.startswith('rendered-' ~ mutexrunconfig_canary_name ~ '-')
+             + ([item.metadata.name] if (mutexrunconfig_desired_config is match(mutexrunconfig_canary_config_pattern)
                                          and mutexrunconfig_desired_config != mutexrunconfig_current_config) else []) }}
         mutexrunconfig_released_nodes: >-
           {{ mutexrunconfig_released_nodes

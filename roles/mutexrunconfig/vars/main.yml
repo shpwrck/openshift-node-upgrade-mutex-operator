@@ -109,9 +109,18 @@ mutexrunconfig_job_state: >-
 # Why the node last read into mutexrunconfig_wait_info does not yet count as
 # upgraded (empty once it does). A node is upgraded when its
 # release-image-version label is desired_version, the MCO daemon reports
-# state Done with currentConfig equal to desiredConfig, and its Ready
-# condition is True. The label alone is not enough: it can appear while MCO
-# is still updating the node or before the node has rebooted.
+# state Done with currentConfig equal to desiredConfig, that config is a
+# rendered config of the canary, and its Ready condition is True. The label
+# alone is not enough: it can appear while MCO is still updating the node or
+# before the node has rebooted. Requiring the canary's config means MCO has
+# moved the released node into the canary and finished there: right after
+# the release patch the node still looks Done on its old config, and a node
+# whose label already shows desired_version (one MCO had already updated)
+# would otherwise pass at once.
+# A rendered MachineConfig of the canary pool: rendered-<canary>-<hash>. The
+# hash has no '-', so a pool whose name starts with the canary's (canary-apps
+# for canary) does not match.
+mutexrunconfig_canary_config_pattern: "{{ '^rendered-' ~ (mutexrunconfig_canary_name | regex_escape) ~ '-[^-]+$' }}"
 mutexrunconfig_wait_node: "{{ mutexrunconfig_wait_info.resources | default([]) | first | default({}) }}"
 mutexrunconfig_wait_annotations: "{{ mutexrunconfig_wait_node.metadata.annotations | default({}, true) }}"
 mutexrunconfig_wait_version: "{{ mutexrunconfig_wait_node.metadata.labels[mutexrunconfig_version_label] | default('') }}"
@@ -126,6 +135,9 @@ mutexrunconfig_wait_ready: >-
 mutexrunconfig_wait_problems: >-
   {{ ([] if mutexrunconfig_wait_version == desired_version
       else ["its " ~ mutexrunconfig_version_label ~ " label is '" ~ mutexrunconfig_wait_version ~ "'"])
+     + ([] if mutexrunconfig_wait_current_config is match(mutexrunconfig_canary_config_pattern)
+        else ["its currentConfig '" ~ mutexrunconfig_wait_current_config ~ "' is not a rendered config of the canary "
+              ~ mutexrunconfig_canary_name])
      + mutexrunconfig_wait_mco_problems }}
 # The same without the version label: MCO has finished whatever update it was
 # applying to the node.

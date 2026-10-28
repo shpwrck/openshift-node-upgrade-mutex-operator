@@ -301,7 +301,9 @@ spec:
     | `OwnNamespace` | the operator namespace only | ignored |
     | `AllNamespaces` | all namespaces | get `Reconciled=False`, reason `NamespaceNotAllowed`; nothing else happens |
 
-    `SingleNamespace` and `MultiNamespace` are not supported. The manager reads `WATCH_NAMESPACE` from the
+    In `AllNamespaces` mode the operator puts its finalizer on CRs outside its namespace too. Delete those CRs before you
+    switch to `OwnNamespace`, or their deletion hangs on the finalizer. `SingleNamespace` and `MultiNamespace` are not
+    supported. The manager reads `WATCH_NAMESPACE` from the
     `olm.targetNamespaces` annotation that OLM sets, and reads its own namespace from `POD_NAMESPACE`. The roles only act
     on CRs in `POD_NAMESPACE`, so a target namespace other than the operator's own would contain only CRs the operator
     refuses.
@@ -327,10 +329,13 @@ spec:
       other than its own, the 0.3.0 CSV fails with reason `UnsupportedOperatorGroup`, and 0.2.x keeps running.
     * **The CRDs now validate their fields.** Before OLM upgrades a CRD it checks every existing CR against the new schema.
       If one does not pass, the InstallPlan fails with `error validating existing CRs against new CRD's schema`, names the
-      CR, and 0.2.x keeps running. Every kind needs `spec`. A MutexRule needs `jobName`, a DNS-1123 label of at most 52
-      characters, and `jobSpec`; `jobNamespace`, when set, must be a DNS-1123 label. A MutexTarget needs at least one
-      pool. A MutexRunConfig needs `canary.name` and at least one rule and one target reference, each with a `name`; rule
-      names (at most 61 characters) and every reference `namespace` must be DNS-1123 labels.
+      CR, and 0.2.x keeps running. OLM does not retry a failed InstallPlan. Fix or delete the CR, then delete the
+      Subscription, the 0.3.0 CSV and the 0.2.x CSV, and create the Subscription again: the CRDs and the CRs stay, and OLM
+      installs 0.3.0 (with manual approval, approve the new InstallPlan). Every kind needs `spec`. A MutexRule needs
+      `jobName`, a DNS-1123 label of at most 52 characters, and `jobSpec`; `jobNamespace`, when set, must be a DNS-1123
+      label. A MutexTarget needs at least one pool. A MutexRunConfig needs `canary.name` and at least one rule and one
+      target reference, each with a `name`; rule names (at most 61 characters) and every reference `namespace` must be
+      DNS-1123 labels.
     * **The canary must not take over other nodes.** 0.3.0 refuses a canary that, during a run, would select nodes outside
       the canary and the target pools, for example the nodes of an `infra` pool. With a custom target pool (not
       `worker`), for example `apps`, and the sample canary, the canary would select the nodes of the `worker` pool, so
@@ -348,7 +353,7 @@ spec:
        as the catalog serves it:
 
        ```sh
-       oc patch subscription <name> -n <operator namespace> --type=merge -p '{"spec":{"installPlanApproval":"Manual"}}'
+       oc patch subscriptions.operators.coreos.com <name> -n <operator namespace> --type=merge -p '{"spec":{"installPlanApproval":"Manual"}}'
        ```
 
     2. Upgrade only when no OpenShift upgrade is in progress and no 0.2.x run is half done. 0.2.x has no finalizer and does
@@ -510,8 +515,10 @@ spec:
     2. The node's mutex labels are then removed. The node moves into the canary pool and MCO upgrades it. The operator
        waits up to 2 hours (120 checks, 60 seconds apart) until the node has finished its upgrade: its
        `release-image-version` label shows the new version, its annotation `machineconfiguration.openshift.io/state` is
-       `Done` with `machineconfiguration.openshift.io/currentConfig` equal to `.../desiredConfig`, and its `Ready`
-       condition is `True`. The label alone is not enough: it can show the new version before the node has rebooted.
+       `Done` with `machineconfiguration.openshift.io/currentConfig` equal to `.../desiredConfig`, that config is a
+       rendered config of the canary (`rendered-<canary>-<hash>`), and its `Ready` condition is `True`. The label alone is
+       not enough: it can show the new version before the node has rebooted, and the canary's config shows that MCO has
+       moved the node into the canary and finished there.
     3. The cleanup Jobs of the rules that have a `cleanUpJobSpec` then run, in the same order and with the same timeout.
        Only then does the operator turn to the next node.
 
@@ -571,7 +578,9 @@ spec:
        annotation. Nodes MCO is already updating through the canary, and nodes this run has already released, are skipped.
     6. **Re-point the pools** (`MCPUpdated`). The original `matchExpressions` are saved, and `modified-by` names this
        MutexRunConfig. Target pools get `<mutex label> Exists` per rule, and the canary gets its kept expressions plus
-       `<mutex label> DoesNotExist` per rule.
+       `<mutex label> DoesNotExist` per rule. MCO resets the selector of its built-in `worker` pool at once, so on
+       `worker` the expressions do not stay; there MCO's own rule keeps a node that matches a custom pool (the canary,
+       once its labels are gone) out of `worker`. Custom target pools keep them.
     7. **Run, node by node** (`JobRun`, `NodeUpgrade`), once `UpgradeReady` is `True`. Nodes this run has already released
        come first and resume at the wait. Target nodes MCO is already updating (`desiredConfig` differs from
        `currentConfig`, for example because the update started before the pools were paused) come next: before anything
@@ -581,11 +590,13 @@ spec:
        the operator read before it: a node that was behind still gets its pre-upgrade Jobs, is released and gets its
        cleanup Jobs, also when MCO has meanwhile brought it to the target version. A target node that MCO starts updating
        while the reconcile runs stops the run too, before the next node is taken down, and the next reconcile waits for it
-       first. A node already at the target version without a `released-by` annotation for this run is skipped
-       (`NodeUpgrade=True`, `NodeAlreadyUpgraded`). Otherwise the pre-upgrade Jobs run, the node's mutex labels are
-       removed and `released-by` is set, the operator waits until the node has finished its upgrade (version label, MCO
-       state `Done`, `currentConfig` equal to `desiredConfig`, `Ready`) and the cleanup Jobs run (see [The Job
-       contract](#the-job-contract)). A failure stops the run, and the remaining nodes are not touched.
+       first. This also happens once at the start of a run when a target node that is not behind moves into the re-pointed
+       canary: that reconcile reports `NodeUpgradeFailed` and `Degraded=True`, and the next one goes on. A node already at
+       the target version without a `released-by` annotation for this run is skipped (`NodeUpgrade=True`,
+       `NodeAlreadyUpgraded`). Otherwise the pre-upgrade Jobs run, the node's mutex labels are removed and `released-by`
+       is set, the operator waits until the node has finished its upgrade (version label, MCO state `Done`,
+       `currentConfig` equal to `desiredConfig` and a rendered config of the canary, `Ready`) and the cleanup Jobs run
+       (see [The Job contract](#the-job-contract)). A failure stops the run, and the remaining nodes are not touched.
     8. **Finish.** When every node is done, or when no target node is behind any more and no released node still needs
        its cleanup Jobs, the selectors are restored, the run's labels and node annotations removed and the pools this
        MutexRunConfig paused are unpaused. `MCPUpdated` becomes `False` (`SelectorsRestored`). When the run has worked
@@ -751,10 +762,13 @@ spec:
 
     To **retry** after fixing the cause of a `Degraded=True`, do nothing: the next retry (see [Retries](#retries)), at
     most about 17 minutes later, continues where the run stopped. A Job that failed is run again. To retry at once,
-    restart the operator with
-    `oc rollout restart deployment/openshift-node-upgrade-mutex-operator-controller-manager -n <operator namespace>`.
-    On start it reconciles every resource, and a run in progress continues where it was (Jobs that already completed are
-    reused).
+    delete the operator pod. On start it reconciles every resource, and a run in progress continues where it was (Jobs
+    that already completed are reused). `oc rollout restart` does not work here: OLM reverts it on the Deployment it
+    manages, and the old pod keeps running.
+
+    ```sh
+    oc delete pod -n <operator namespace> -l app.kubernetes.io/name=openshift-node-upgrade-mutex-operator
+    ```
 
     ## Permissions
 

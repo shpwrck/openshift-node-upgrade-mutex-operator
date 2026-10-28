@@ -11,8 +11,9 @@
 #      joins the canary pool and MCO upgrades it;
 #   4. the role waits until the node has finished its upgrade: the
 #      release-image-version label is desired_version, the MCO daemon reports
-#      state Done with currentConfig equal to desiredConfig, and the node is
-#      Ready (mutexrunconfig_node_upgrade_retries x _delay);
+#      state Done with currentConfig equal to desiredConfig, that config is a
+#      rendered config of the canary, and the node is Ready
+#      (mutexrunconfig_node_upgrade_retries x _delay);
 #   5. the cleanup Job of every rule that has a cleanUpJobSpec runs, and then
 #      the released-by annotation is removed.
 # A node that still carries this MutexRunConfig's released-by (for any
