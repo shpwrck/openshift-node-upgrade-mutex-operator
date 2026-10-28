@@ -250,6 +250,10 @@ entries:
     replaces: openshift-node-upgrade-mutex-operator.v0.2.7
   - name: openshift-node-upgrade-mutex-operator.v0.2.9
     replaces: openshift-node-upgrade-mutex-operator.v0.2.8
+  - name: openshift-node-upgrade-mutex-operator.v0.2.67
+    replaces: openshift-node-upgrade-mutex-operator.v0.2.66
+  - name: openshift-node-upgrade-mutex-operator.v0.2.68
+    replaces: openshift-node-upgrade-mutex-operator.v0.2.67
   name: alpha
   package: openshift-node-upgrade-mutex-operator
   schema: olm.channel
@@ -496,5 +500,9 @@ entries:
 - image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator-bundle:v0.2.8
   schema: olm.bundle
 - image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator-bundle:v0.2.9
+  schema: olm.bundle
+- image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator-bundle:v0.2.67
+  schema: olm.bundle
+- image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator-bundle:v0.2.68
   schema: olm.bundle
 schema: olm.template.basic

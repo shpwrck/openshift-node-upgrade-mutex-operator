@@ -250,6 +250,10 @@ entries:
   replaces: openshift-node-upgrade-mutex-operator.v0.2.7
 - name: openshift-node-upgrade-mutex-operator.v0.2.9
   replaces: openshift-node-upgrade-mutex-operator.v0.2.8
+- name: openshift-node-upgrade-mutex-operator.v0.2.67
+  replaces: openshift-node-upgrade-mutex-operator.v0.2.66
+- name: openshift-node-upgrade-mutex-operator.v0.2.68
+  replaces: openshift-node-upgrade-mutex-operator.v0.2.67
 name: alpha
 package: openshift-node-upgrade-mutex-operator
 schema: olm.channel
@@ -39360,6 +39364,748 @@ relatedImages:
 - image: gcr.io/kubebuilder/kube-rbac-proxy@sha256:d8cc6ffb98190e8dd403bfe67ddcb454e6127d32b87acc237b3e5240f70a20fb
   name: kube-rbac-proxy
 - image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator-bundle:v0.2.66
+  name: ""
+- image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator@sha256:d4c28e8b256c00429d9999595c2386f1a25de597ee8e6c33871bb7b22b84c4af
+  name: manager
+schema: olm.bundle
+---
+image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator-bundle:v0.2.67
+name: openshift-node-upgrade-mutex-operator.v0.2.67
+package: openshift-node-upgrade-mutex-operator
+properties:
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: MutexRule
+    version: v1alpha1
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: MutexRunConfig
+    version: v1alpha1
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: MutexTarget
+    version: v1alpha1
+- type: olm.package
+  value:
+    packageName: openshift-node-upgrade-mutex-operator
+    version: 0.2.67
+- type: olm.csv.metadata
+  value:
+    annotations:
+      alm-examples: |-
+        [
+          {
+            "apiVersion": "openshift-optional.skrzypek.io/v1alpha1",
+            "kind": "MutexRule",
+            "metadata": {
+              "labels": {
+                "app.kubernetes.io/created-by": "openshift-node-upgrade-mutex-operator",
+                "app.kubernetes.io/instance": "mutexrule-sample",
+                "app.kubernetes.io/managed-by": "kustomize",
+                "app.kubernetes.io/name": "mutexrule",
+                "app.kubernetes.io/part-of": "openshift-node-upgrade-mutex-operator"
+              },
+              "name": "mutexrule-sample"
+            },
+            "spec": {
+              "jobName": "example",
+              "jobNamespace": "node-upgrade-mutex-operator",
+              "jobSpec": {
+                "selector": {},
+                "template": {
+                  "metadata": {
+                    "name": "mutex"
+                  },
+                  "spec": {
+                    "containers": [
+                      {
+                        "command": [
+                          "sleep",
+                          "20"
+                        ],
+                        "image": "ubi9/toolbox",
+                        "name": "mutex"
+                      }
+                    ],
+                    "restartPolicy": "Never"
+                  }
+                }
+              },
+              "type": "kubernetes"
+            }
+          },
+          {
+            "apiVersion": "openshift-optional.skrzypek.io/v1alpha1",
+            "kind": "MutexRunConfig",
+            "metadata": {
+              "labels": {
+                "app.kubernetes.io/created-by": "openshift-node-upgrade-mutex-operator",
+                "app.kubernetes.io/instance": "mutexrunconfig-sample",
+                "app.kubernetes.io/managed-by": "kustomize",
+                "app.kubernetes.io/name": "mutexrunconfig",
+                "app.kubernetes.io/part-of": "openshift-node-upgrade-mutex-operator"
+              },
+              "name": "mutexrunconfig-sample"
+            },
+            "spec": {
+              "canary": {
+                "name": "canary-example"
+              },
+              "mutexRules": [
+                {
+                  "name": "mutexrule-sample",
+                  "namespace": "node-upgrade-mutex-operator"
+                }
+              ],
+              "mutexTargets": [
+                {
+                  "name": "mutextarget-sample",
+                  "namespace": "node-upgrade-mutex-operator"
+                }
+              ]
+            }
+          },
+          {
+            "apiVersion": "openshift-optional.skrzypek.io/v1alpha1",
+            "kind": "MutexTarget",
+            "metadata": {
+              "labels": {
+                "app.kubernetes.io/created-by": "openshift-node-upgrade-mutex-operator",
+                "app.kubernetes.io/instance": "mutextarget-sample",
+                "app.kubernetes.io/managed-by": "kustomize",
+                "app.kubernetes.io/name": "mutextarget",
+                "app.kubernetes.io/part-of": "openshift-node-upgrade-mutex-operator"
+              },
+              "name": "mutextarget-sample"
+            },
+            "spec": {
+              "machineConfigPools": [
+                "worker"
+              ]
+            }
+          }
+        ]
+      capabilities: Basic Install
+      categories: OpenShift Optional
+      certified: "false"
+      containerImage: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator
+      createdAt: "2025-08-21T14:50:20Z"
+      description: |
+        This software injects required operations into the worker node upgrade process.
+      features.operators.openshift.io/cnf: "false"
+      features.operators.openshift.io/cni: "false"
+      features.operators.openshift.io/csi: "false"
+      features.operators.openshift.io/disconnected: "false"
+      features.operators.openshift.io/fips-compliant: "false"
+      features.operators.openshift.io/proxy-aware: "false"
+      features.operators.openshift.io/tls-profiles: "false"
+      features.operators.openshift.io/token-auth-aws: "false"
+      features.operators.openshift.io/token-auth-azure: "false"
+      features.operators.openshift.io/token-auth-gcp: "false"
+      operatorframework.io/suggested-namespace: node-upgrade-mutex-operator
+      operators.operatorframework.io/builder: operator-sdk-v1.41.1
+      operators.operatorframework.io/project_layout: ansible.sdk.operatorframework.io/v1
+      provider: Jason Skrzypek
+      repository: https://github.com/shpwrck/openshift-upgrade-rollout-operator
+      support: Best Effort
+    apiServiceDefinitions: {}
+    crdDescriptions:
+      owned:
+      - description: A node mutex rule definition in the form of a kubernetes job
+          spec
+        displayName: Mutex Rule
+        kind: MutexRule
+        name: mutexrules.openshift-optional.skrzypek.io
+        version: v1alpha1
+      - description: Lists of Targets and Rules to apply to them, as well as an upgrade
+          facilitating Machine Config Pool
+        displayName: Mutex Run Config
+        kind: MutexRunConfig
+        name: mutexrunconfigs.openshift-optional.skrzypek.io
+        version: v1alpha1
+      - description: A list of Machine Config Pools to enforce upgrade procedure.
+        displayName: Mutex Target
+        kind: MutexTarget
+        name: mutextargets.openshift-optional.skrzypek.io
+        version: v1alpha1
+    description: |
+      ## Introduction
+
+      This operator injects required operations in the form of a Kubernetes job into the worker node upgrade process using MachineConfigPools. In short, when provided a list of operations (`MutexRules`) and a list of MachineConfigPools (`MutexTargets`) , the OpenShift Node Upgrade Mutex Operator will execute each operation for a given target, enable updates for the given target by modifying it's MachineConfigPool membership, and wait until the node has been upgraded before proceeding onto subsequent operations and targets.
+
+      ## Dependencies
+
+      ### Release Version Label
+
+      In order to confirm the successful upgrade of each target node, the NFD Operator is used to generate a version feature on every worker node. In order to proceed through given targets, each node must have this label
+      `'machineconfiguration.openshift.io/release-image-version'` with a key providing the semantic version of this node (e.g. `'4.16.4'`)
+
+      There are several ways to accomplish this, but an example MachineConfig has been provided [here](https://github.com/shpwrck/openshift-node-upgrade-mutex-operator/blob/main/machineconfig.yaml).
+
+      ### Canary Machine Config Pool
+
+      In addition to node labels, a MachineConfigPool that will be used to accomodate targets subject to upgrades must be provided matching the following criteria:
+      * selects only worker nodes
+      * is not paused
+
+      Applying the example below will create a compatible canary pool:
+
+      ```yaml
+      ---
+      apiVersion: machineconfiguration.openshift.io/v1
+      kind: MachineConfigPool
+      metadata:
+        name: canary
+      spec:
+        machineConfigSelector:
+          matchLabels:
+            machineconfiguration.openshift.io/role: worker
+        nodeSelector:
+          matchLabels:
+            node-role.kubernetes.io/worker: ''
+          matchExpressions:
+            - key: 'isCanary'
+              operator: Exists
+        paused: false
+      ```
+
+      ## Usage / Custom Resources Definitions
+
+      #### MutexRule:
+
+      A resource storing a single rule referring to a template for a Kubernetes job to be created.
+      This resource **does not** modify existing resources.
+
+      ```yaml
+      ---
+      apiVersion: openshift-optional.skrzypek.io/v1alpha1
+      kind: MutexRule
+      metadata:
+        name: k8s-example
+      spec:
+        jobName: "example" # Jobs will be run with this prefix name
+        jobNamespace: "node-upgrade-mutex-operator" # Jobs will be run in this namespace
+        jobSpec: # Accepts full 'batch/v1' job spec
+          selector: {}
+          template:
+            metadata:
+              name: mutex
+            spec:
+              containers:
+              - command:
+                - sleep
+                args:
+                - "30"
+                image: ubi9/toolbox
+                name: mutex
+              restartPolicy: Never
+        cleanUpJobSpec: # Accepts full 'batch/v1' job spec (Optional)
+          selector: {}
+          template:
+            metadata:
+              name: mutex
+            spec:
+              containers:
+              - command:
+                - sleep
+                args:
+                - "30"
+                image: ubi9/toolbox
+                name: mutex
+              restartPolicy: Never
+        type: kubernetes
+      ```
+
+      #### MutexTarget:
+
+      A resource storing a set of MachineConfigPools to pause and incrementally upgrade.
+      This resource **does not** modify existing resources.
+
+      ```yaml
+      ---
+      apiVersion: openshift-optional.skrzypek.io/v1alpha1
+      kind: MutexTarget
+      metadata:
+        name: worker-example
+      spec:
+        machineConfigPools:
+          - worker # Name of existing machineconfigpool
+      ```
+
+      #### MutexRunConfig:
+
+      A resource that references existing MutexRules and MutexTargets as well as an existing MachineConfigPool that will allow members to be upgraded. Every rule defined in the `mutexRules` list will be added as a mandatory task to every node that is a member of the each MachineConfigPool defined in the `mutexTargets` list.
+      This resource **does** modify existing resources.
+
+      ```yaml
+      apiVersion: openshift-optional.skrzypek.io/v1alpha1
+      kind: MutexRunConfig
+      metadata:
+        name: example
+      spec:
+        skipTLSVerify: false # Defaults to false if omitted
+        canary:
+          name: canary # Name of unpaused machineconfigpool to modify
+        mutexRules: # List of existing mutexRules
+          - name: k8s-example
+            namespace: node-upgrade-mutex-operator
+        mutexTargets: # List of existing mutexTargets
+          - name: worker-example
+            namespace: node-upgrade-mutex-operator
+      ```
+
+      ## Procedure
+
+      #### MutexRule
+
+      1. Upon creation/modification, the schema of each K8s rule is validated.
+      2. Status is updated to indicate valid or invalid configuration.
+
+      #### MutexTargets
+
+      1. Upon creation/modification, the existence of each target is validated.
+      2. Status is updated to indicate valid or invalid configuration.
+      3. The nodes assigned to each target are added to the status field `nodes`.
+
+      #### MutexRunConfigs
+
+      1. Upon creation/modification, the existence as well as validation status of each rule, target, and canary pool is confirmed.
+      2. If valid, the existence of an upgrade is queried. An upgrade is available if the following is true:
+          * The `status.history` of the `cluster` ClusterVersion equals `Completed`
+          * The `release-image-version` of any worker node is less than the `spec.desiredUpdate.version` of the `cluster` ClusterVersion.
+      3. If an update exists, each target MachineConfigPool has `spec.paused` set to `true`.
+      4. If each pool is paused, each node is updated to include a label for each rule with the following format:
+          * `mutexrule.openshift-optional.skrzypek.io/{{MutexRule_Name}}.{{MutexRule_Namespace}}`
+      5. If labels have been applied, the provided canary pool is modified to exclude nodes with labels provided by step (4).
+      6. Assuming steps (2-5) have completed successfully, then the process for running jobs and updating nodes begins. The process per node is as follows:
+          * Launch each K8S job sequentially
+          * Remove the current node's rule labels
+          * Wait until the `release-image-version` of the node matches the `spec.desiredUpdate.version` of the `cluster` ClusterVersion
+          * Launch each K8S cleanup job sequentially
+      7. If the update succeeds, all machine config pools are unpaused and all match expressions are removed.
+
+      ## Permissions Granted
+
+      In addition to the permissions required to operate the included CRDs, the following access is granted to the operator's service account.
+
+      | Resource | Permissions |
+      | :---: | :---: |
+      | Jobs | Create & Read |
+      | Nodes | Read & Update |
+      | ClusterVersion | Read |
+      | MachineConfigPools | Read & Update |
+
+      ## Notes
+
+      * This operator was built using the operator-sdk's ansible plugin and therefore has all of the inherited capabilities and restrictions.
+      * This operator has undergone minimal testing and should not be run in production environments without acknowledging the risks.
+      * This operator is currently alpha and subject to change based on requirements.
+
+      ## Additional Information
+      For additional information refer to the [GitHub Repository](https://github.com/shpwrck/openshift-node-upgrade-mutex-operator)
+    displayName: OpenShift Node Upgrade Mutex Operator
+    installModes:
+    - supported: true
+      type: OwnNamespace
+    - supported: true
+      type: SingleNamespace
+    - supported: false
+      type: MultiNamespace
+    - supported: false
+      type: AllNamespaces
+    keywords:
+    - OpenShift Optional
+    - Upgrade
+    - Mutex
+    links:
+    - name: Openshift Node Upgrade Mutex Operator
+      url: https://github.com/shpwrck/openshift-node-upgrade-mutex-operator
+    maintainers:
+    - email: jskrzype@redhat.com
+      name: Jason Skrzypek
+    maturity: alpha
+    minKubeVersion: 1.27.0
+    provider:
+      name: Jason Skrzypek
+      url: https://github.com/shpwrck
+relatedImages:
+- image: gcr.io/kubebuilder/kube-rbac-proxy@sha256:d8cc6ffb98190e8dd403bfe67ddcb454e6127d32b87acc237b3e5240f70a20fb
+  name: kube-rbac-proxy
+- image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator-bundle:v0.2.67
+  name: ""
+- image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator@sha256:282ca1907c76c7434a5db261de8823996e23f3f13560323c7db146327bf0e232
+  name: manager
+schema: olm.bundle
+---
+image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator-bundle:v0.2.68
+name: openshift-node-upgrade-mutex-operator.v0.2.68
+package: openshift-node-upgrade-mutex-operator
+properties:
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: MutexRule
+    version: v1alpha1
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: MutexRunConfig
+    version: v1alpha1
+- type: olm.gvk
+  value:
+    group: openshift-optional.skrzypek.io
+    kind: MutexTarget
+    version: v1alpha1
+- type: olm.package
+  value:
+    packageName: openshift-node-upgrade-mutex-operator
+    version: 0.2.68
+- type: olm.csv.metadata
+  value:
+    annotations:
+      alm-examples: |-
+        [
+          {
+            "apiVersion": "openshift-optional.skrzypek.io/v1alpha1",
+            "kind": "MutexRule",
+            "metadata": {
+              "labels": {
+                "app.kubernetes.io/created-by": "openshift-node-upgrade-mutex-operator",
+                "app.kubernetes.io/instance": "mutexrule-sample",
+                "app.kubernetes.io/managed-by": "kustomize",
+                "app.kubernetes.io/name": "mutexrule",
+                "app.kubernetes.io/part-of": "openshift-node-upgrade-mutex-operator"
+              },
+              "name": "mutexrule-sample"
+            },
+            "spec": {
+              "jobName": "example",
+              "jobNamespace": "node-upgrade-mutex-operator",
+              "jobSpec": {
+                "selector": {},
+                "template": {
+                  "metadata": {
+                    "name": "mutex"
+                  },
+                  "spec": {
+                    "containers": [
+                      {
+                        "command": [
+                          "sleep",
+                          "20"
+                        ],
+                        "image": "ubi9/toolbox",
+                        "name": "mutex"
+                      }
+                    ],
+                    "restartPolicy": "Never"
+                  }
+                }
+              },
+              "type": "kubernetes"
+            }
+          },
+          {
+            "apiVersion": "openshift-optional.skrzypek.io/v1alpha1",
+            "kind": "MutexRunConfig",
+            "metadata": {
+              "labels": {
+                "app.kubernetes.io/created-by": "openshift-node-upgrade-mutex-operator",
+                "app.kubernetes.io/instance": "mutexrunconfig-sample",
+                "app.kubernetes.io/managed-by": "kustomize",
+                "app.kubernetes.io/name": "mutexrunconfig",
+                "app.kubernetes.io/part-of": "openshift-node-upgrade-mutex-operator"
+              },
+              "name": "mutexrunconfig-sample"
+            },
+            "spec": {
+              "canary": {
+                "name": "canary-example"
+              },
+              "mutexRules": [
+                {
+                  "name": "mutexrule-sample",
+                  "namespace": "node-upgrade-mutex-operator"
+                }
+              ],
+              "mutexTargets": [
+                {
+                  "name": "mutextarget-sample",
+                  "namespace": "node-upgrade-mutex-operator"
+                }
+              ]
+            }
+          },
+          {
+            "apiVersion": "openshift-optional.skrzypek.io/v1alpha1",
+            "kind": "MutexTarget",
+            "metadata": {
+              "labels": {
+                "app.kubernetes.io/created-by": "openshift-node-upgrade-mutex-operator",
+                "app.kubernetes.io/instance": "mutextarget-sample",
+                "app.kubernetes.io/managed-by": "kustomize",
+                "app.kubernetes.io/name": "mutextarget",
+                "app.kubernetes.io/part-of": "openshift-node-upgrade-mutex-operator"
+              },
+              "name": "mutextarget-sample"
+            },
+            "spec": {
+              "machineConfigPools": [
+                "worker"
+              ]
+            }
+          }
+        ]
+      capabilities: Basic Install
+      categories: OpenShift Optional
+      certified: "false"
+      containerImage: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator
+      createdAt: "2025-06-17T14:31:04Z"
+      description: |
+        This software injects required operations into the worker node upgrade process.
+      features.operators.openshift.io/cnf: "false"
+      features.operators.openshift.io/cni: "false"
+      features.operators.openshift.io/csi: "false"
+      features.operators.openshift.io/disconnected: "false"
+      features.operators.openshift.io/fips-compliant: "false"
+      features.operators.openshift.io/proxy-aware: "false"
+      features.operators.openshift.io/tls-profiles: "false"
+      features.operators.openshift.io/token-auth-aws: "false"
+      features.operators.openshift.io/token-auth-azure: "false"
+      features.operators.openshift.io/token-auth-gcp: "false"
+      operatorframework.io/suggested-namespace: node-upgrade-mutex-operator
+      operators.operatorframework.io/builder: operator-sdk-v1.39.2
+      operators.operatorframework.io/project_layout: ansible.sdk.operatorframework.io/v1
+      provider: Jason Skrzypek
+      repository: https://github.com/shpwrck/openshift-upgrade-rollout-operator
+      support: Best Effort
+    apiServiceDefinitions: {}
+    crdDescriptions:
+      owned:
+      - description: A node mutex rule definition in the form of a kubernetes job
+          spec
+        displayName: Mutex Rule
+        kind: MutexRule
+        name: mutexrules.openshift-optional.skrzypek.io
+        version: v1alpha1
+      - description: Lists of Targets and Rules to apply to them, as well as an upgrade
+          facilitating Machine Config Pool
+        displayName: Mutex Run Config
+        kind: MutexRunConfig
+        name: mutexrunconfigs.openshift-optional.skrzypek.io
+        version: v1alpha1
+      - description: A list of Machine Config Pools to enforce upgrade procedure.
+        displayName: Mutex Target
+        kind: MutexTarget
+        name: mutextargets.openshift-optional.skrzypek.io
+        version: v1alpha1
+    description: |
+      ## Introduction
+
+      This operator injects required operations in the form of a Kubernetes job into the worker node upgrade process using MachineConfigPools. In short, when provided a list of operations (`MutexRules`) and a list of MachineConfigPools (`MutexTargets`) , the OpenShift Node Upgrade Mutex Operator will execute each operation for a given target, enable updates for the given target by modifying it's MachineConfigPool membership, and wait until the node has been upgraded before proceeding onto subsequent operations and targets.
+
+      ## Dependencies
+
+      ### Release Version Label
+
+      In order to confirm the successful upgrade of each target node, the NFD Operator is used to generate a version feature on every worker node. In order to proceed through given targets, each node must have this label
+      `'machineconfiguration.openshift.io/release-image-version'` with a key providing the semantic version of this node (e.g. `'4.16.4'`)
+
+      There are several ways to accomplish this, but an example MachineConfig has been provided [here](https://github.com/shpwrck/openshift-node-upgrade-mutex-operator/blob/main/machineconfig.yaml).
+
+      ### Canary Machine Config Pool
+
+      In addition to node labels, a MachineConfigPool that will be used to accomodate targets subject to upgrades must be provided matching the following criteria:
+      * selects only worker nodes
+      * is not paused
+
+      Applying the example below will create a compatible canary pool:
+
+      ```yaml
+      ---
+      apiVersion: machineconfiguration.openshift.io/v1
+      kind: MachineConfigPool
+      metadata:
+        name: canary
+      spec:
+        machineConfigSelector:
+          matchLabels:
+            machineconfiguration.openshift.io/role: worker
+        nodeSelector:
+          matchLabels:
+            node-role.kubernetes.io/worker: ''
+          matchExpressions:
+            - key: 'isCanary'
+              operator: Exists
+        paused: false
+      ```
+
+      ## Usage / Custom Resources Definitions
+
+      #### MutexRule:
+
+      A resource storing a single rule referring to a template for a Kubernetes job to be created.
+      This resource **does not** modify existing resources.
+
+      ```yaml
+      ---
+      apiVersion: openshift-optional.skrzypek.io/v1alpha1
+      kind: MutexRule
+      metadata:
+        name: k8s-example
+      spec:
+        jobName: "example" # Jobs will be run with this prefix name
+        jobNamespace: "node-upgrade-mutex-operator" # Jobs will be run in this namespace
+        jobSpec: # Accepts full 'batch/v1' job spec
+          selector: {}
+          template:
+            metadata:
+              name: mutex
+            spec:
+              containers:
+              - command:
+                - sleep
+                args:
+                - "30"
+                image: ubi9/toolbox
+                name: mutex
+              restartPolicy: Never
+        cleanUpJobSpec: # Accepts full 'batch/v1' job spec (Optional)
+          selector: {}
+          template:
+            metadata:
+              name: mutex
+            spec:
+              containers:
+              - command:
+                - sleep
+                args:
+                - "30"
+                image: ubi9/toolbox
+                name: mutex
+              restartPolicy: Never
+        type: kubernetes
+      ```
+
+      #### MutexTarget:
+
+      A resource storing a set of MachineConfigPools to pause and incrementally upgrade.
+      This resource **does not** modify existing resources.
+
+      ```yaml
+      ---
+      apiVersion: openshift-optional.skrzypek.io/v1alpha1
+      kind: MutexTarget
+      metadata:
+        name: worker-example
+      spec:
+        machineConfigPools:
+          - worker # Name of existing machineconfigpool
+      ```
+
+      #### MutexRunConfig:
+
+      A resource that references existing MutexRules and MutexTargets as well as an existing MachineConfigPool that will allow members to be upgraded. Every rule defined in the `mutexRules` list will be added as a mandatory task to every node that is a member of the each MachineConfigPool defined in the `mutexTargets` list.
+      This resource **does** modify existing resources.
+
+      ```yaml
+      apiVersion: openshift-optional.skrzypek.io/v1alpha1
+      kind: MutexRunConfig
+      metadata:
+        name: example
+      spec:
+        skipTLSVerify: false # Defaults to false if omitted
+        canary:
+          name: canary # Name of unpaused machineconfigpool to modify
+        mutexRules: # List of existing mutexRules
+          - name: k8s-example
+            namespace: node-upgrade-mutex-operator
+        mutexTargets: # List of existing mutexTargets
+          - name: worker-example
+            namespace: node-upgrade-mutex-operator
+      ```
+
+      ## Procedure
+
+      #### MutexRule
+
+      1. Upon creation/modification, the schema of each K8s rule is validated.
+      2. Status is updated to indicate valid or invalid configuration.
+
+      #### MutexTargets
+
+      1. Upon creation/modification, the existence of each target is validated.
+      2. Status is updated to indicate valid or invalid configuration.
+      3. The nodes assigned to each target are added to the status field `nodes`.
+
+      #### MutexRunConfigs
+
+      1. Upon creation/modification, the existence as well as validation status of each rule, target, and canary pool is confirmed.
+      2. If valid, the existence of an upgrade is queried. An upgrade is available if the following is true:
+          * The `status.history` of the `cluster` ClusterVersion equals `Completed`
+          * The `release-image-version` of any worker node is less than the `spec.desiredUpdate.version` of the `cluster` ClusterVersion.
+      3. If an update exists, each target MachineConfigPool has `spec.paused` set to `true`.
+      4. If each pool is paused, each node is updated to include a label for each rule with the following format:
+          * `mutexrule.openshift-optional.skrzypek.io/{{MutexRule_Name}}.{{MutexRule_Namespace}}`
+      5. If labels have been applied, the provided canary pool is modified to exclude nodes with labels provided by step (4).
+      6. Assuming steps (2-5) have completed successfully, then the process for running jobs and updating nodes begins. The process per node is as follows:
+          * Launch each K8S job sequentially
+          * Remove the current node's rule labels
+          * Wait until the `release-image-version` of the node matches the `spec.desiredUpdate.version` of the `cluster` ClusterVersion
+          * Launch each K8S cleanup job sequentially
+      7. If the update succeeds, all machine config pools are unpaused and all match expressions are removed.
+
+      ## Permissions Granted
+
+      In addition to the permissions required to operate the included CRDs, the following access is granted to the operator's service account.
+
+      | Resource | Permissions |
+      | :---: | :---: |
+      | Jobs | Create & Read |
+      | Nodes | Read & Update |
+      | ClusterVersion | Read |
+      | MachineConfigPools | Read & Update |
+
+      ## Notes
+
+      * This operator was built using the operator-sdk's ansible plugin and therefore has all of the inherited capabilities and restrictions.
+      * This operator has undergone minimal testing and should not be run in production environments without acknowledging the risks.
+      * This operator is currently alpha and subject to change based on requirements.
+
+      ## Additional Information
+      For additional information refer to the [GitHub Repository](https://github.com/shpwrck/openshift-node-upgrade-mutex-operator)
+    displayName: OpenShift Node Upgrade Mutex Operator
+    installModes:
+    - supported: true
+      type: OwnNamespace
+    - supported: true
+      type: SingleNamespace
+    - supported: false
+      type: MultiNamespace
+    - supported: false
+      type: AllNamespaces
+    keywords:
+    - OpenShift Optional
+    - Upgrade
+    - Mutex
+    links:
+    - name: Openshift Node Upgrade Mutex Operator
+      url: https://github.com/shpwrck/openshift-node-upgrade-mutex-operator
+    maintainers:
+    - email: jskrzype@redhat.com
+      name: Jason Skrzypek
+    maturity: alpha
+    minKubeVersion: 1.27.0
+    provider:
+      name: Jason Skrzypek
+      url: https://github.com/shpwrck
+relatedImages:
+- image: gcr.io/kubebuilder/kube-rbac-proxy@sha256:d8cc6ffb98190e8dd403bfe67ddcb454e6127d32b87acc237b3e5240f70a20fb
+  name: kube-rbac-proxy
+- image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator-bundle:v0.2.68
   name: ""
 - image: quay.io/jskrzypek/openshift-node-upgrade-mutex-operator@sha256:d4c28e8b256c00429d9999595c2386f1a25de597ee8e6c33871bb7b22b84c4af
   name: manager
