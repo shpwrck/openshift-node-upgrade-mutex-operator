@@ -105,8 +105,10 @@ DOCS ?= docs/USAGE.md docs/DEVELOPMENT.md
 CSV_BASE ?= config/manifests/bases/openshift-node-upgrade-mutex-operator.clusterserviceversion.yaml
 
 .PHONY: document
-document: yq ## Regenerate README.md from DOCS and the CSV description from docs/USAGE.md.
+document: yq operator-sdk ## Regenerate README.md from DOCS and the CSV description from docs/USAGE.md.
 	$(YQ) -i '.spec.description=load_str("./docs/USAGE.md")' $(CSV_BASE)
+	@# yq -i re-indents the whole CSV; this puts it back in the layout make bundle writes.
+	$(OPERATOR_SDK) generate kustomize manifests -q
 	awk 'FNR == 1 && NR != 1 { print "" } { print }' $(DOCS) > README.md
 
 .PHONY: lint

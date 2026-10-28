@@ -32,8 +32,8 @@ MCO upgrades the nodes of a MachineConfigPool once the pool is unpaused. The ope
 4. After the last node it **restores** the original selectors, removes the labels and unpauses the pools it paused.
 
 When something fails, the pools **stay paused**. No node is upgraded without its Jobs. The MutexRunConfig reports
-`Degraded=True`, and the operator retries on the next reconcile, every 10 minutes. To give up instead, delete the
-MutexRunConfig (see [Recovery](#recovery)).
+`Degraded=True`, and the operator retries (see [Retries](#retries)). To give up instead, delete the MutexRunConfig
+(see [Recovery](#recovery)).
 
 ## Prerequisites
 
@@ -261,8 +261,9 @@ Order and timing:
 
 When a reconcile is interrupted and started again, the operator looks for a Job with the same `job-key` label. If it
 finds one that has not failed, it waits for it or counts it as done, instead of starting another. A failed Job is not
-reused, so the next reconcile starts a new one. Do not set `ttlSecondsAfterFinished` shorter than a run, or a re-entered
-run will start the Job again. Jobs in the MutexRunConfig's namespace are owned by it and are garbage-collected when it
+reused, so the next reconcile starts a new one, and failed Jobs pile up while a failure is retried. Do not set
+`ttlSecondsAfterFinished` shorter than a run, or a re-entered run will start the Job again; a value of a day or more
+cleans up the failed ones. Jobs in the MutexRunConfig's namespace are owned by it and are garbage-collected when it
 is deleted. Jobs in other namespaces are not.
 
 ## What the operator changes
@@ -321,6 +322,14 @@ its spec changes, when one of its Jobs in its own namespace changes, and every 1
 nodes or pools are picked up at the next 10-minute reconcile. Status is merged condition by condition, so progress
 survives a restart of the operator.
 
+### Retries
+
+ansible-operator counts every failed task as a failed reconcile, even one the role handles and reports in a
+condition. A failed reconcile is retried with the controller-runtime backoff, not at the 10-minute period: first
+after a few milliseconds, then doubling up to about 17 minutes between attempts, until a reconcile succeeds. This
+applies to every failure the conditions report: an invalid MutexRule or MutexTarget, a missing reference, a failed
+Job or a node that did not upgrade in time. A failed Job is started again on every retry.
+
 ## Conditions
 
 `lastTransitionTime` is an RFC 3339 UTC time (`YYYY-MM-DDTHH:MM:SSZ`). It changes whenever a condition's status,
@@ -355,6 +364,10 @@ restore before the object goes away. It puts back the saved node selectors, remo
 unpauses the pools that this MutexRunConfig paused. **MCO then upgrades the remaining nodes without running their
 Jobs.** Delete MutexRunConfigs before you uninstall the operator, or the finalizer cannot run.
 
+A delete does not interrupt a reconcile that is already running. The operator finishes the node it is working on (its
+Jobs, up to `timeoutSeconds` each, and the wait for the new version, up to 2 hours), skips the remaining nodes and
+then runs the finalizer. Use the manual steps below if that is too long to wait.
+
 If the operator is gone or cannot run, do the same by hand, in this order:
 
 1. Restore the selectors. For each MachineConfigPool that has the `original-match-expressions` annotation:
@@ -384,8 +397,10 @@ If the operator is gone or cannot run, do the same by hand, in this order:
    oc patch mutexrunconfig <name> -n <namespace> --type=merge -p '{"metadata":{"finalizers":null}}'
    ```
 
-To **retry** after fixing the cause of a `Degraded=True`, do nothing: the next reconcile, within 10 minutes, continues
-where the run stopped. A Job that failed is run again.
+To **retry** after fixing the cause of a `Degraded=True`, do nothing: the next retry (see [Retries](#retries)), at
+most about 17 minutes later, continues where the run stopped. A Job that failed is run again. To retry at once,
+restart the operator pod (`oc delete pod -n <operator namespace> -l control-plane=controller-manager`). On start it
+reconciles every resource, and a run in progress continues where it was (Jobs that already completed are reused).
 
 ## Permissions
 
@@ -423,6 +438,8 @@ aggregated roles for these CRDs in every namespace. That is why CRs outside the 
 * Nodes are handled one at a time, so a large pool takes as long as its slowest Jobs plus one node upgrade per node.
   An upgraded node stays in the canary pool until the end of the run.
 * A node that does not report the new version within 2 hours stops the run with the pools paused.
+* A failure is retried with a backoff of up to about 17 minutes, and a failed Job is started again on each retry.
+* Deleting a MutexRunConfig takes effect only after the node in progress is finished.
 * Changes to ClusterVersion, nodes and pools are noticed at the next reconcile, at most 10 minutes later.
 * `spec.jobNamespace` can be any namespace, and the Jobs can use any ServiceAccount in it. See the permissions section.
 * MutexRule names must not contain `.`.
