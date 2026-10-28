@@ -125,6 +125,10 @@ run: ansible-operator ## Run against the configured Kubernetes cluster in ~/.kub
 docker-build: ## Build the operator image.
 	$(CONTAINER_TOOL) build -t $(IMG) .
 
+.PHONY: image-smoke-test
+image-smoke-test: ## Check the built operator image (collections, python libs, role syntax) without a cluster.
+	CONTAINER_TOOL=$(CONTAINER_TOOL) hack/image-smoke-test.sh $(IMG)
+
 .PHONY: docker-push
 docker-push: ## Push the operator image (or any image passed as IMG).
 	$(CONTAINER_TOOL) push $(IMG)
@@ -187,6 +191,10 @@ bundle: kustomize operator-sdk yq ## Generate the bundle for VERSION into BUNDLE
 	$(YQ) -r '.annotations | to_entries | .[] | "LABEL " + .key + "=" + .value' custom-annotations.yaml >> $(BUNDLE_DIR)/bundle.Dockerfile
 	$(OPERATOR_SDK) bundle validate $(BUNDLE_DIR)
 
+.PHONY: verify-manifests
+verify-manifests: kustomize ## Check config/default, config/manifests and BUNDLE_DIR (if generated) for known regressions.
+	KUSTOMIZE=$(KUSTOMIZE) hack/verify-manifests.sh $(BUNDLE_DIR)
+
 .PHONY: bundle-validate
 bundle-validate: operator-sdk ## Validate BUNDLE_DIR with the optional operatorframework suite.
 	$(OPERATOR_SDK) bundle validate $(BUNDLE_DIR) --select-optional suite=operatorframework
@@ -234,8 +242,9 @@ catalog-render: opm ## Render CATALOG_TEMPLATE into CATALOG_FILE (pulls every bu
 	$(OPM) validate $(CATALOG_DIR)
 
 .PHONY: catalog-validate
-catalog-validate: opm ## Validate the committed catalog in CATALOG_DIR (no image pulls).
+catalog-validate: opm yq ## Validate CATALOG_DIR and check it matches CATALOG_TEMPLATE (no image pulls).
 	$(OPM) validate $(CATALOG_DIR)
+	YQ=$(YQ) hack/verify-catalog.sh $(CATALOG_TEMPLATE) $(CATALOG_FILE)
 
 .PHONY: catalog-build
 catalog-build: catalog-validate ## Build the catalog image from CATALOG_DIR.
