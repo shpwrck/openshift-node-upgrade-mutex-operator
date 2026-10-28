@@ -422,8 +422,21 @@ The operator's ServiceAccount gets exactly these permissions (`config/rbac/role.
 For leader election it also gets `coordination.k8s.io` `leases` (all verbs) and `events` (create, patch) in its own
 namespace (`config/rbac/leader_election_role.yaml`). With an `AllNamespaces` install, OLM grants these namespaced
 permissions cluster-wide and adds get, list and watch on `namespaces`. The operator has no access to Secrets,
-ConfigMaps, Pods or workloads. Metrics are served over HTTPS on port 8443. Bind the `metrics-reader` ClusterRole to
-whoever scrapes them.
+ConfigMaps, Pods or workloads.
+
+**Metrics.** The manager serves `/metrics` over HTTPS on port 8443, behind the Service
+`openshift-node-upgrade-mutex-operator-metrics-service` in the operator namespace. A scrape must send a bearer token
+whose identity may `get` the `/metrics` URL. The ClusterRole `openshift-node-upgrade-mutex-operator-metrics-reader`
+grants that. Bind it to the ServiceAccount that scrapes, for example:
+
+```sh
+oc create clusterrolebinding mutex-operator-metrics-reader \
+  --clusterrole=openshift-node-upgrade-mutex-operator-metrics-reader \
+  --serviceaccount=<scraper-namespace>:<scraper-serviceaccount>
+```
+
+The binding is accepted even when the ClusterRole name is wrong, and every scrape then gets `403 Forbidden`, so copy
+the name exactly.
 
 **Who controls the operator.** Anyone who can create or edit MutexRules, MutexTargets or MutexRunConfigs **in the
 operator namespace** can pause MachineConfigPools, relabel nodes, and run Jobs in any namespace with any ServiceAccount

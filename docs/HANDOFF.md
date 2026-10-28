@@ -76,5 +76,6 @@ RBAC. None of these has MCO, so before relying on it, run on a non-production Op
 4. A failing Job, a Job that times out, and a node that never reports the new version: `Degraded=True`, the pools
    stay paused, and the next reconcile retries.
 5. The `release-image-version` label example in `sample-manifests/` (MachineConfig and NFD) on a current release.
-6. `operator-sdk scorecard` against the bundle, and scraping the HTTPS metrics endpoint with the `metrics-reader`
-   role.
+6. `operator-sdk scorecard` against the bundle, and scraping the HTTPS metrics endpoint with the
+   `openshift-node-upgrade-mutex-operator-metrics-reader` ClusterRole bound to the scraper (see the binding example
+   in the Permissions section of `docs/USAGE.md`).
