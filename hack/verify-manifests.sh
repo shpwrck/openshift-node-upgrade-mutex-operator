@@ -1,15 +1,19 @@
 #!/usr/bin/env bash
-# Guard against two regressions that shipped before: the manager Deployment
-# carrying the deleted gcr.io/kubebuilder/kube-rbac-proxy sidecar, and an
-# args patch that dropped --max-concurrent-reconciles=1. Checks the default,
-# manifests and testing overlays and, when given, the CSV of a generated bundle.
+# Guard against regressions that shipped before: the manager Deployment
+# carrying the deleted gcr.io/kubebuilder/kube-rbac-proxy sidecar, an args
+# patch that dropped --max-concurrent-reconciles=1, and a Service whose
+# prefixed name was longer than the 63 characters Kubernetes allows. Checks the
+# default, manifests and testing overlays and, when given, the CSV of a
+# generated bundle.
 #
 # Usage: hack/verify-manifests.sh [BUNDLE_DIR]
 #
-# Requires kustomize (set KUSTOMIZE to its path; default: kustomize on PATH).
+# Requires kustomize and yq (set KUSTOMIZE and YQ to their paths; default:
+# kustomize and yq on PATH).
 set -euo pipefail
 
 kustomize=${KUSTOMIZE:-kustomize}
+yq=${YQ:-yq}
 bundle_dir=${1:-}
 status=0
 tmp=$(mktemp -d)
@@ -24,6 +28,14 @@ check() {
   for arg in --max-concurrent-reconciles=1 --metrics-secure --metrics-require-rbac --leader-elect; do
     if ! grep -q -e "- $arg\$" "$file"; then
       echo "error: $name: manager args are missing $arg" >&2
+      status=1
+    fi
+  done
+  # Services (and the DNS names derived from them) are DNS-1035 labels.
+  local svc
+  for svc in $("$yq" ea 'select(.kind == "Service") | .metadata.name' "$file"); do
+    if [ "${#svc}" -gt 63 ]; then
+      echo "error: $name: Service name $svc is longer than 63 characters" >&2
       status=1
     fi
   done

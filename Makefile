@@ -194,8 +194,8 @@ bundle: kustomize operator-sdk yq ## Generate the bundle for VERSION into BUNDLE
 	$(OPERATOR_SDK) bundle validate $(BUNDLE_DIR)
 
 .PHONY: verify-manifests
-verify-manifests: kustomize ## Check config/default, config/manifests and BUNDLE_DIR (if generated) for known regressions.
-	KUSTOMIZE=$(KUSTOMIZE) hack/verify-manifests.sh $(BUNDLE_DIR)
+verify-manifests: kustomize yq ## Check config/default, config/manifests, config/testing and BUNDLE_DIR (if generated) for known regressions.
+	KUSTOMIZE=$(KUSTOMIZE) YQ=$(YQ) hack/verify-manifests.sh $(BUNDLE_DIR)
 
 .PHONY: bundle-validate
 bundle-validate: operator-sdk ## Validate BUNDLE_DIR with the optional operatorframework suite.
