@@ -12,6 +12,8 @@
         mutexrunconfig_original_expressions: {}
         mutexrunconfig_canary_kept_expressions: []
         mutexrunconfig_canary_conflicts: []
+        mutexrunconfig_canary_conflict_nodes: []
+        mutexrunconfig_canary_suggestions: ""
 
     - name: Check References Are Present
       ansible.builtin.fail:
@@ -273,10 +275,14 @@
       when: targetNodeList | difference(item.resources | map(attribute='metadata.name') | list) | length == 0
 
     # MCO refuses a node that matches two custom pools ("belongs to 2 custom
-    # roles") or the master pool and a custom pool. During a run the canary
-    # selects its matchLabels plus the kept expressions (once a node has no
-    # mutex labels), so every node it would select must belong today to the
-    # worker pool, the canary itself or a target pool.
+    # roles") or the master pool and a custom pool, and it moves a node that
+    # matches the worker pool and one custom pool into the custom pool. During
+    # a run the canary selects its matchLabels plus the kept expressions (once
+    # a node has no mutex labels), so every node it would select must belong
+    # today to the canary itself or to a target pool. A worker-pool node is
+    # allowed only when 'worker' is a target pool: otherwise the canary would
+    # take it over and upgrade it, even while an administrator has paused the
+    # worker pool.
     - name: Gather Nodes The Canary Can Select During A Run
       kubernetes.core.k8s_info:
         api_version: v1
@@ -292,6 +298,7 @@
     - name: Find Nodes That Would Belong To Two Pools
       ansible.builtin.set_fact:
         mutexrunconfig_canary_conflicts: "{{ mutexrunconfig_canary_conflicts + [item.metadata.name ~ ' (pool ' ~ mutexrunconfig_node_pool ~ ')'] }}"
+        mutexrunconfig_canary_conflict_nodes: "{{ mutexrunconfig_canary_conflict_nodes + [item] }}"
       loop: "{{ mutexrunconfig_canary_run_nodes.resources }}"
       loop_control:
         label: "{{ item.metadata.name }}"
@@ -301,15 +308,48 @@
              | regex_replace('^rendered-', '') | regex_replace('-[0-9a-f]+$', '') }}
       when:
         - mutexrunconfig_node_pool | length > 0
-        - mutexrunconfig_node_pool not in (['worker', mutexrunconfig_canary_name] + machineConfigPoolList)
+        - mutexrunconfig_node_pool not in ([mutexrunconfig_canary_name] + machineConfigPoolList)
+
+    # The expressions to suggest: 'K Exists' for a matchLabels key K of a
+    # target pool that every target node carries and no conflicting node does,
+    # else 'K DoesNotExist' for a node-role label K of a conflicting node that
+    # no target node carries.
+    - name: Suggest Canary Expressions That Exclude Them
+      ansible.builtin.set_fact:
+        mutexrunconfig_canary_suggestions: >-
+          {%- set ns = namespace(include=[], exclude=[]) -%}
+          {%- set targets = mutexrunconfig_canary_run_nodes.resources | selectattr('metadata.name', 'in', targetNodeList)
+                            | map(attribute='metadata.labels', default={}) | list -%}
+          {%- set conflicts = mutexrunconfig_canary_conflict_nodes | map(attribute='metadata.labels', default={}) | list -%}
+          {%- for pool in mutexrunconfig_target_pools.results | map(attribute='resources') | flatten(1) -%}
+          {%- for key in (pool.spec.nodeSelector.matchLabels | default({}, true)).keys() if key not in mutexrunconfig_canary_match_labels -%}
+          {%- if targets | reject('contains', key) | list | length == 0 and conflicts | select('contains', key) | list | length == 0
+                and ("'" ~ key ~ " Exists'") not in ns.include -%}
+          {%- set ns.include = ns.include + ["'" ~ key ~ " Exists'"] -%}
+          {%- endif -%}
+          {%- endfor -%}
+          {%- endfor -%}
+          {%- for labels in conflicts -%}
+          {%- for key in labels.keys() if key.startswith('node-role.kubernetes.io/') -%}
+          {%- if targets | select('contains', key) | list | length == 0 and ("'" ~ key ~ " DoesNotExist'") not in ns.exclude -%}
+          {%- set ns.exclude = ns.exclude + ["'" ~ key ~ " DoesNotExist'"] -%}
+          {%- endif -%}
+          {%- endfor -%}
+          {%- endfor -%}
+          {{ (ns.include | join(' or ')) if ns.include else (ns.exclude | join(' and ')) }}
+      when: mutexrunconfig_canary_conflicts | length > 0
 
     - name: Fail On Canary Overlap
       ansible.builtin.fail:
         msg: >-
           During a run the canary MachineConfigPool {{ mutexrunconfig_canary_name }} would also select
-          {{ mutexrunconfig_canary_conflicts | join(', ') }}, which MCO refuses for nodes in two pools.
-          Add a matchExpression to the canary that excludes them (for example
-          'node-role.kubernetes.io/infra DoesNotExist'); it is kept during runs.
+          {{ mutexrunconfig_canary_conflicts | join(', ') }}, which belong to no target pool. MCO would move
+          them into the canary and upgrade them with it, or refuse them for matching two pools. Add to the
+          canary's nodeSelector.matchExpressions an expression that every target node satisfies and these
+          nodes do not, here {{ mutexrunconfig_canary_suggestions
+          if mutexrunconfig_canary_suggestions | length > 0
+          else "for example 'node-role.kubernetes.io/<role of the target nodes> Exists'" }}. It is kept
+          during runs.
       when: mutexrunconfig_canary_conflicts | length > 0
 
     - name: Report Configuration Results

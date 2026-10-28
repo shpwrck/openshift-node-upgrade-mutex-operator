@@ -24,7 +24,7 @@ MCO upgrades the nodes of a MachineConfigPool once the pool is unpaused. The ope
    **pauses the target pools** and puts one **mutex label** per MutexRule on each target node that still needs the
    upgrade.
 2. It changes the **node selectors**. A target pool keeps only nodes that still carry the mutex labels. The canary
-   pool, which is not paused, picks up any target node that has lost them.
+   pool, which is not paused, picks up a target node once it has lost them, and no node outside the target pools.
 3. Once the control plane has finished (`status.history[0]` is `Completed` for that version), it works through the
    target nodes **one at a time**. It runs the MutexRule Jobs for the node, removes the node's mutex labels (so the
    node moves into the canary pool and MCO upgrades it), waits for the node to report the new version, then runs
@@ -70,13 +70,19 @@ before every run that the canary:
 * exists and is **not paused**;
 * is **not** one of the target pools;
 * has `nodeSelector.matchLabels` that select **every target node**, for example `node-role.kubernetes.io/worker: ""`;
-* selects no node of another custom pool or of the `master` pool once the run has changed its selector. MCO refuses a
-  node that matches two custom pools.
+* once the run has changed its selector, selects no node outside the canary itself and the target pools. MCO refuses a
+  node that matches two custom pools or `master` and a custom pool, and it moves a node that matches `worker` and one
+  custom pool into the custom pool. So when `worker` is not a target pool, the canary must not select the nodes of the
+  `worker` pool either: they would move into the canary and be upgraded with it, even while you keep `worker`
+  paused.
 
 During a run the canary keeps those of its own `matchExpressions` that every target node already satisfies, for example
 `node-role.kubernetes.io/infra DoesNotExist`. Other expressions, such as the `isCanary Exists` below, are left out for
-the length of the run and put back afterwards. If validation reports an overlap with another pool, add an expression
-that excludes that pool's nodes and that every target node satisfies.
+the length of the run and put back afterwards. If validation reports that the canary would select other nodes, add an
+expression that every target node satisfies and those nodes do not. The message names one when it can find it. With
+the sample canary below and a custom target pool, for example `apps` with `matchLabels`
+`node-role.kubernetes.io/app: ""`, the canary would select every worker node during a run, so add
+`node-role.kubernetes.io/app Exists`.
 
 The canary should render the same MachineConfigs as the target pools, so a node gets the same configuration in either
 pool:
