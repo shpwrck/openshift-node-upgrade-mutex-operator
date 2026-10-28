@@ -32,8 +32,11 @@ rules:
       - get
       - list
       - watch
-  # Nodes: read versions, pool membership and mutex labels; patch adds and
-  # removes the mutexrule.openshift-optional.skrzypek.io/* labels.
+  # Nodes: read versions, pool membership, mutex labels, the MCO state,
+  # currentConfig and desiredConfig annotations and the Ready condition;
+  # patch adds and removes the mutexrule.openshift-optional.skrzypek.io/*
+  # labels and the openshift-optional.skrzypek.io/labelled-by and
+  # openshift-optional.skrzypek.io/released-by annotations.
   - apiGroups:
       - ""
     resources:
@@ -43,10 +46,11 @@ rules:
       - list
       - watch
       - patch
-  # MachineConfigPools: read selectors and pause state; patch sets
-  # spec.paused, spec.nodeSelector.matchExpressions and the
+  # MachineConfigPools: read selectors, pause state and annotations; patch
+  # sets spec.paused, spec.nodeSelector.matchExpressions and the
+  # openshift-optional.skrzypek.io/paused-by,
   # openshift-optional.skrzypek.io/original-match-expressions and
-  # openshift-optional.skrzypek.io/paused-by annotations.
+  # openshift-optional.skrzypek.io/modified-by annotations.
   - apiGroups:
       - machineconfiguration.openshift.io
     resources:
