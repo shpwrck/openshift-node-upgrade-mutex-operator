@@ -182,6 +182,8 @@ undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.
 bundle: kustomize operator-sdk yq ## Generate the bundle for VERSION into BUNDLE_DIR, then validate it.
 	$(OPERATOR_SDK) generate kustomize manifests -q
 	cd config/manager && $(KUSTOMIZE) edit set image controller=$(IMG)
+	@# generate bundle does not delete manifests that are no longer rendered.
+	rm -rf $(BUNDLE_DIR)/manifests $(BUNDLE_DIR)/metadata
 	$(KUSTOMIZE) build config/manifests | $(OPERATOR_SDK) generate bundle $(BUNDLE_GEN_FLAGS) --output-dir $(BUNDLE_DIR)
 	@# generate bundle writes ./bundle.Dockerfile with paths relative to the repo root;
 	@# keep it inside the bundle directory so each version builds on its own.
