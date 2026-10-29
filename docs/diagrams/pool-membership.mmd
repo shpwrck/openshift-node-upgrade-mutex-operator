@@ -1,0 +1,70 @@
+---
+config:
+  themeCSS: ".edgeLabel rect { opacity: 1 !important; fill: #ffffff !important; }"
+  flowchart:
+    wrappingWidth: 500
+    nodeSpacing: 20
+    rankSpacing: 40
+---
+flowchart TB
+  accTitle: Pool membership before, during and after a run
+  accDescr: Pool membership before, during and after a run: the paused target pool excludes the release label and the canary includes it, so only the one released node is in the canary while the other target nodes stay in the paused pool.
+
+  subgraph before["Before the run"]
+    direction TB
+    subgraph bwr[" "]
+      direction LR
+      bw["worker pool: unpaused<br/>nodeSelector node-role.kubernetes.io/worker"]
+      b1["w1, w2, w3"]
+      bw -- selects --> b1
+    end
+    subgraph bcr[" "]
+      direction LR
+      bc["canary pool: unpaused<br/>nodeSelector node-role.kubernetes.io/worker<br/>+ isCanary Exists"]
+      bn["(no nodes, recommended)"]
+      bc -- selects --> bn
+    end
+    bwr ~~~ bcr
+  end
+
+  subgraph during["During the run, while w2 has its turn"]
+    direction TB
+    subgraph dwr[" "]
+      direction LR
+      dw["worker pool: PAUSED<br/>+ mutexrule.nodeupgrade.redhat-na-ssa.github.io/<br/>release NotIn (v)<br/>annotations paused-by, modified-by,<br/>original-match-expressions"]
+      d1["w1: held<br/>label mutexrule.nodeupgrade.redhat-na-ssa.github.io/<br/>#lt;rule#gt;.#lt;ns#gt;<br/>annotation labelled-by"]
+      d3["w3: held, or done and back"]
+      dw -- selects --> d1 & d3
+    end
+    subgraph dcr[" "]
+      direction LR
+      dc["canary pool: unpaused<br/>isCanary Exists dropped, + release In (v)<br/>annotations modified-by,<br/>original-match-expressions"]
+      d2["w2: released, MCO upgrades it<br/>label release=v<br/>annotation released-by=#lt;ns#gt;/#lt;name#gt;|#lt;version#gt;<br/>back to the worker pool after its cleanup Jobs"]
+      dc -- selects --> d2
+    end
+    dwr ~~~ dcr
+  end
+
+  subgraph after["After the run"]
+    direction TB
+    subgraph awr[" "]
+      direction LR
+      aw["worker pool: unpaused<br/>selector restored"]
+      a1["w1, w2, w3<br/>no operator labels or annotations,<br/>move to rendered-worker-*"]
+      aw -- selects --> a1
+    end
+    subgraph acr[" "]
+      direction LR
+      ac["canary pool: selector restored<br/>(annotation restored-at only when<br/>it has nodes of its own)"]
+      an["(no nodes)"]
+      ac -- selects --> an
+    end
+    awr ~~~ acr
+  end
+
+  before ~~~ during ~~~ after
+
+  classDef row fill:none,stroke:none
+  classDef phase fill:#f6f8fa,stroke:#8c959f
+  class bwr,bcr,dwr,dcr,awr,acr row
+  class before,during,after phase

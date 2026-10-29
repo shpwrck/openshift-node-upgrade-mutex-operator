@@ -1,0 +1,103 @@
+---
+config:
+  themeCSS: ".warn text { stroke: none !important; } .edgeLabel rect { opacity: 1 !important; fill: #ffffff !important; }"
+---
+stateDiagram-v2
+  accTitle: States of a MutexRunConfig during an upgrade
+  accDescr: States of a MutexRunConfig during an upgrade, with the oc get columns and condition reasons in each state, including where a failure keeps the pools paused and where the operator does not protect the nodes.
+
+  state "Ignored" as Ignored
+  Ignored : Reconciled=False NamespaceNotAllowed
+
+  state "Not protecting (fail-open)" as NotProtecting
+  NotProtecting : Validated=False ValidationFailed
+  NotProtecting : or ClusterStateInvalid,
+  NotProtecting : or NodeVersionsKnown=False
+  NotProtecting : VersionLabelMissing,
+  NotProtecting : or UpgradeChecked=False CheckFailed
+  NotProtecting : P/D = False/False,
+  NotProtecting : Degraded=False NoPoolsPaused
+  NotProtecting : An upgrade now proceeds
+  NotProtecting : WITHOUT Jobs
+
+  state "Idle" as Idle
+  Idle : columns V/U/P/D (Validated, Upgrade,
+  Idle : Paused, Degraded) = True/False/False/False
+  Idle : UpgradeAvailable=False UpgradeUnavailable
+
+  state "Run in progress: pools paused (fail-closed)" as Run {
+    state "Holding" as Holding
+    Holding : V/U/P/D = True/True/True/False
+    Holding : MutexRulesApplied=True
+    Holding : UpgradeReady=False UpgradeNotReady
+
+    state "Settling (optional)" as Settling
+    Settling : V/U/P/D = True/True/True/False
+    Settling : MCPUpdated=False CanaryMembersLabelled
+    Settling : at least 5 min
+
+    state "Armed" as Armed
+    Armed : V/U/P/D = True/True/True/False
+    Armed : MCPUpdated=True UpdateSucceeded
+    Armed : Degraded=False RunInProgress
+    Armed : waiting for the control plane
+
+    state "Processing" as Processing
+    Processing : V/U/P/D = True/True/True/False
+    Processing : UpgradeReady=True, "Node is i of n"
+    Processing : JobRun and NodeUpgrade written
+    Processing : after each node. Paused and Degraded
+    Processing : are refreshed only at the end of a
+    Processing : reconcile, which can last hours.
+    Processing : Other MutexRunConfigs wait.
+
+    Holding --> Settling : release labels changed
+    Holding --> Armed : no release label changed
+    Settling --> Armed : at least 5 min later
+    Armed --> Processing : history[0] Completed
+  }
+
+  state "Failed, holding (fail-closed)" as FailedHolding
+  FailedHolding : U/P/D = True/True/True
+  FailedHolding : Degraded=True PoolsLeftPaused
+  FailedHolding : (JobRunFailed, NodeUpgradeFailed,
+  FailedHolding : UpdateFailed or ApplyFailed),
+  FailedHolding : the pools stay paused,
+  FailedHolding : retried with backoff,
+  FailedHolding : up to about 17 min apart
+
+  state "Finished" as Finished
+  Finished : V/U/P/D = True/False/False/False
+  Finished : MCPUpdated=False SelectorsRestored
+  Finished : UpgradeAvailable=False UpgradeFinished
+  Finished : The canary's own nodes, if any, lose
+  Finished : the release label at least 5 min
+  Finished : after the canary's restored-at
+
+  state "Finalizing" as Finalizing
+  Finalizing : on delete, from any state, it
+  Finalizing : finishes the current node first
+  Finalizing : (its Jobs and up to 2 h), or waits
+  Finalizing : for another MutexRunConfig's reconcile,
+  Finalizing : then restores the selectors, removes
+  Finalizing : the labels and unpauses the pools.
+  Finalizing : The remaining nodes upgrade
+  Finalizing : WITHOUT Jobs
+
+  [*] --> Ignored : outside the operator namespace
+  [*] --> Idle : valid, no target node behind
+  Idle --> NotProtecting : failure
+  NotProtecting --> Idle : cause fixed
+  Idle --> Holding : desired version above a node's label (noticed within 10 min)
+  Processing --> Finished : last node done
+  Finished --> Idle : next reconcile
+  Run --> FailedHolding : failure
+  FailedHolding --> Run : cause fixed, the retry resumes where it stopped
+  Run --> Finalizing : delete
+  FailedHolding --> Finalizing : delete
+  Finalizing --> [*]
+
+
+  classDef warn fill:#fde2e1,stroke:#b42318,color:#000000
+  class NotProtecting warn
+  class Finalizing warn

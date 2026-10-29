@@ -1,0 +1,83 @@
+---
+config:
+  themeCSS: ".warn text { stroke: none !important; } .edgeLabel rect { opacity: 1 !important; fill: #ffffff !important; }"
+  flowchart:
+    wrappingWidth: 400
+    nodeSpacing: 30
+    rankSpacing: 30
+---
+flowchart TB
+  accTitle: Troubleshooting decision tree
+  accDescr: Troubleshooting decision tree from the MutexRunConfig columns and conditions to the runbook that fixes the problem, including how to stop a run.
+
+  start("oc get mutexrunconfig -n #lt;ns#gt;<br/>and its conditions (oc describe)")
+
+  subgraph r1[" "]
+    direction LR
+    q1("Reconciled=False?") -- yes --> L1["The CR is ignored (NamespaceNotAllowed)"]
+  end
+
+  subgraph r2[" "]
+    direction LR
+    q2("Validated=False?") -- yes --> q2b("reason<br/>ClusterStateInvalid?")
+    q2b -- yes --> L2["APIServices are down (ClusterStateInvalid)"]
+    q2b -- no --> L3["Validation fails (Validated=False)"]
+  end
+
+  subgraph r3[" "]
+    direction LR
+    q3("NodeVersionsKnown=False?") -- yes --> L4["Node versions unknown (NodeVersionsKnown=False)"]
+  end
+
+  subgraph r4[" "]
+    direction LR
+    q4("Degraded=True<br/>and JobRun<br/>=False?") -- yes --> q4b("message<br/>contains 'did not<br/>finish within'?")
+    q4b -- yes --> q4c("its pods<br/>Pending or<br/>absent?")
+    q4c -- yes --> L6["A Job's pods never start"]
+    q4c -- no --> L5["A Job did not finish in time"]
+    q4b -- no --> L7["A Job failed (JobRunFailed)"]
+  end
+
+  subgraph r5[" "]
+    direction LR
+    q5("Degraded=True and<br/>NodeUpgrade=False?") -- yes --> L8["A node did not finish its upgrade (NodeUpgradeFailed)"]
+  end
+
+  subgraph r6[" "]
+    direction LR
+    q6("Upgrade=True but<br/>nothing changes?") -- yes --> L9["Nothing seems to happen"]
+  end
+
+  subgraph side["Other entry points"]
+    direction TB
+    subgraph s1[" "]
+      direction LR
+      stop("Need to stop?") -- "keep holding" --> keep["Retry now"]
+      stop -- "give up" --> abort["Abort a run"]
+      abort --- abortwarn["Save the Job logs first.<br/>The current node finishes first.<br/>The remaining nodes then upgrade<br/>WITHOUT Jobs, maxUnavailable at a time."]
+    end
+    subgraph s2[" "]
+      direction LR
+      gone("Operator pod gone, or<br/>uninstalled mid-run") --> L12["The operator is gone in the middle of a run"]
+    end
+    subgraph s3[" "]
+      direction LR
+      second("A second OpenShift<br/>upgrade started") --> L13["A second OpenShift upgrade started during a run"]
+    end
+    s1 ~~~ s2 ~~~ s3
+  end
+
+  start --> r1
+  r1 -- no --> r2
+  r2 -- no --> r3
+  r3 -- no --> r4
+  r4 -- no --> r5
+  r5 -- no --> r6
+  r6 ~~~ side
+
+  classDef row fill:#f6f8fa,stroke:#d0d7de
+  classDef plain fill:none,stroke:none
+  classDef warn fill:#fde2e1,stroke:#b42318,color:#000000
+  class r1,r2,r3,r4,r5,r6,side row
+  class s1,s2,s3 plain
+  class abortwarn warn
