@@ -5,10 +5,10 @@ They use its names: the operator namespace `node-upgrade-mutex-operator`, the ca
 `label-node`, and the MutexTarget and MutexRunConfig `workers`. If you install the operator into another namespace,
 change it in every file. Each file explains itself in its comments.
 
-**Never apply the whole directory (`oc apply -f sample-manifests/`).** `machineconfig.yaml` reboots every worker,
-`nodefeaturediscovery.yaml` replaces the worker configuration of an existing NFD instance, `job-wait-for-app.yaml`
-must be edited first, and `canary-mcp-custom-pool.yaml` is only for custom pools. Apply one file at a time, in the
-order below, and check each step before the next.
+**Never apply the whole directory (`oc apply -f sample-manifests/`).** `machineconfig.yaml` reboots every node of
+every pool that renders the worker MachineConfigs, `nodefeaturediscovery.yaml` replaces the worker configuration of an
+existing NFD instance, `job-wait-for-app.yaml` must be edited first, and `canary-mcp-custom-pool.yaml` is only for
+custom pools. Apply one file at a time, in the order below, and check each step before the next.
 
 ## Apply order
 
@@ -22,8 +22,8 @@ order below, and check each step before the next.
    Expected: an `nfd-worker` pod runs on every target node. If the cluster already has a NodeFeatureDiscovery, skip
    the file and check that instance as its comments say.
 
-2. **This step reboots every worker, and every node of a pool that inherits the worker MachineConfigs, as many at a
-   time as each pool's `maxUnavailable` allows.** Apply it in a maintenance window:
+2. **This step reboots every node of every pool that renders the worker MachineConfigs, as many at a time as each
+   pool's `maxUnavailable` allows.** Apply it in a maintenance window:
 
    ```sh
    oc apply -f sample-manifests/machineconfig.yaml
@@ -54,8 +54,9 @@ order below, and check each step before the next.
    oc get catalogsource node-upgrade-mutex-operator-catalog -n openshift-marketplace -o jsonpath='{.status.connectionState.lastObservedState}{"\n"}'
    ```
 
-   Expected: `READY`. The file uses the tag `:v0.3.0-rc2`, which exists only once that version is released; see the
-   file's comments for the tags and for using a catalog of your own.
+   Expected: `READY`. The tag in the file exists only once that version is released; see
+   [Catalog and versions](../docs/USAGE.md#catalog-and-versions), and the file's comments for using a catalog of your
+   own.
 
 5. Install the operator, then approve its first InstallPlan (the Subscription uses Manual approval):
 
@@ -95,7 +96,7 @@ order below, and check each step before the next.
 | File | Creates | Purpose | Applied on a cluster |
 | --- | --- | --- | --- |
 | [nodefeaturediscovery.yaml](nodefeaturediscovery.yaml) | NodeFeatureDiscovery `nfd-instance` in `openshift-nfd` | Runs `nfd-worker`, which turns the file that the MachineConfig writes into the node label `machineconfiguration.openshift.io/release-image-version`. Reboots nothing. | An earlier revision, on OpenShift 4.21 (see [the test matrix](../tests/Scenarios.md)); this revision: unknown |
-| [machineconfig.yaml](machineconfig.yaml) | MachineConfig `00-release-image-version` for role `worker` | Publishes each node's release version for NFD. **Reboots every worker.** | An earlier revision, on OpenShift 4.21; this revision: unknown |
+| [machineconfig.yaml](machineconfig.yaml) | MachineConfig `00-release-image-version` for role `worker` | Publishes each node's release version for NFD. **Reboots every node of every pool that renders the worker MachineConfigs.** | An earlier revision, on OpenShift 4.21; this revision: unknown |
 | [canary-mcp.yaml](canary-mcp.yaml) | MachineConfigPool `canary` | The canary for the target pool `worker`. Keep it empty. | Not applied on a cluster in this form; the same pool spec was the sample canary of the live runs |
 | [canary-mcp-custom-pool.yaml](canary-mcp-custom-pool.yaml) | MachineConfigPool `canary-app` | The canary for a custom target pool, here `app`. Edit it first. | Not applied on a cluster |
 | [catalogsource.yaml](catalogsource.yaml) | CatalogSource `node-upgrade-mutex-operator-catalog` in `openshift-marketplace` | Offers the project's catalog image, `ghcr.io/redhat-na-ssa/openshift-node-upgrade-mutex-operator-catalog`, to OLM. | Not applied on a cluster |
@@ -111,5 +112,6 @@ such as `mutexrule-sample`.
 ## Removing them
 
 Remove them in the reverse order, as [Uninstall](../docs/USAGE.md#uninstall) describes. Delete the MutexRunConfig
-first, while the operator still runs, so its finalizer can put back what it changed. Deleting `machineconfig.yaml`
-reboots every worker again.
+first, while the operator still runs, so its finalizer can put back what it changed. Deleting the operator namespace
+leaves the ClusterRole and ClusterRoleBinding of `job-example.yaml` and the ServiceAccount, Role and RoleBinding of
+`job-wait-for-app.yaml` in `my-app`: delete them yourself. Deleting `machineconfig.yaml` reboots the same nodes again.

@@ -72,9 +72,11 @@ In words, once the control plane has finished its upgrade and the pools are re-p
 8. One patch removes the release label and `released-by`. The node goes back to its paused pool without a reboot, and
    the next node's turn begins.
 
-If the operator restarts after step 4, it resumes the node at step 6. If the MutexRunConfig is deleted, the node in
-progress still finishes, with its cleanup Jobs; step 1 of the next node then stops the run, and no more Jobs run. A
-node that already runs the new version gets no Jobs.
+If the operator restarts after step 4, it resumes the node at step 6. If the MutexRunConfig is deleted, the reconcile
+that is working on a node still finishes it, with its cleanup Jobs, and step 1 of the next node stops the run. The
+finalizer that then restores the pools runs no Jobs: a node that is still released at that point, for example after
+its upgrade wait timed out in an earlier reconcile, gets no cleanup Jobs. A node that already runs the new version
+gets no Jobs.
 
 | What | When | Where it is set |
 | --- | --- | --- |
@@ -86,9 +88,9 @@ node that already runs the new version gets no Jobs.
 | The next node's pre-upgrade Jobs start | right after the previous node is back in its pool, in the same reconcile | |
 | A retry after a failure | after a few milliseconds at first, then doubling, up to about 17 minutes apart | the controller-runtime backoff |
 
-The defaults are in `roles/mutexrunconfig/defaults/main.yml`. [Timings](USAGE.md#timings) in the user guide explains
-the 5-minute wait. One reconcile works through all target nodes, so the Jobs of the last node can run hours after the
-upgrade started.
+The defaults are in [roles/mutexrunconfig/defaults/main.yml](../roles/mutexrunconfig/defaults/main.yml), built into
+the operator image. [Timings](USAGE.md#timings) in the user guide explains the 5-minute wait. One reconcile works
+through all target nodes, so the Jobs of the last node can run hours after the upgrade started.
 
 ## The state of the node
 
@@ -405,8 +407,8 @@ and its name contains `-test-`. Then:
    operator. It still creates no pod.
 2. `oc create -f test-job.json` runs it. **This is a real run that acts on the node you named**, so use a
    non-production cluster or a node where that is safe. Follow it with `oc get job -n <jobNamespace>` and
-   `oc logs -n <jobNamespace> job/<name>`, and check the events if it does not start (see below).
-3. Delete it afterwards: `oc delete job <name> -n <jobNamespace>`.
+   `oc logs -n <jobNamespace> job/<job>`, and check the events if it does not start (see below).
+3. Delete it afterwards: `oc delete job <job> -n <jobNamespace>`.
 
 For the samples in this repository, and for JobSpecs with initContainers, their own `NODE_NAME` and `MUTEX_RULE` entries
 and several node selector terms, the snippet's `spec` was compared with the one
@@ -431,10 +433,10 @@ Replace `-A` with `-n <jobNamespace>` if you can read only that namespace.
 **Read the logs and events:**
 
 ```sh
-oc logs -n <jobNamespace> job/<name>
-oc logs -n <jobNamespace> -l job-name=<name> --all-containers --prefix        # every pod of the Job
-oc get events -n <jobNamespace> --field-selector involvedObject.kind=Job,involvedObject.name=<name>
-oc describe pods -n <jobNamespace> -l job-name=<name>
+oc logs -n <jobNamespace> job/<job>
+oc logs -n <jobNamespace> -l job-name=<job> --all-containers --prefix        # every pod of the Job
+oc get events -n <jobNamespace> --field-selector involvedObject.kind=Job,involvedObject.name=<job>
+oc describe pods -n <jobNamespace> -l job-name=<job>
 ```
 
 A `FailedCreate` event on the Job means its pods are refused, for example because the ServiceAccount is missing or an
@@ -446,12 +448,13 @@ SCC denies the pod. `FailedScheduling` or an image pull error shows on the pods.
 oc get mutexrunconfig workers -n node-upgrade-mutex-operator -o jsonpath='{range .status.conditions[*]}{.type}{"\t"}{.status}{"\t"}{.reason}{"\t"}{.message}{"\n"}{end}'
 ```
 
-`JobRun` `False` (`JobRunFailed`) names the Job: "Jobs for `<node>` failed: `<phase>` Job `<namespace>/<name>` of
-MutexRule `<namespace>/<rule>` for node `<node>`", followed by one of:
+`JobRun` `False` (`JobRunFailed`) names the Job: "Jobs for `<node>` failed: `<phase>` Job `<namespace>/<job>` of
+MutexRule `<namespace>/<rule>` for node `<node>`", where `<phase>` is `pre` or `cleanup`, followed by one of:
 
 - "failed: ..." with the Job's own `Failed` message, for example "Job has reached the specified backoff limit" or "Job
   was active longer than specified deadline";
-- "did not finish within `<N>`s (timeoutSeconds)": the Job still runs;
+- "did not finish within `<N>`s (timeoutSeconds)", `<N>` being the rule's `timeoutSeconds`: the Job still runs, or
+  its pods never started;
 - "could not be read: ...": the Job is gone or cannot be read.
 
 Its second line is "Node is `<i>` of `<n>`". `NodeUpgrade` `False` (`NodeUpgradeFailed`) is about the node's upgrade,
@@ -465,7 +468,7 @@ not your Job. The user guide has a runbook for each case: [A Job failed](USAGE.m
    keeps trying to create the pods, so the same Job can still finish. If the JobSpec is wrong, the cluster
    administrator edits the MutexRule and checks that it reports `ValidConfig` `True` again.
 2. If the Job has not failed (it still runs, or it is `Complete` but did the wrong thing), delete it:
-   `oc delete job <name> -n <jobNamespace>`. Otherwise the retry re-uses it. A failed Job can stay: the retry starts a
+   `oc delete job <job> -n <jobNamespace>`. Otherwise the retry re-uses it. A failed Job can stay: the retry starts a
    new one from the current MutexRule.
 3. Wait for the retry, at most about 17 minutes, or start it now (see [Retry now](USAGE.md#retry-now)). Editing the
    MutexRule does not start one.
@@ -480,9 +483,9 @@ done
 ```
 
 After an abort, the node in progress finishes first, with its Jobs. Then no more Jobs run: the remaining nodes
-upgrade without their Jobs, and a node that is still released when the run stops, for example because its cleanup Job
-failed, loses its release label without its cleanup Jobs. Run that cleanup yourself if you need it, for example with
-the snippet above and `phase=cleanup`. See [Abort a run](USAGE.md#abort-a-run).
+upgrade without their Jobs, and a node that is still released when the finalizer runs, for example because its
+cleanup Job failed, loses its release label without its cleanup Jobs. Run that cleanup yourself if you need it, for
+example with the snippet above and `phase=cleanup`. See [Abort a run](USAGE.md#abort-a-run).
 
 ## Pitfalls
 
