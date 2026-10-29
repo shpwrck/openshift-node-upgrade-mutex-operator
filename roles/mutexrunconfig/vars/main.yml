@@ -18,7 +18,8 @@ mutexrunconfig_label_name_regex: '^(?=.{1,63}$)[A-Za-z0-9]([-A-Za-z0-9_.]*[A-Za-
 # Release label: set on a target node in the patch that releases it (with
 # released-by) and removed with released-by once its cleanup Jobs have run;
 # set on the canary's own nodes (04) for the length of a run and removed from
-# them on the reconcile after the one that restores the canary (08). Value:
+# them by a pass after the one that restores the canary, once that restore is
+# mutexrunconfig_label_settle_seconds old (08). Value:
 # SHA-1 of '<namespace>/<name>' ('/' is not allowed in a label value). During
 # a run the canary selects only nodes carrying it with this value and the
 # target pools only nodes without this value, so an MCO view that predates a
@@ -38,9 +39,32 @@ mutexrunconfig_release_value: "{{ mutexrunconfig_owner | hash('sha1') }}"
 #   and whether or not its MutexTarget still exists.
 # paused-by: set when this role pauses a pool; only pools carrying it with this
 #   MutexRunConfig's owner value are ever unpaused by the role.
+# release-labelled-at (canary only): the time (mutexrunconfig_now) of the
+#   latest release label change at the start of a run, written by 04 before
+#   that change while the canary does not yet select on this run's release
+#   value, in a patch that also writes modified-by. 05 re-points the pools
+#   only once it is mutexrunconfig_label_settle_seconds old. The re-point of
+#   the canary and every restore of a pool that carries it remove it.
+# restored-at (canary only): '<time> <owner>', written by 08 in the patch that
+#   restores the canary when a node then carries this run's release value.
+#   The release label is removed from the nodes once it is
+#   mutexrunconfig_label_settle_seconds old, and then restored-at too.
 mutexrunconfig_annotation_original_expressions: "openshift-optional.skrzypek.io/original-match-expressions"
 mutexrunconfig_annotation_modified_by: "openshift-optional.skrzypek.io/modified-by"
 mutexrunconfig_annotation_paused_by: "openshift-optional.skrzypek.io/paused-by"
+mutexrunconfig_annotation_release_labelled_at: "openshift-optional.skrzypek.io/release-labelled-at"
+mutexrunconfig_annotation_restored_at: "openshift-optional.skrzypek.io/restored-at"
+
+# Times in these annotations have the format of mutexrunconfig_now, so they
+# compare as strings. A time is settled when it is at or before
+# mutexrunconfig_settled_before, now minus mutexrunconfig_label_settle_seconds.
+# A value that does not have that format counts as just written, and the role
+# writes the time again (04, 08). now() is local time without a zone, which
+# timestamp() reads as local time, so the epoch value is right whatever the
+# time zone of the operator pod.
+mutexrunconfig_time_regex: '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$'
+mutexrunconfig_settled_before: >-
+  {{ '%Y-%m-%dT%H:%M:%SZ' | strftime(second=(now().timestamp() - (mutexrunconfig_label_settle_seconds | int)), utc=true) }}
 
 # Annotations this role writes on target nodes.
 # labelled-by: owner, set together with the mutex labels and removed with

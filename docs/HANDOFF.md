@@ -37,7 +37,8 @@ is the group of all three CRDs, and it appears in:
   `mutexrule.openshift-optional.skrzypek.io/release`;
 * the node annotations `openshift-optional.skrzypek.io/labelled-by` and `openshift-optional.skrzypek.io/released-by`;
 * the MachineConfigPool annotations `openshift-optional.skrzypek.io/paused-by`,
-  `openshift-optional.skrzypek.io/original-match-expressions` and `openshift-optional.skrzypek.io/modified-by`;
+  `openshift-optional.skrzypek.io/original-match-expressions`, `openshift-optional.skrzypek.io/modified-by`,
+  `openshift-optional.skrzypek.io/release-labelled-at` and `openshift-optional.skrzypek.io/restored-at`;
 * the Job label and annotations `openshift-optional.skrzypek.io/*`;
 * the variable names ansible-operator derives from it (`_openshift_optional_skrzypek_io_<kind>_spec`) in the roles.
 
@@ -105,3 +106,14 @@ RBAC. None of these has MCO, so before relying on it, run on a non-production Op
    in the Permissions section of `docs/USAGE.md`).
 8. An OLM upgrade from 0.2.68 to 0.3.0 with CRs in the operator namespace, following "Upgrading from 0.2.x" in
    `docs/USAGE.md`.
+9. A run whose canary has nodes of its own (with the sample canary, a worker node with `isCanary`; with a custom
+   target pool such as `apps`, also `node-role.kubernetes.io/app=canary`). The molecule tests have no such node. Check
+   that they stay in the canary at the start and at the end of the run: the first reconcile reports `MCPUpdated=False`
+   (`CanaryMembersLabelled`), and the canary then has its own `matchExpressions` plus one `DoesNotExist` per mutex
+   label and the `openshift-optional.skrzypek.io/release-labelled-at` annotation. The pools are re-pointed only at a
+   reconcile at least 5 minutes (`mutexrunconfig_label_settle_seconds`) later, also when the operator pod restarts in
+   between. After the run the nodes keep the release label until a reconcile at least 5 minutes after the time in the
+   canary's `openshift-optional.skrzypek.io/restored-at` annotation, normally the one 10 minutes after the run (the
+   reconcile right after it keeps the label), and then the annotation goes as well. Check that MCO never
+   moves them into `worker`, also while the kube-apiserver rolls out at the start of the run, and that deleting the
+   MutexRunConfig in the middle of a run moves them through `worker` at most once (the finalizer has a single pass).

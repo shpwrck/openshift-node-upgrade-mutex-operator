@@ -18,26 +18,33 @@
 # target pools first, a released node of a custom target pool would match
 # neither and fall into 'worker', which is unpaused when it is not a target.
 # Only while the live canary still has an earlier build's selector (a
-# '<mutex label> DoesNotExist' expression other than the hold selector below)
-# do the target pools come first: then a node that sat in that canary without
-# the release label briefly matches two custom pools instead of falling into
-# an unpaused 'worker'.
+# '<mutex label> DoesNotExist' expression next to other expressions than the
+# hold selector of 04 has, see below) do the target pools come first: then a
+# node that sat in that canary without the release label briefly matches two
+# custom pools instead of falling into an unpaused 'worker'.
 # The release expression is always last, so the exact-order comparison below
 # also puts back an expression an administrator reordered or edited.
-# The pools are not re-pointed in a reconcile in which 04 has given a canary
-# node this run's release value, or taken it from a node, while the canary
-# does not select on that value for this MutexRunConfig yet (the start of a
-# run, also one that takes over an earlier build's selector): MCO could still
-# see those nodes without the label (or with it) against the new canary and
-# move a canary node into 'worker' (or a node into the canary). MCPUpdated is
-# then False (CanaryMembersLabelled), 06 does not run, and the next reconcile,
-# which finds the labels in place, re-points the pools. In that reconcile a
-# canary that still has its own selector gets the hold selector instead: its
-# original matchExpressions + '<mutex label> DoesNotExist' per rule (00). That
-# selects the canary's own nodes in any MCO view of them (they never carry a
-# mutex label) and no node this run holds, so a held node that is given the
-# canary's labels meanwhile stays in its paused pool. A node that joins the
-# canary once it is re-pointed stays where it is until MCO sees its label.
+# The pools are not re-pointed until the canary's release-labelled-at
+# annotation, which 04 writes before a release label change that canary
+# membership depends on while the canary does not select on this run's value
+# yet (the start of a run, also one that takes over an earlier build's
+# selector), is mutexrunconfig_label_settle_seconds old, and never in the
+# reconcile that wrote it, however long its labelling took: MCO could still see
+# those nodes without the label (or with it) against the new canary and move
+# a canary node into 'worker' (or a node into the canary). Until then
+# MCPUpdated is False (CanaryMembersLabelled), 06 does not run, and the canary
+# keeps the hold selector 04 gave it, or an earlier build's selector. That
+# keeps every node this run holds out of the canary; a held node still
+# leaves its paused pool when it stops matching that pool's selector. The
+# reconcile period (10 minutes) is longer than the settle time, so normally
+# the next reconcile re-points; an earlier one (a retry after a failed task,
+# a restart, a Job event) defers again. A time that is empty, does not have
+# the format of mutexrunconfig_now or is later than now counts as just
+# written (04 writes it again). Without
+# a stamp (no canary node got the value and no node lost it) the pools are
+# re-pointed at once. A node that joins the canary once it is re-pointed gets
+# the label from 04 without a stamp and stays where it is until MCO sees it.
+# The re-point removes the stamp.
 # Before a pool's selector is changed for the first time its original
 # matchExpressions are saved, as JSON, in the original-match-expressions
 # annotation, and the modified-by annotation records this MutexRunConfig as
@@ -49,45 +56,32 @@
 # matchExpressions list is replaced as a whole and matchLabels is untouched.
 - name: Canary Pool Block
   block:
+    # A canary with a '<mutex label> DoesNotExist' expression is an earlier
+    # build's (legacy) selector when its expressions without mutex label keys
+    # differ from its original ones: those builds wrote the kept expressions
+    # plus DoesNotExist, and the kept expressions leave out at least one
+    # original expression (the one that keeps the target nodes out of the
+    # canary). The hold selector (04) has the original expressions plus
+    # DoesNotExist, so it is not legacy, also after a MutexRule was added or
+    # removed, or an expression added to the canary, since it was written.
+    # The comparison ignores order: 01 appends an added expression to the
+    # original list wherever it was added to the live one.
     - name: Decide Whether And In Which Order To Re-point
       ansible.builtin.set_fact:
         mutexrunconfig_repoint_deferred: >-
-          {{ mutexrunconfig_release_changed_nodes | length > 0
-             and not (mutexrunconfig_canary_modified_by == mutexrunconfig_owner
-                      and mutexrunconfig_canary_release_expression in mutexrunconfig_canary_live_expressions) }}
-        mutexrunconfig_canary_hold: >-
-          {{ mutexrunconfig_release_changed_nodes | length > 0
-             and mutexrunconfig_canary_modified_by != mutexrunconfig_owner
-             and mutexrunconfig_canary_release_expression not in mutexrunconfig_canary_live_expressions
-             and not mutexrunconfig_canary_holds | bool }}
+          {{ not mutexrunconfig_canary_repointed | bool
+             and (mutexrunconfig_canary_stamp | bool
+                  or (mutexrunconfig_release_labelled_at | length > 0
+                      and not (mutexrunconfig_release_labelled_at is match(mutexrunconfig_time_regex)
+                               and mutexrunconfig_release_labelled_at <= mutexrunconfig_settled_before))) }}
         mutexrunconfig_legacy_canary: >-
           {{ mutexrunconfig_canary_holds | bool
-             and mutexrunconfig_canary_live_expressions
-                 != mutexrunconfig_canary_original_expressions + mutexrunconfig_canary_hold_expressions }}
+             and ((mutexrunconfig_canary_live_kept | reject('in', mutexrunconfig_canary_original_expressions) | list | length > 0)
+                  or (mutexrunconfig_canary_original_expressions | reject('in', mutexrunconfig_canary_live_kept) | list | length > 0)) }}
       vars:
-        mutexrunconfig_canary_live_expressions: "{{ canaryPool.resources[0].spec.nodeSelector.matchExpressions | default([], true) }}"
-        mutexrunconfig_canary_modified_by: >-
-          {{ (canaryPool.resources[0].metadata.annotations | default({}, true))[mutexrunconfig_annotation_modified_by] | default('') }}
-        mutexrunconfig_canary_holds: >-
-          {{ mutexrunconfig_canary_live_expressions | selectattr('key', 'match', mutexrunconfig_label_prefix | regex_escape)
-             | selectattr('operator', 'equalto', 'DoesNotExist') | list | length > 0 }}
-
-    - name: Hold The Canary Until The Re-point
-      kubernetes.core.k8s:
-        state: patched
-        merge_type: merge
-        api_version: "machineconfiguration.openshift.io/v1"
-        kind: "MachineConfigPool"
-        name: "{{ mutexrunconfig_canary_name }}"
-        definition:
-          metadata:
-            annotations:
-              openshift-optional.skrzypek.io/original-match-expressions: "{{ mutexrunconfig_canary_original_expressions | to_json }}"
-              openshift-optional.skrzypek.io/modified-by: "{{ mutexrunconfig_owner }}"
-          spec:
-            nodeSelector:
-              matchExpressions: "{{ mutexrunconfig_canary_original_expressions + mutexrunconfig_canary_hold_expressions }}"
-      when: mutexrunconfig_canary_hold | bool
+        mutexrunconfig_canary_live_kept: >-
+          {{ canaryPool.resources[0].spec.nodeSelector.matchExpressions | default([], true)
+             | rejectattr('key', 'match', mutexrunconfig_label_prefix | regex_escape) | list }}
 
     - name: Report Re-point Deferred
       operator_sdk.util.k8s_status:
@@ -100,13 +94,19 @@
             status: "False"
             reason: CanaryMembersLabelled
             message: >-
-              The release label of node(s) {{ mutexrunconfig_release_changed_nodes | join(', ') }} changed in this
-              reconcile, so MachineConfigPools {{ ([mutexrunconfig_canary_name] + machineConfigPoolList) | join(', ') }}
-              are re-pointed at the next reconcile, once MCO has seen the label.{{
-              ' Until then the canary keeps its own selector without the nodes this run holds.'
-              if mutexrunconfig_canary_hold | bool else '' }}
+              {{ mutexrunconfig_deferral_cause }}, so MachineConfigPools
+              {{ ([mutexrunconfig_canary_name] + machineConfigPoolList) | join(', ') }} are re-pointed at a reconcile
+              at least {{ mutexrunconfig_label_settle_seconds }} seconds after that, normally the next one, once MCO
+              has seen the labels. Until then the canary keeps {{ 'the selector of an earlier build, which leaves out'
+              if mutexrunconfig_legacy_canary | bool else 'its own selector without' }} the nodes this run holds.
             lastTransitionTime: "{{ mutexrunconfig_now }}"
       when: mutexrunconfig_repoint_deferred | bool
+      vars:
+        mutexrunconfig_deferral_cause: >-
+          {{ ('The release label of node(s) ' ~ (mutexrunconfig_release_changed_nodes | join(', ')) ~ ' changed in this reconcile')
+             if mutexrunconfig_release_changed_nodes | length > 0
+             else ('The release labels of this run changed at ' ~ mutexrunconfig_release_labelled_at
+                   ~ ' (annotation ' ~ mutexrunconfig_annotation_release_labelled_at ~ ' of the canary)') }}
 
     - name: Re-point The Pools
       when: not mutexrunconfig_repoint_deferred | bool
@@ -146,9 +146,11 @@
             name: "{{ mutexrunconfig_canary_name }}"
             definition:
               metadata:
-                annotations:
-                  openshift-optional.skrzypek.io/original-match-expressions: "{{ mutexrunconfig_canary_original_expressions | to_json }}"
-                  openshift-optional.skrzypek.io/modified-by: "{{ mutexrunconfig_owner }}"
+                annotations: >-
+                  {{ {mutexrunconfig_annotation_original_expressions: mutexrunconfig_canary_original_expressions | to_json,
+                      mutexrunconfig_annotation_modified_by: mutexrunconfig_owner}
+                     | combine({mutexrunconfig_annotation_release_labelled_at: none}
+                               if mutexrunconfig_canary_stamp | bool or mutexrunconfig_canary_live_stamp | length > 0 else {}) }}
               spec:
                 nodeSelector:
                   matchExpressions: "{{ mutexrunconfig_canary_kept_expressions + [mutexrunconfig_canary_release_expression] }}"
@@ -159,6 +161,7 @@
             or (canaryPool.resources[0].metadata.annotations | default({}, true))[mutexrunconfig_annotation_modified_by] | default('') != mutexrunconfig_owner
             or ((canaryPool.resources[0].metadata.annotations | default({}, true))[mutexrunconfig_annotation_original_expressions]
                 | default('[]') | from_json) != mutexrunconfig_canary_original_expressions
+            or mutexrunconfig_canary_stamp | bool or mutexrunconfig_canary_live_stamp | length > 0
 
         - name: Update TargetPool NodeSelector
           kubernetes.core.k8s: *mutexrunconfig_target_pool_patch

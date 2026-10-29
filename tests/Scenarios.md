@@ -58,3 +58,14 @@ node, which puts it back in its paused pool.
    publishing the release-image-version label (`sample-manifests/`), and
    cleanup Jobs running after the reboot.
 5. The scorecard (`config/scorecard`) and the OLM install from the bundle.
+6. The canary's own nodes. The `kind` canary has no node of its own, so this
+   path never runs there: the canary's own nodes stay in the canary at the
+   start and at the end of a run; the first reconcile reports `MCPUpdated`
+   `False` (`CanaryMembersLabelled`) and gives the canary its hold selector
+   (its own `matchExpressions` plus one `DoesNotExist` per mutex label) and
+   the `release-labelled-at` annotation; the pools are re-pointed only once
+   that time is `mutexrunconfig_label_settle_seconds` (300) old, also after
+   a failed reconcile or a restart; after the run the release label is
+   removed from those nodes only once the canary's `restored-at` annotation
+   is that old, and then the annotation; the finalizer removes both at once
+   (its single pass can move such a node through `worker` once).

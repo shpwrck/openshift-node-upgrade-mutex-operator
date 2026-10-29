@@ -50,8 +50,10 @@ rules:
   # MachineConfigPools: read selectors, pause state and annotations; patch
   # sets spec.paused, spec.nodeSelector.matchExpressions and the
   # openshift-optional.skrzypek.io/paused-by,
-  # openshift-optional.skrzypek.io/original-match-expressions and
-  # openshift-optional.skrzypek.io/modified-by annotations.
+  # openshift-optional.skrzypek.io/original-match-expressions,
+  # openshift-optional.skrzypek.io/modified-by,
+  # openshift-optional.skrzypek.io/release-labelled-at and
+  # openshift-optional.skrzypek.io/restored-at annotations.
   - apiGroups:
       - machineconfiguration.openshift.io
     resources:

@@ -7,10 +7,10 @@
 # pre-upgrade Jobs pending. Pool membership during a run follows the release
 # label (vars/main.yml), through the two expressions built here:
 # '<release label> In (<value>)' for the canary and '<release label> NotIn
-# (<value>)' for the target pools. Only in a reconcile that defers the
-# re-point (05) does a pool select on the rule labels: the canary then gets
-# '<mutex label> DoesNotExist' per rule, also built here, which keeps the nodes
-# this run holds out of it.
+# (<value>)' for the target pools. Only while the re-point waits for the
+# release labels to settle (04, 05) does a pool select on the rule labels:
+# the canary then has '<mutex label> DoesNotExist' per rule, also built here,
+# which keeps the nodes this run holds out of it.
 - name: Reset References
   ansible.builtin.set_fact:
     mutexrunconfig_canary_name: "{{ _openshift_optional_skrzypek_io_mutexrunconfig_spec.canary.name | default('', true) }}"

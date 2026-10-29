@@ -305,9 +305,14 @@
     # A node this run holds (this MutexRunConfig's labelled-by or one of this
     # run's mutex labels) is not a member, for example a held target node that
     # an administrator gave the canary's labels during the run and that its
-    # MutexTarget then dropped: its pre-upgrade Jobs have not run, so it stays
-    # in its paused pool until the restore. A master node that matches is
-    # harmless: MCO keeps a node that matches the master pool in master.
+    # MutexTarget then dropped: its pre-upgrade Jobs have not run, so it must
+    # not get the release label. With target pool worker it stays in its
+    # paused pool until the restore. A held node of a custom target pool
+    # leaves that pool as soon as it stops matching its selector and falls
+    # into worker, and 01 then refuses the run until its mutex labels and
+    # labelled-by are removed; it is a member after that. A master node that
+    # matches is harmless: MCO keeps a node that matches the master pool in
+    # master.
     - name: Collect Canary Members
       ansible.builtin.set_fact:
         mutexrunconfig_canary_member_nodes: >-

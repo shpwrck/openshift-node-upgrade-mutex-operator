@@ -5,15 +5,18 @@
 # paused and their nodes are labelled with one mutex label per MutexRule,
 # which records that their Jobs are pending. The canary pool is changed to
 # select only the nodes that carry this MutexRunConfig's release label (the
-# nodes it has released and the canary's own nodes, which get it one
-# reconcile earlier, while the canary only leaves out the labelled nodes),
-# and the target pools to select their nodes without it.
+# nodes it has released and the canary's own nodes, which get it at least
+# mutexrunconfig_label_settle_seconds earlier, while the canary keeps its own
+# selector without the labelled nodes), and the target pools to select their
+# nodes without it.
 # Then, one node at a time, the MutexRule Jobs run, one patch replaces the
 # node's mutex labels with the release label (so MCO upgrades it through the
 # canary pool), the role waits for the node to finish its upgrade, runs the
 # cleanup Jobs and removes the release label, so the node goes back to its
 # paused pool. At the end the pool selectors are restored and the pools are
-# unpaused; the canary's own nodes lose the release label one reconcile later.
+# unpaused; the canary's own nodes lose the release label in a later
+# reconcile, once the canary's restore is mutexrunconfig_label_settle_seconds
+# old.
 #
 # Every step sets a real boolean gate fact: false at the top of its rescue,
 # true as the last task of its block. Status is merged condition by condition
@@ -185,8 +188,10 @@
 
 # Runs after every node is done, and also whenever the check finds no target
 # node behind: then nothing is left to protect, so leftovers of an earlier
-# run (paused pools, selectors, labels) are cleaned up. The reconcile after a
-# run's end removes the release label from the canary's own nodes this way.
+# run (paused pools, selectors, labels) are cleaned up. A reconcile at least
+# mutexrunconfig_label_settle_seconds after a run's end, normally the one a
+# reconcile period later, removes the release label from the canary's own
+# nodes this way.
 - name: Finish Run
   when:
     - ConfigValidated | bool

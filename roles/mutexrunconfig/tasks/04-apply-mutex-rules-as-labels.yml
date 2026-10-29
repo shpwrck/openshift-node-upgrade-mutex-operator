@@ -13,10 +13,29 @@
 # holds). Every other node loses that value. After this step the nodes
 # carrying this run's release value are exactly the holders, which is what the
 # run-time canary selector (05) relies on. The canary's own nodes keep the
-# value until the reconcile after the one that restores the canary (08).
-# In a reconcile in which this step gave a canary node the value or took it
-# from a node, 05 does not yet make the canary select on the value; it only
-# keeps the nodes this run holds out of the canary.
+# value until a pass of 08 after the one that restores the canary.
+# While the canary does not yet select on this run's value, a change of the
+# release label that canary membership depends on (a canary node gets the
+# value, a node loses it) is written only after a patch of the canary that
+# stamps the time in its release-labelled-at annotation, with modified-by and
+# original-match-expressions. A canary that still has its own selector gets
+# the hold selector in the same patch: its original matchExpressions plus
+# '<mutex label> DoesNotExist' per rule (00). That selects the canary's own
+# nodes in any MCO view of them (they never carry a mutex label) and no node
+# this run holds, whatever their release label. 05 re-points the pools only
+# once the stamp is mutexrunconfig_label_settle_seconds old, so MCO has seen
+# the labels against the canary's own selector first, and never in the
+# reconcile that wrote the stamp. The nodes whose release label does not
+# change are labelled before the stamp (no pool selects on mutex labels yet),
+# so the time between the stamp and the last release label change is only
+# that of the few release label patches, however many target nodes are
+# behind. The stamp is in the cluster, so a failed task, a cut reconcile or an
+# operator restart after it still leaves the time to wait for, and a cut
+# before it leaves no release label changed. A canary that already holds (the
+# hold, or an earlier build's '<mutex label> DoesNotExist' selector) keeps its
+# selector and only gets the annotations. A stamp that is empty, does not have
+# the format of mutexrunconfig_now or is later than now counts as just written
+# and is written again.
 - name: Node Label Block
   block:
     - name: Create Node List
@@ -41,24 +60,12 @@
           {%- endfor -%}
           {{ ns.names }}
 
-    - name: Label Nodes
-      kubernetes.core.k8s:
-        state: patched
-        api_version: "v1"
-        kind: "Node"
-        name: "{{ item }}"
-        definition:
-          metadata:
-            labels: "{{ mutexrunconfig_mutex_labels | combine({mutexrunconfig_release_label: none}) }}"
-            annotations: "{{ {mutexrunconfig_annotation_labelled_by: mutexrunconfig_owner} }}"
-      loop: "{{ mutexrunconfig_nodes_to_patch }}"
-
-    # Holders are never labelled above: released nodes are skipped, and the
+    # Holders are never labelled below: released nodes are skipped, and the
     # canary's own nodes are not target nodes. A released node without this
     # run's value (released by an earlier build) and a node that has just
     # joined the canary get it. A node with this run's value that is not a
     # holder, for example one that has left the canary since an earlier
-    # reconcile, loses it; the nodes labelled above have lost it already.
+    # reconcile, loses it; the nodes labelled below lose it in that patch.
     - name: Find Nodes Whose Release Label Is Wrong
       ansible.builtin.set_fact:
         mutexrunconfig_release_add_nodes: >-
@@ -88,12 +95,78 @@
 
     # The release label changes of this reconcile that a stale MCO view of
     # the nodes could miss: a canary node that gets this run's value, and a
-    # node that loses it (one labelled above included). 05 reads it.
+    # node that loses it (one labelled below included).
     - name: Collect The Release Label Changes
       ansible.builtin.set_fact:
         mutexrunconfig_release_changed_nodes: >-
           {{ (mutexrunconfig_release_add_nodes | select('in', mutexrunconfig_canary_member_nodes) | list)
              + mutexrunconfig_release_remove_nodes + mutexrunconfig_release_unset_nodes }}
+
+    # The canary selects on this run's value once modified-by names this
+    # MutexRunConfig and it has the release In expression (05). It holds when
+    # it has a '<mutex label> DoesNotExist' expression: the hold selector, or
+    # an earlier build's selector.
+    - name: Read The Canary's Run State
+      ansible.builtin.set_fact:
+        mutexrunconfig_canary_repointed: >-
+          {{ mutexrunconfig_canary_annotations[mutexrunconfig_annotation_modified_by] | default('') == mutexrunconfig_owner
+             and mutexrunconfig_canary_release_expression in mutexrunconfig_canary_live_expressions }}
+        mutexrunconfig_canary_holds: >-
+          {{ mutexrunconfig_canary_live_expressions | selectattr('key', 'match', mutexrunconfig_label_prefix | regex_escape)
+             | selectattr('operator', 'equalto', 'DoesNotExist') | list | length > 0 }}
+        mutexrunconfig_canary_has_stamp: "{{ mutexrunconfig_canary_annotations[mutexrunconfig_annotation_release_labelled_at] is defined }}"
+        mutexrunconfig_canary_live_stamp: "{{ mutexrunconfig_canary_annotations[mutexrunconfig_annotation_release_labelled_at] | default('') }}"
+      vars:
+        mutexrunconfig_canary_live_expressions: "{{ canaryPool.resources[0].spec.nodeSelector.matchExpressions | default([], true) }}"
+        mutexrunconfig_canary_annotations: "{{ canaryPool.resources[0].metadata.annotations | default({}, true) }}"
+
+    - name: Decide Whether To Stamp The Canary
+      ansible.builtin.set_fact:
+        mutexrunconfig_canary_stamp: >-
+          {{ not mutexrunconfig_canary_repointed | bool
+             and (mutexrunconfig_release_changed_nodes | length > 0
+                  or (mutexrunconfig_canary_has_stamp | bool
+                      and (mutexrunconfig_canary_live_stamp is not match(mutexrunconfig_time_regex)
+                           or mutexrunconfig_canary_live_stamp > mutexrunconfig_now))) }}
+
+    - name: Label Nodes Whose Release Label Does Not Change
+      kubernetes.core.k8s: &mutexrunconfig_label_node
+        state: patched
+        api_version: "v1"
+        kind: "Node"
+        name: "{{ item }}"
+        definition:
+          metadata:
+            labels: "{{ mutexrunconfig_mutex_labels | combine({mutexrunconfig_release_label: none}) }}"
+            annotations: "{{ {mutexrunconfig_annotation_labelled_by: mutexrunconfig_owner} }}"
+      loop: "{{ mutexrunconfig_nodes_to_patch | difference(mutexrunconfig_release_unset_nodes) }}"
+
+    # 05 reads the time: the one written here, else the canary's.
+    - name: Record The Release Label Time
+      ansible.builtin.set_fact:
+        mutexrunconfig_release_labelled_at: "{{ mutexrunconfig_now if mutexrunconfig_canary_stamp | bool else mutexrunconfig_canary_live_stamp }}"
+
+    - name: Stamp The Canary Before The Release Labels Change
+      kubernetes.core.k8s:
+        state: patched
+        merge_type: merge
+        api_version: "machineconfiguration.openshift.io/v1"
+        kind: "MachineConfigPool"
+        name: "{{ mutexrunconfig_canary_name }}"
+        definition:
+          metadata:
+            annotations:
+              openshift-optional.skrzypek.io/original-match-expressions: "{{ mutexrunconfig_canary_original_expressions | to_json }}"
+              openshift-optional.skrzypek.io/modified-by: "{{ mutexrunconfig_owner }}"
+              openshift-optional.skrzypek.io/release-labelled-at: "{{ mutexrunconfig_release_labelled_at }}"
+          spec: >-
+            {{ {} if mutexrunconfig_canary_holds | bool
+               else {'nodeSelector': {'matchExpressions': mutexrunconfig_canary_original_expressions + mutexrunconfig_canary_hold_expressions}} }}
+      when: mutexrunconfig_canary_stamp | bool
+
+    - name: Label Nodes That Lose The Release Label
+      kubernetes.core.k8s: *mutexrunconfig_label_node
+      loop: "{{ mutexrunconfig_release_unset_nodes }}"
 
     - name: Give The Canary Holders The Release Label
       kubernetes.core.k8s:

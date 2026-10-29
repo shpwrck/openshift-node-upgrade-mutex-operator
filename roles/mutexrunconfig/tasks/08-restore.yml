@@ -37,18 +37,30 @@
 #      this MutexRunConfig's value (released nodes and the canary's own
 #      nodes); another MutexRunConfig's value is never removed. At the end of
 #      a run (not in the finalizer) the release label stays on every node in
-#      a pass that restores a selector, and a later pass that finds no
-#      selector to restore removes it: the next reconcile, because Finish Run
-#      also runs when no target node is behind. Once the canary is restored no
-#      pool selects on the label, so it does no harm there, and an MCO view of
-#      the pools that still has the run-time canary keeps the canary's own
-#      nodes in it. The finalizer has a single pass: it removes the label
-#      right after the restore, so an MCO view of the pools that lags the
-#      canary's restore at that moment can move a canary node through
-#      'worker' once;
+#      a pass that restores a selector. When a node then carries this run's
+#      value, the patch that restores the canary writes the restored-at
+#      annotation ('<time> <owner>') on it. A later pass that finds no
+#      selector to restore removes the label once that time is
+#      mutexrunconfig_label_settle_seconds old (a time that is missing, does
+#      not have the format of mutexrunconfig_now or is later than now counts as
+#      just written and is written again), and then restored-at: normally the
+#      reconcile a reconcile period (10 minutes) after the restore, because
+#      Finish Run also runs when no target node is behind. A pass before that
+#      (a retry after a failed task, a restart, a Job event: the last Jobs of a
+#      run usually trigger one right after it) keeps the label.
+#      Once the canary is restored no pool selects on the label, so it does
+#      no harm there, and an MCO view of the pools that still has the
+#      run-time canary keeps the canary's own nodes in it. A restored-at of
+#      another MutexRunConfig is left alone. The finalizer has a single pass:
+#      it removes the label right after the restore, and this
+#      MutexRunConfig's restored-at after that, so an MCO view of the pools
+#      that lags the canary's restore at that moment can move a canary node
+#      through 'worker' once;
 #   3. every pool whose paused-by annotation names this MutexRunConfig is
 #      unpaused and loses the annotation. Pools paused by someone else are
 #      never unpaused.
+# Every restore of a pool that carries the release-labelled-at annotation (the
+# canary, also under an earlier name) removes it (04, 05).
 # Selectors are restored before the node labels are removed and before
 # unpausing, so the canary's own nodes match the restored canary before they
 # lose the release label, a node released in the middle of its update moves
@@ -60,11 +72,22 @@
     kind: MachineConfigPool
   register: mutexrunconfig_all_pools
 
+# Read before any pool is restored: the release labels the canary's restore
+# is stamped for.
+- name: List Nodes
+  kubernetes.core.k8s_info:
+    api_version: "v1"
+    kind: Node
+  register: mutexrunconfig_restore_node_info
+
 - name: Reset Restore Facts
   ansible.builtin.set_fact:
     mutexrunconfig_unpause_pools: []
     mutexrunconfig_selector_pools_first: []
     mutexrunconfig_selector_pools_last: []
+    mutexrunconfig_restored_at_pools: []
+    mutexrunconfig_restored_at_unparsed: []
+    mutexrunconfig_restored_at_unsettled: false
 
 - name: Select Pools To Restore
   ansible.builtin.set_fact:
@@ -76,6 +99,18 @@
     mutexrunconfig_selector_pools_last: >-
       {{ mutexrunconfig_selector_pools_last
          + ([item] if mutexrunconfig_restore_selector | bool and mutexrunconfig_pool_is_canary | bool else []) }}
+    mutexrunconfig_restored_at_pools: >-
+      {{ mutexrunconfig_restored_at_pools + ([item.metadata.name] if mutexrunconfig_restored_at_ours | bool else []) }}
+    mutexrunconfig_restored_at_unparsed: >-
+      {{ mutexrunconfig_restored_at_unparsed
+         + ([item.metadata.name] if mutexrunconfig_restored_at_ours | bool
+                                    and (mutexrunconfig_restored_at_time is not match(mutexrunconfig_time_regex)
+                                         or mutexrunconfig_restored_at_time > mutexrunconfig_now) else []) }}
+    mutexrunconfig_restored_at_unsettled: >-
+      {{ mutexrunconfig_restored_at_unsettled | bool
+         or (mutexrunconfig_restored_at_ours | bool
+             and not (mutexrunconfig_restored_at_time is match(mutexrunconfig_time_regex)
+                      and mutexrunconfig_restored_at_time <= mutexrunconfig_settled_before)) }}
   loop: "{{ mutexrunconfig_all_pools.resources }}"
   loop_control:
     label: "{{ item.metadata.name }}"
@@ -93,12 +128,35 @@
       {{ item.metadata.name == mutexrunconfig_canary_name
          or (item.spec.nodeSelector.matchExpressions | default([], true) | selectattr('key', 'equalto', mutexrunconfig_release_label)
              | selectattr('operator', 'equalto', 'In') | list | length > 0) }}
+    # '<time> <owner>'. An empty value on this MutexRunConfig's canary, or one
+    # without the time, is ours with a time that does not parse.
+    mutexrunconfig_restored_at: "{{ mutexrunconfig_pool_annotations[mutexrunconfig_annotation_restored_at] | default('') | string }}"
+    mutexrunconfig_restored_at_ours: >-
+      {{ mutexrunconfig_restored_at == mutexrunconfig_owner
+         or mutexrunconfig_restored_at.endswith(' ' ~ mutexrunconfig_owner)
+         or (mutexrunconfig_pool_annotations[mutexrunconfig_annotation_restored_at] is defined
+             and mutexrunconfig_restored_at | trim | length == 0
+             and item.metadata.name == mutexrunconfig_canary_name) }}
+    mutexrunconfig_restored_at_time: >-
+      {{ mutexrunconfig_restored_at[: (mutexrunconfig_restored_at | length) - (mutexrunconfig_owner | length)] | trim }}
 
+# The release labels stay in a pass that restores a selector and in a later
+# pass while this MutexRunConfig's restored-at is not settled (not in the
+# finalizer). The canary's restore is stamped when a node still carries this
+# run's value.
 - name: Decide Whether To Remove The Release Labels Now
   ansible.builtin.set_fact:
     mutexrunconfig_keep_release_labels: >-
       {{ not mutexrunconfig_finalizing | bool
-         and (mutexrunconfig_selector_pools_first + mutexrunconfig_selector_pools_last) | length > 0 }}
+         and ((mutexrunconfig_selector_pools_first + mutexrunconfig_selector_pools_last) | length > 0
+              or mutexrunconfig_restored_at_unsettled | bool) }}
+    mutexrunconfig_restore_stamp: >-
+      {%- set ns = namespace(found=false) -%}
+      {%- for node in mutexrunconfig_restore_node_info.resources
+            if (node.metadata.labels | default({}, true))[mutexrunconfig_release_label] | default('') == mutexrunconfig_release_value -%}
+      {%- set ns.found = true -%}
+      {%- endfor -%}
+      {{ ns.found and not mutexrunconfig_finalizing | bool }}
 
 - name: Restore Pool Node Selectors
   kubernetes.core.k8s:
@@ -109,9 +167,12 @@
     name: "{{ item.metadata.name }}"
     definition:
       metadata:
-        annotations:
-          openshift-optional.skrzypek.io/original-match-expressions: null
-          openshift-optional.skrzypek.io/modified-by: null
+        annotations: >-
+          {{ {mutexrunconfig_annotation_original_expressions: none, mutexrunconfig_annotation_modified_by: none}
+             | combine({mutexrunconfig_annotation_release_labelled_at: none}
+                       if (item.metadata.annotations | default({}, true))[mutexrunconfig_annotation_release_labelled_at] is defined else {})
+             | combine({mutexrunconfig_annotation_restored_at: mutexrunconfig_now ~ ' ' ~ mutexrunconfig_owner}
+                       if mutexrunconfig_restore_stamp | bool and item in mutexrunconfig_selector_pools_last else {}) }}
       spec:
         nodeSelector: "{{ {'matchExpressions': mutexrunconfig_restored_expressions if mutexrunconfig_restored_expressions | length > 0 else none} }}"
   vars:
@@ -125,12 +186,6 @@
   loop: "{{ mutexrunconfig_selector_pools_first + mutexrunconfig_selector_pools_last }}"
   loop_control:
     label: "{{ item.metadata.name }}"
-
-- name: List Nodes
-  kubernetes.core.k8s_info:
-    api_version: "v1"
-    kind: Node
-  register: mutexrunconfig_restore_node_info
 
 # For each node: the mutex labels to remove, the release label when it
 # carries this MutexRunConfig's value (not in a pass that keeps it, see
@@ -184,6 +239,40 @@
   loop: "{{ mutexrunconfig_restore_node_patches }}"
   loop_control:
     label: "{{ item.name }}"
+
+# A restore time of this MutexRunConfig that is missing, does not have the
+# format of mutexrunconfig_now or is later than now counts as just written: it
+# is written again, so the labels are removed once that time is settled.
+- name: Write An Unreadable Restore Time Again
+  kubernetes.core.k8s:
+    state: patched
+    merge_type: merge
+    api_version: "machineconfiguration.openshift.io/v1"
+    kind: MachineConfigPool
+    name: "{{ item }}"
+    definition:
+      metadata:
+        annotations:
+          openshift-optional.skrzypek.io/restored-at: "{{ mutexrunconfig_now ~ ' ' ~ mutexrunconfig_owner }}"
+  loop: >-
+    {{ mutexrunconfig_restored_at_unparsed
+       | reject('in', (mutexrunconfig_selector_pools_last | map(attribute='metadata.name') | list)
+                      if mutexrunconfig_restore_stamp | bool else []) | list }}
+  when: not mutexrunconfig_finalizing | bool
+
+- name: Remove The Restore Time
+  kubernetes.core.k8s:
+    state: patched
+    merge_type: merge
+    api_version: "machineconfiguration.openshift.io/v1"
+    kind: MachineConfigPool
+    name: "{{ item }}"
+    definition:
+      metadata:
+        annotations:
+          openshift-optional.skrzypek.io/restored-at: null
+  loop: "{{ mutexrunconfig_restored_at_pools }}"
+  when: not mutexrunconfig_keep_release_labels | bool
 
 - name: Unpause Pools Paused By This MutexRunConfig
   kubernetes.core.k8s:
