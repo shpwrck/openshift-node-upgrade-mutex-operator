@@ -12,9 +12,10 @@ It works with three custom resources:
 * **MutexRunConfig**: ties rules to targets and names the *canary* MachineConfigPool that nodes are upgraded through.
 
 > **Status: alpha.** The operator manages one cluster. It pauses MachineConfigPools and rewrites their node selectors
-> during an upgrade. This version has been checked with linting, bundle and schema validation, and test runs against
-> Kubernetes API servers that have no Machine Config Operator. It has **not been tested end to end on a live OpenShift
-> upgrade**. Validate it on a non-production cluster before you rely on it.
+> during an upgrade. This version has been checked with linting, bundle and schema validation, test runs against
+> Kubernetes API servers that have no Machine Config Operator, and on **one small OpenShift 4.21 cluster** (one
+> control-plane node, two workers) through three z-stream upgrades; `docs/HANDOFF.md` lists what those runs covered
+> and what is still open. Validate it on a non-production cluster of your own before you rely on it.
 
 ## How it works
 
@@ -760,7 +761,8 @@ aggregated roles for these CRDs in every namespace. That is why CRs outside the 
 
 ## Limitations
 
-* Alpha. The API (`v1alpha1`) may change. It has not been tested end to end on a live OpenShift upgrade.
+* Alpha. The API (`v1alpha1`) may change. Live testing so far is one small OpenShift 4.21 cluster (see
+  `docs/HANDOFF.md` for what it covered).
 * One operator per cluster, one MutexRunConfig per canary pool, and no target pool shared between MutexRunConfigs.
   Validation refuses a canary or target pool that another MutexRunConfig has paused or re-pointed.
 * Every target node needs the `release-image-version` label, which the operator does not maintain.

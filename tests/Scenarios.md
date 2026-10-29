@@ -46,6 +46,10 @@ node, which puts it back in its paused pool.
 
 ## Not automated (needs OpenShift)
 
+Items 4, 5 and 6 were run by hand on an OpenShift 4.21 cluster for this
+refresh; `docs/HANDOFF.md` ("What still needs a live OpenShift cluster")
+says what those runs covered and what is still open.
+
 1. Works in a disconnected environment. The upgrade check reads ClusterVersion
    `status.desired.version` and pulls no release image, so no egress is
    needed by the operator itself; MutexRule Job images must be mirrored.

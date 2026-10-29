@@ -78,34 +78,63 @@ release. The longer the group is published, the more users it breaks.
 This refresh was checked with lint, `operator-sdk bundle validate` (operatorframework suite), `opm validate`, CRD
 schema tests against Kubernetes 1.29 and 1.34 API servers, the roles against a fake API server, and the operator image
 running against a plain Kubernetes 1.29 API server with stub MachineConfigPool and ClusterVersion CRDs and the shipped
-RBAC. None of these has MCO, so before relying on it, run on a non-production OpenShift 4.16+ cluster:
+RBAC. None of these has MCO. It was then run on one small OpenShift 4.21 cluster (one control-plane node that also
+runs workloads, two workers), installed through OLM with test builds of this branch: installs and an OLM upgrade,
+rehearsals that made a node look behind without a real upgrade, and three z-stream upgrades (4.21.20 → 4.21.21 →
+4.21.22 → 4.21.23). The first upgrade still had the earlier canary design, which excluded the held nodes instead of
+selecting the released ones; MCO's stale node view after an API outage took a held node into that canary, and it
+rebooted without its Jobs. That led to the release-label canary, which the last two upgrades ran. Each item below says
+what those runs covered ("Live run") and what is still open; run the open parts on a non-production OpenShift 4.16+
+cluster before relying on it:
 
 1. An install through OLM, in `OwnNamespace` and in `AllNamespaces` mode. Check that `WATCH_NAMESPACE` and
    `POD_NAMESPACE` are set and that CRs outside the operator namespace report `NamespaceNotAllowed`.
+   **Live run** (a build from before the release-label canary): both modes as described; OLM refuses
+   `SingleNamespace` (`UnsupportedOperatorGroup`).
 2. A real upgrade with at least two target nodes. Check that the pools are paused before MCO reaches them, that each
    node moves into the canary only after its Jobs, that MCO upgrades it there, and that each node goes back to its
    paused pool after its cleanup Jobs, with no reboot then or when the pools are unpaused at the end. Check that no
    target node gets a canary `desiredConfig` before its release patch, also while the kube-apiserver rolls out. Check
    also that the cleanup Jobs of a node start only after MCO reports the node
    `machineconfiguration.openshift.io/state: Done` with `currentConfig` equal to `desiredConfig` and the node is
-   `Ready`, even when its `release-image-version` label changes earlier. This gate was only tested against a fake MCO.
+   `Ready`, even when its `release-image-version` label changes earlier.
+   **Live run:** two upgrades with the release-label canary, with an admin MachineConfig applied or deleted during a
+   node's update (so the canary re-rendered under it) and the operator pod deleted during the node's wait. Every point
+   above held; the cleanup waited for `Done` on the canary's latest rendered config, also through a node that booted
+   its old OS image once (a transient RHCOS SELinux finalize failure, recovered by touching MCD's
+   `/run/machine-config-daemon-force`). A rehearsal showed the gate needs the canary's rendered config too: a node can
+   be `Done` on its old pool's config, with its label already at the target version, before MCO moves it.
 3. Aborting by deleting a MutexRunConfig in the middle of a run, and a restart of the operator pod mid-run: a node
    released before the restart resumes at the wait and gets its cleanup Jobs before any other node starts. With two
    MutexRunConfigs, check that the second waits until the first has finished its nodes, and that deleting the
    waiting one also waits (USAGE, "One MutexRunConfig at a time").
+   **Live run:** the restart (the released node resumed at the wait and got its cleanup Jobs first) in both
+   release-label upgrades; the abort and two MutexRunConfigs one after the other on an earlier build. **Still open:**
+   deleting the waiting one.
 4. A failing Job, a Job that times out, and a node that never finishes its upgrade: `Degraded=True`, the pools
    stay paused, and the next reconcile retries.
+   **Live run** (an earlier build): a failing pre-upgrade Job, a Job timeout and a failing cleanup Job, each with
+   `Degraded=True`, the pools still paused and a retry that reused or recreated the Job as documented. **Still
+   open:** a node that never finishes its upgrade.
 5. A custom target pool, for example `apps`, with the sample canary: `ConfigValidated=False` names the `worker` pool
    nodes that the canary's `matchLabels` select, and nothing is paused or patched. After adding the suggested
    expression, such as `node-role.kubernetes.io/app Exists`, to the canary, the run goes ahead and the `worker` pool
    nodes stay where they are. The check takes each node's pool from the `rendered-<pool>-<hash>` name in its
-   `machineconfiguration.openshift.io/currentConfig` annotation, which was only tested with fake values.
+   `machineconfiguration.openshift.io/currentConfig` annotation.
+   **Live run:** the refusal (with real `currentConfig` names) and the suggested expression. **Still open:** a full run
+   on such a pool with the sample canary (a run on `apps` was done only with a canary of its own, next to a second
+   MutexRunConfig on `worker`, on an earlier build).
 6. The `release-image-version` label example in `sample-manifests/` (MachineConfig and NFD) on a current release.
+   **Live run:** it labelled the workers with each new version after their upgrade reboots, before MCO marked them
+   `Done` (which is why the node wait checks more than the label).
 7. `operator-sdk scorecard` against the bundle, and scraping the HTTPS metrics endpoint with the
    `openshift-node-upgrade-mutex-operator-metrics-reader` ClusterRole bound to the scraper (see the binding example
    in the Permissions section of `docs/USAGE.md`).
+   **Live run:** scorecard 6/6 passed; the metrics endpoint answered 403 without the binding and 200 with it.
 8. An OLM upgrade from 0.2.68 to 0.3.0 with CRs in the operator namespace, following "Upgrading from 0.2.x" in
    `docs/USAGE.md`.
+   **Live run:** including a failed InstallPlan and the recovery now documented there; the CRs survived and were
+   reconciled.
 9. A run whose canary has nodes of its own (with the sample canary, a worker node with `isCanary`; with a custom
    target pool such as `apps`, also `node-role.kubernetes.io/app=canary`). The molecule tests have no such node. Check
    that they stay in the canary at the start and at the end of the run: the first reconcile reports `MCPUpdated=False`
@@ -117,3 +146,14 @@ RBAC. None of these has MCO, so before relying on it, run on a non-production Op
    reconcile right after it keeps the label), and then the annotation goes as well. Check that MCO never
    moves them into `worker`, also while the kube-apiserver rolls out at the start of the run, and that deleting the
    MutexRunConfig in the middle of a run moves them through `worker` at most once (the finalizer has a single pass).
+   **Live run:** one canary node of its own with the sample canary. The label, the hold selector and
+   `release-labelled-at` came in the first reconcile, during the kube-apiserver rollout; the operator restarted before
+   the re-point, and the reconcile after the restart waited again; the pools were re-pointed 13 minutes later. The node
+   never left the canary; MCO upgraded it there; its label and `restored-at` went at a reconcile 5 minutes after the
+   restore. **Still open:** the mid-run delete, and the custom-pool variant.
+10. A target node that is already at the new version while another target node is upgraded. On a build before the
+    release-label canary such a node moving into the re-pointed canary made the in-flight guard report one spurious
+    `NodeUpgradeFailed`. The release-label canary removes the cause (a node that is not behind never gets the release
+    label), but this was not run again.
+11. The manual steps in "Recovery" in `docs/USAGE.md` as written now. An earlier version, without the release-label
+    and canary-annotation steps, was run live and restored everything.
