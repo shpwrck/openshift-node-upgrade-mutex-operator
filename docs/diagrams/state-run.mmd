@@ -4,23 +4,36 @@ config:
 ---
 stateDiagram-v2
   accTitle: A MutexRunConfig run as the mutexrunconfig role drives it
-  accDescr: The phases of a MutexRunConfig run as the mutexrunconfig role drives them, from the first reconcile to the end of the run or the finalizer, with the task file and the trigger on each transition, including where a failure keeps the pools paused and where nothing is protected.
+  accDescr: The phases of a MutexRunConfig run as the mutexrunconfig role drives them, from the first reconcile through the run and the restore back to the states between runs, or to the finalizer, with the task file and the trigger on each transition, including where a failure keeps the pools paused and where nothing is protected.
 
   state "Ignored" as Ignored
   Ignored : main.yml ends the play
   Ignored : Reconciled=False NamespaceNotAllowed
+  Ignored : a delete ends there too, no cleanup
 
-  state "No run" as Idle
-  Idle : 01 and 02 pass, no target node behind
-  Idle : and none with this run's released-by
-  Idle : main.yml runs 08 as a cleanup pass
-  Idle : UpgradeAvailable=False UpgradeUnavailable
+  state "Between runs, 08 on every reconcile" as Between {
+    state "No run" as Idle
+    Idle : 01 and 02 pass, no node behind
+    Idle : or released, 08 is a cleanup pass
+    Idle : UpgradeAvailable=False UpgradeUnavailable
+    Idle : no mark of this run on a pool or node
+
+    state "Restored, sweep pending" as Sweep
+    Sweep : the canary has restored-at
+    Sweep : the canary's own nodes keep the
+    Sweep : release label, no pool selects on it
+    Sweep : (when a node had it at the restore)
+
+    Sweep --> Idle : 08, a reconcile 300 s or more after restored-at
+  }
 
   state "Not protecting (fail-open)" as FailOpen
-  FailOpen : 01 or 02 failed while nothing is held
-  FailOpen : main.yml skips 03 to 08
+  FailOpen : 01 or 02 failed, or 03 before it
+  FailOpen : paused a pool: nothing is held
+  FailOpen : later steps and 08 are skipped
   FailOpen : Degraded=False NoPoolsPaused
-  FailOpen : MCO upgrades the nodes WITHOUT Jobs
+  FailOpen : MCO upgrades the nodes
+  FailOpen : WITHOUT Jobs
 
   state "Run: pools held (fail-closed)" as Run {
     state "Holding" as Holding
@@ -48,54 +61,52 @@ stateDiagram-v2
     Processing : JobRun, NodeUpgrade "Node is i of n"
 
     Holding --> Settling : 04 stamped the canary, 05 defers
-    Holding --> Armed : no stamp, 05 re-points at once
+    Settling --> Settling : 04 re-stamps
+    Holding --> Armed : no stamp, 05 at once
     Settling --> Armed : 05, a reconcile 300 s or more after the stamp
     Armed --> Processing : 02 reads history[0] Completed (UpgradeReady)
     Processing --> Processing : 06, the next node
   }
 
   state "Failed, holding (fail-closed)" as Failed
-  Failed : a rescue set mutexrunconfig_failure
+  Failed : a step failed while a pool is
+  Failed : paused or changed by this run
   Failed : later steps and 08 are skipped,
   Failed : nothing is unpaused
   Failed : Degraded=True PoolsLeftPaused
   Failed : retried with backoff
 
   state "Restoring" as Restore
-  Restore : 08 restores the target pools, the canary last
-  Restore : removes the mutex labels and node marks
-  Restore : unpauses the pools with its paused-by
+  Restore : 08 restores the pools, canary last,
+  Restore : removes mutex labels and marks,
+  Restore : unpauses the pools it paused
   Restore : MCPUpdated=False SelectorsRestored
-  Restore : UpgradeAvailable=False UpgradeFinished
-
-  state "Restored, sweep pending" as Sweep
-  Sweep : the canary has restored-at
-  Sweep : the canary's own nodes keep the
-  Sweep : release label, no pool selects on it
+  Restore : UpgradeFinished after the last node
 
   state "Finalizing" as Finalizing
   Finalizing : on delete, from any state
+  Finalizing : in the namespace
   Finalizing : main.yml runs 00 and 08, not 09
   Finalizing : one pass, release labels go at once
   Finalizing : the remaining nodes upgrade
   Finalizing : WITHOUT Jobs
 
-  [*] --> Ignored : outside POD_NAMESPACE
-  [*] --> Idle : first reconcile in the namespace
-  Idle --> FailOpen : 01 or 02 fails
-  FailOpen --> Idle : cause fixed, retry
-  Idle --> Holding : 02 finds a node behind, main.yml runs 03 and 04
-  Run --> Failed : a step from 01 to 07 fails
-  Failed --> Run : retry, the labels and annotations show where it stopped
-  Processing --> Restore : last node done, JobRun still true
-  Restore --> Failed : 08 fails
+  [*] --> Ignored : created outside POD_NAMESPACE
+  [*] --> Between : first reconcile in the namespace
+  Between --> FailOpen : 01, 02, 03 fails
+  FailOpen --> Between : fixed, retry
+  Between --> Holding : 02 finds a node behind, main.yml runs 03 and 04
+  Run --> Failed : a step fails, a pool held
+  Failed --> Run : retry where it stopped
+  Processing --> Restore : last node done (JobRun)
+  Run --> Restore : none behind (02)
+  Restore --> Failed : 08 fails, a pool held
   Failed --> Restore : retry, no node behind
-  Restore --> Sweep : a node still has the release label
-  Restore --> Idle : no node has the release label
-  Sweep --> Idle : 08, a reconcile 300 s or more after restored-at
-  Run --> Finalizing : delete, 06 stops before the next node
+  Restore --> Between : 08 done
+  Run --> Finalizing : delete, 06 stops before a node
   Failed --> Finalizing : delete
-  Finalizing --> Finalizing : a task failed, the finalizer stays, retry
+  Between --> Finalizing : delete
+  Finalizing --> Finalizing : a task failed, retry
   Finalizing --> [*] : no task failed, ansible-operator removes the finalizer
 
   classDef warn fill:#fde2e1,stroke:#b42318,color:#000000

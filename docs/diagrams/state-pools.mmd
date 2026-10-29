@@ -4,9 +4,12 @@ config:
 ---
 stateDiagram-v2
   accTitle: A target pool and the canary pool during a run
-  accDescr: The states of a target MachineConfigPool and of the canary pool during a run: the target pool is paused, re-pointed with release NotIn and restored and unpaused; the canary gets the hold selector and the release-labelled-at stamp when needed, is re-pointed with its kept expressions and release In, is restored with restored-at and is swept.
+  accDescr: The states of a target MachineConfigPool and of the canary pool during a run: the target pool is paused by the run or by someone else, re-pointed with release NotIn and restored, and unpaused only when the run paused it; the canary gets the hold selector and the release-labelled-at stamp when needed, is re-pointed with its kept expressions and release In, is restored with restored-at and is swept, unless a new run starts before the sweep.
+
+  direction LR
 
   state "A target pool" as TPool {
+    direction TB
     state "Own selector, unpaused" as TOwn
     TOwn : no annotation of this run
 
@@ -14,33 +17,49 @@ stateDiagram-v2
     TPaused : spec.paused true, paused-by (03)
     TPaused : its own selector
 
+    state "Paused by someone else" as TOther
+    TOther : spec.paused true, no paused-by,
+    TOther : 03 leaves it as it is
+
     state "Re-pointed" as TRe
     TRe : own matchExpressions + release NotIn (v)
     TRe : original-match-expressions, modified-by
     TRe : still paused (05)
 
     state "Restored and unpaused" as TRest
-    TRest : saved matchExpressions back, annotations
-    TRest : removed, spec.paused false (08)
+    TRest : saved matchExpressions back,
+    TRest : annotations removed,
+    TRest : spec.paused false (08)
+
+    state "Restored, still paused" as TRestPaused
+    TRestPaused : saved matchExpressions back,
+    TRestPaused : annotations removed (08),
+    TRestPaused : still paused: only its
+    TRestPaused : administrator unpauses it
 
     [*] --> TOwn
     TOwn --> TPaused : 03, a target node is behind
+    TOwn --> TOther : an administrator pauses it
     TPaused --> TRe : 05 re-points
+    TOther --> TRe : 05 re-points it too
     TRe --> TRe : worker, MCO resets it, 05 rewrites it
     TRe --> TRest : 08, after the last node, with no node behind, or in the finalizer
+    TRe --> TRestPaused : 08, paused by someone else
     TPaused --> TRest : 08 unpauses only
     TRest --> [*]
+    TRestPaused --> [*]
   }
 
   state "The canary pool" as CPool {
+    direction TB
     state "Own selector" as COwn
     COwn : matchLabels + own matchExpressions,
     COwn : never paused, may have nodes of its own
 
     state "Holding, stamped" as CHold
-    CHold : original + mutex label DoesNotExist per rule
-    CHold : original-match-expressions, modified-by,
-    CHold : release-labelled-at (04)
+    CHold : original + mutex label DoesNotExist
+    CHold : per rule, original-match-expressions,
+    CHold : modified-by, release-labelled-at (04)
 
     state "Re-pointed" as CRe
     CRe : kept expressions + release In (v)
@@ -57,10 +76,14 @@ stateDiagram-v2
     [*] --> COwn
     COwn --> CHold : 04, a canary node gets the release label or a node loses it
     COwn --> CRe : 05 at once, no stamp
+    CHold --> CHold : 04 stamps again on another release label change
     CHold --> CRe : 05, 300 s or more after the stamp
     CRe --> CRest : 08 restores it last, a node has the release label
-    CRe --> CSwept : 08 restores it last, no node has the release label, or the finalizer
+    CRe --> CSwept : 08, no node has the release label, or the finalizer
+    CHold --> CRest : 08 with no node behind, as from Re-pointed
+    CHold --> CSwept : the finalizer, or 08 as from Re-pointed
     CRest --> CSwept : 08, 300 s or more after restored-at, or the finalizer
-    CHold --> CSwept : finalizer
+    CRest --> CRe : a new run before the sweep, restored-at stays
+    CRest --> CHold : a new run that changes a release label
     CSwept --> [*]
   }

@@ -12,18 +12,20 @@ stateDiagram-v2
     Member : not held by this run (01)
 
     state "Labelled for the run" as Labelled
-    Labelled : 04 adds the release label
-    Labelled : after it stamps the canary
+    Labelled : 04 adds the release label, after
+    Labelled : a stamp while the canary is
+    Labelled : not re-pointed yet
 
     state "Kept after the restore" as Kept
     Kept : release label stays, the canary
     Kept : has its own selector and restored-at
 
     [*] --> Member
-    Member --> Labelled : 04, start of the run
+    Member --> Labelled : 04, start of the run or it joins the canary
     Labelled --> Kept : 08 restores the canary
-    Kept --> Member : 08 sweep, 300 s or more after restored-at
-    Labelled --> Member : finalizer, at once
+    Kept --> Labelled : a new run before the sweep
+    Kept --> Member : 08, 300 s or more after restored-at, or the finalizer
+    Labelled --> Member : 04 when it leaves the canary, or the finalizer
   }
 
   state "Not behind" as Current
@@ -45,10 +47,12 @@ stateDiagram-v2
     Waiting : labelled by 04
 
     state "Pre-upgrade Jobs" as Pre
-    Pre : 07, one Job for each rule whose
-    Pre : mutex label the node still carries
+    Pre : 07, one Job at a time for each rule
+    Pre : whose mutex label the node carries,
+    Pre : the labels stay until the release
 
     Waiting --> Pre : its turn in the 06 loop
+    Waiting --> Waiting : MCO on another node, NodeUpgradeFailed, retry
     Pre --> Waiting : a Job Failed or ran past timeoutSeconds (JobRunFailed), retry
   }
 
@@ -100,8 +104,11 @@ stateDiagram-v2
   Behind --> InFlight : MCO started before 03 paused the pool
   InFlight --> Current : its label already showed the desired version (WITHOUT Jobs)
   InFlight --> Pre : otherwise, its Jobs run after that update
+  InFlight --> Released : it was updating to a canary config: no mutex label, no pre-upgrade Jobs
+  InFlight --> InFlight : 2 h, NodeUpgradeFailed, retry
   Pre --> Released : every pre-upgrade Job Complete
   Cleanup --> Back : every cleanup Job Complete
+  Done --> Back : no rule has a cleanUpJobSpec
   Back --> OwnPool : 08 restores and unpauses the pools
   OwnPool --> [*]
   HeldS --> Final : delete
