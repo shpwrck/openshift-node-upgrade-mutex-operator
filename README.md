@@ -71,9 +71,9 @@ NFD instance that publishes it as a label. The script publishes a version only w
 one named in `/etc/machine-config-daemon/currentconfig`, the config the Machine Config Daemon expects the node to run.
 It uses `rpm-ostree` for that check, so it needs RHCOS nodes. When a release keeps the same OS image, the label can
 change shortly before the node reboots. Examples are in the repository:
-[sample-manifests/machineconfig.yaml](https://github.com/shpwrck/openshift-node-upgrade-mutex-operator/blob/main/sample-manifests/machineconfig.yaml)
+[sample-manifests/machineconfig.yaml](https://github.com/redhat-na-ssa/openshift-node-upgrade-mutex-operator/blob/main/sample-manifests/machineconfig.yaml)
 and
-[sample-manifests/nodefeaturediscovery.yaml](https://github.com/shpwrck/openshift-node-upgrade-mutex-operator/blob/main/sample-manifests/nodefeaturediscovery.yaml).
+[sample-manifests/nodefeaturediscovery.yaml](https://github.com/redhat-na-ssa/openshift-node-upgrade-mutex-operator/blob/main/sample-manifests/nodefeaturediscovery.yaml).
 If the cluster already runs NFD, keep its NodeFeatureDiscovery instead of applying the sample, and make sure its
 `workerConfig` enables the local source: `core.labelSources` and `core.featureSources` (and the deprecated
 `core.sources`, if set) are unset or list `local` or `all`. Check that the label is right on your cluster before you
@@ -183,9 +183,17 @@ MutexRule. The operator creates neither the namespace, nor the ServiceAccount, n
 
 ## Installation
 
-Install the operator from its catalog (OperatorHub, or a CatalogSource that serves the operator catalog image) into a
-namespace of its own, for example `node-upgrade-mutex-operator`, the suggested namespace. Install it **once per
-cluster**.
+Install the operator from its catalog into a namespace of its own, for example `node-upgrade-mutex-operator`, the
+suggested namespace. Install it **once per cluster**. The project's catalog image is
+`ghcr.io/redhat-na-ssa/openshift-node-upgrade-mutex-operator-catalog` (`:latest` for the newest final release,
+`:v<version>` for a given one). Add it with the sample CatalogSource
+([sample-manifests/catalogsource.yaml](https://github.com/redhat-na-ssa/openshift-node-upgrade-mutex-operator/blob/main/sample-manifests/catalogsource.yaml)),
+then install the operator from OperatorHub in the console, which creates the Subscription and an `OwnNamespace`
+OperatorGroup:
+
+```sh
+oc apply -f https://raw.githubusercontent.com/redhat-na-ssa/openshift-node-upgrade-mutex-operator/main/sample-manifests/catalogsource.yaml
+```
 
 **Install modes.** Two modes are supported:
 
@@ -267,7 +275,7 @@ To move:
    ```
 
 4. Install 0.3.0 as described in [Installation](#installation), from a CatalogSource that serves
-   `ghcr.io/<owner>/openshift-node-upgrade-mutex-operator-catalog` (`:latest`, or `:v<version>`). If the
+   `ghcr.io/redhat-na-ssa/openshift-node-upgrade-mutex-operator-catalog` (`:latest`, or `:v<version>`). If the
    OperatorGroup targets another namespace (`SingleNamespace`), make it `OwnNamespace` first.
 5. Create the CRs again from `mutex-0.2.x.yaml`, with `apiVersion: nodeupgrade.redhat-na-ssa.github.io/v1alpha1`,
    in the operator namespace, without `status` and the server-set `metadata` fields, and checked against the schema
@@ -791,7 +799,7 @@ aggregated roles for these CRDs in every namespace. That is why CRs outside the 
 ## More information
 
 Source, issues and development notes:
-[github.com/shpwrck/openshift-node-upgrade-mutex-operator](https://github.com/shpwrck/openshift-node-upgrade-mutex-operator).
+[github.com/redhat-na-ssa/openshift-node-upgrade-mutex-operator](https://github.com/redhat-na-ssa/openshift-node-upgrade-mutex-operator).
 
 Licensed under the [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0) (`LICENSE` in the repository).
 
@@ -915,7 +923,8 @@ the only workflow that pushes anything, and it uses the workflow's own `GITHUB_T
 The catalog source of truth is `catalog-template.yaml`, an opm basic template that lists every released bundle and the
 upgrade edges of the `alpha` channel. `catalog/openshift-node-upgrade-mutex-operator/catalog.yaml` is rendered from it.
 The catalog was started afresh for the move to `ghcr.io` (`make catalog-reset` keeps only the package entry): the
-0.1.x and 0.2.x bundles are not in it, because their images are on the old registry. Until the first release
+0.1.x and 0.2.x bundles are not in it, because they use the old API group and their images were on an old registry
+that is gone. Until the first release
 `catalog-validate` only checks that the two files match, since opm refuses a channel without a bundle, and
 `catalog-build` builds nothing.
 
@@ -936,9 +945,11 @@ The catalog was started afresh for the move to `ghcr.io` (`make catalog-reset` k
    pre-release), run `make increment` for the next version. Re-running the job publishes the version again (the
    bundle gets a new digest) and replaces `release/<tag>`.
 4. The first push creates the three packages (`openshift-node-upgrade-mutex-operator`, `-bundle`, `-catalog`) under
-   the repository owner, linked to the repository by the image label. They start private: make each one public once
-   (package settings, Danger Zone, Change visibility; this cannot be undone) so that clusters can pull them without a
-   pull secret. In an organization, its package creation setting must allow public packages.
+   the repository owner, linked to the repository by the image label. They take the repository's visibility, so they
+   are public for a public repository when the organization's package creation setting allows public packages.
+   Check that clusters can pull them without a pull secret, for example `podman pull --authfile /dev/null
+   ghcr.io/<owner>/openshift-node-upgrade-mutex-operator-catalog:v<VERSION>`; if a package is private, make it public
+   once (package settings, Danger Zone, Change visibility; this cannot be undone).
 
 **By hand:**
 
@@ -993,4 +1004,4 @@ and open a pull request.
 When a role starts using a new resource or verb, add it there, add it to the permissions table in `docs/USAGE.md`, and
 run `make document`.
 
-See `docs/HANDOFF.md` for what has to change when the repository moves to a new owner.
+See `docs/HANDOFF.md` for where the repository, its images and catalog live, and what is left for its owner.

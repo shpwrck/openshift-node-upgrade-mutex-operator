@@ -118,7 +118,8 @@ the only workflow that pushes anything, and it uses the workflow's own `GITHUB_T
 The catalog source of truth is `catalog-template.yaml`, an opm basic template that lists every released bundle and the
 upgrade edges of the `alpha` channel. `catalog/openshift-node-upgrade-mutex-operator/catalog.yaml` is rendered from it.
 The catalog was started afresh for the move to `ghcr.io` (`make catalog-reset` keeps only the package entry): the
-0.1.x and 0.2.x bundles are not in it, because their images are on the old registry. Until the first release
+0.1.x and 0.2.x bundles are not in it, because they use the old API group and their images were on an old registry
+that is gone. Until the first release
 `catalog-validate` only checks that the two files match, since opm refuses a channel without a bundle, and
 `catalog-build` builds nothing.
 
@@ -139,9 +140,11 @@ The catalog was started afresh for the move to `ghcr.io` (`make catalog-reset` k
    pre-release), run `make increment` for the next version. Re-running the job publishes the version again (the
    bundle gets a new digest) and replaces `release/<tag>`.
 4. The first push creates the three packages (`openshift-node-upgrade-mutex-operator`, `-bundle`, `-catalog`) under
-   the repository owner, linked to the repository by the image label. They start private: make each one public once
-   (package settings, Danger Zone, Change visibility; this cannot be undone) so that clusters can pull them without a
-   pull secret. In an organization, its package creation setting must allow public packages.
+   the repository owner, linked to the repository by the image label. They take the repository's visibility, so they
+   are public for a public repository when the organization's package creation setting allows public packages.
+   Check that clusters can pull them without a pull secret, for example `podman pull --authfile /dev/null
+   ghcr.io/<owner>/openshift-node-upgrade-mutex-operator-catalog:v<VERSION>`; if a package is private, make it public
+   once (package settings, Danger Zone, Change visibility; this cannot be undone).
 
 **By hand:**
 
@@ -196,4 +199,4 @@ and open a pull request.
 When a role starts using a new resource or verb, add it there, add it to the permissions table in `docs/USAGE.md`, and
 run `make document`.
 
-See `docs/HANDOFF.md` for what has to change when the repository moves to a new owner.
+See `docs/HANDOFF.md` for where the repository, its images and catalog live, and what is left for its owner.

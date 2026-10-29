@@ -29,7 +29,7 @@ BUNDLE_METADATA_OPTS ?= $(BUNDLE_CHANNELS) $(BUNDLE_DEFAULT_CHANNEL)
 # IMAGE_TAG_BASE defines the registry namespace and image name used for the operator,
 # bundle and catalog images. It MUST be set to a registry you can push to before
 # running any push or release target, for example:
-#   make release IMAGE_TAG_BASE=quay.io/<org>/openshift-node-upgrade-mutex-operator
+#   make release IMAGE_TAG_BASE=ghcr.io/<owner>/openshift-node-upgrade-mutex-operator
 # (.envrc sets it for maintainers who use direnv). The default is a placeholder
 # that `make release` refuses to use.
 IMAGE_TAG_BASE ?= example.com/openshift-node-upgrade-mutex-operator
