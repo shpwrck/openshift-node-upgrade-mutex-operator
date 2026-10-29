@@ -60,6 +60,12 @@ IMG ?= $(IMAGE_TAG_BASE):$(VERSION)
 # (podman by default; use `make <target> CONTAINER_TOOL=docker` for docker).
 CONTAINER_TOOL ?= podman
 
+# IMAGE_SOURCE, when set, labels the operator, bundle and catalog images with
+# org.opencontainers.image.source, which links ghcr.io packages to their
+# repository. The release workflow sets it to the repository it runs in.
+IMAGE_SOURCE ?=
+IMAGE_LABELS = $(if $(IMAGE_SOURCE),--label org.opencontainers.image.source=$(IMAGE_SOURCE))
+
 # Tool versions. Every tool is downloaded into $(LOCALBIN) at the pinned version,
 # so builds do not depend on whatever happens to be on PATH. To use your own
 # binary instead, pass its absolute path (e.g. make bundle OPM=/usr/local/bin/opm).
@@ -129,7 +135,7 @@ run: ansible-operator ## Run against the configured Kubernetes cluster in ~/.kub
 
 .PHONY: docker-build
 docker-build: ## Build the operator image.
-	$(CONTAINER_TOOL) build -t $(IMG) .
+	$(CONTAINER_TOOL) build $(IMAGE_LABELS) -t $(IMG) .
 
 .PHONY: image-smoke-test
 image-smoke-test: ## Check the built operator image (collections, python libs, role syntax) without a cluster.
@@ -151,11 +157,11 @@ docker-buildx: ## Build and push the operator image for all PLATFORMS.
 ifeq ($(notdir $(CONTAINER_TOOL)),docker)
 	- $(CONTAINER_TOOL) buildx create --name openshift-node-upgrade-mutex-operator-builder
 	$(CONTAINER_TOOL) buildx use openshift-node-upgrade-mutex-operator-builder
-	$(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --tag $(IMG) -f Dockerfile .
+	$(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) $(IMAGE_LABELS) --tag $(IMG) -f Dockerfile .
 	- $(CONTAINER_TOOL) buildx rm openshift-node-upgrade-mutex-operator-builder
 else
 	- $(CONTAINER_TOOL) manifest rm $(MANIFEST_LIST)
-	$(CONTAINER_TOOL) build --platform=$(PLATFORMS) --manifest $(MANIFEST_LIST) -f Dockerfile .
+	$(CONTAINER_TOOL) build --platform=$(PLATFORMS) $(IMAGE_LABELS) --manifest $(MANIFEST_LIST) -f Dockerfile .
 	$(CONTAINER_TOOL) manifest push --all $(MANIFEST_LIST) docker://$(IMG)
 endif
 
@@ -191,6 +197,9 @@ bundle: kustomize operator-sdk yq ## Generate the bundle for VERSION into BUNDLE
 	@# generate bundle does not delete manifests that are no longer rendered.
 	rm -rf $(BUNDLE_DIR)/manifests $(BUNDLE_DIR)/metadata
 	$(KUSTOMIZE) build config/manifests | $(OPERATOR_SDK) generate bundle $(BUNDLE_GEN_FLAGS) --output-dir $(BUNDLE_DIR)
+	@# The CSV's containerImage annotation names the operator image the bundle deploys.
+	$(YQ) -i '.metadata.annotations.containerImage = (.spec.install.spec.deployments[0].spec.template.spec.containers[] | select(.name == "manager") | .image)' \
+		$(BUNDLE_DIR)/manifests/$(PACKAGE_NAME).clusterserviceversion.yaml
 	@# generate bundle writes ./bundle.Dockerfile with paths relative to the repo root;
 	@# keep it inside the bundle directory so each version builds on its own.
 	sed -e 's|$(BUNDLE_DIR)/||' bundle.Dockerfile > $(BUNDLE_DIR)/bundle.Dockerfile
@@ -210,7 +219,7 @@ bundle-validate: operator-sdk ## Validate BUNDLE_DIR with the optional operatorf
 .PHONY: bundle-build
 bundle-build: ## Build the bundle image from BUNDLE_DIR (run `make bundle` first).
 	@test -f $(BUNDLE_DIR)/bundle.Dockerfile || { echo "$(BUNDLE_DIR)/bundle.Dockerfile not found: run 'make bundle' first"; exit 1; }
-	$(CONTAINER_TOOL) build -f $(BUNDLE_DIR)/bundle.Dockerfile -t $(BUNDLE_IMG) $(BUNDLE_DIR)
+	$(CONTAINER_TOOL) build $(IMAGE_LABELS) -f $(BUNDLE_DIR)/bundle.Dockerfile -t $(BUNDLE_IMG) $(BUNDLE_DIR)
 
 .PHONY: bundle-push
 bundle-push: ## Push the bundle image.
@@ -250,14 +259,26 @@ catalog-render: opm ## Render CATALOG_TEMPLATE into CATALOG_FILE (pulls every bu
 	mv $(CATALOG_FILE).tmp $(CATALOG_FILE)
 	$(OPM) validate $(CATALOG_DIR)
 
+# A fresh catalog (`make catalog-reset`) has only the package entry until the
+# first release, and opm refuses a channel without a bundle: until then
+# catalog-validate only compares the two files and catalog-build builds nothing.
+CATALOG_EMPTY = [ "$$($(YQ) '[.entries[] | select(.schema == "olm.bundle")] | length' $(CATALOG_TEMPLATE))" = 0 ]
+
+.PHONY: catalog-reset
+catalog-reset: yq ## Start a fresh catalog: keep only the package entry in CATALOG_TEMPLATE and CATALOG_FILE.
+	YQ=$(YQ) hack/catalog-reset.sh $(CATALOG_TEMPLATE) $(CATALOG_FILE)
+
 .PHONY: catalog-validate
 catalog-validate: opm yq ## Validate CATALOG_DIR and check it matches CATALOG_TEMPLATE (no image pulls).
-	$(OPM) validate $(CATALOG_DIR)
+	@if $(CATALOG_EMPTY); then echo "$(CATALOG_TEMPLATE) lists no bundle yet: skipping opm validate"; \
+	else echo "$(OPM) validate $(CATALOG_DIR)"; $(OPM) validate $(CATALOG_DIR); fi
 	YQ=$(YQ) hack/verify-catalog.sh $(CATALOG_TEMPLATE) $(CATALOG_FILE)
 
 .PHONY: catalog-build
-catalog-build: catalog-validate ## Build the catalog image from CATALOG_DIR.
-	$(CONTAINER_TOOL) build -f catalog.Dockerfile -t $(CATALOG_IMG) .
+catalog-build: catalog-validate ## Build the catalog image from CATALOG_DIR (nothing while no bundle is released).
+	@if $(CATALOG_EMPTY); then echo "$(CATALOG_TEMPLATE) lists no bundle yet: no catalog image to build"; \
+	else echo "$(CONTAINER_TOOL) build $(IMAGE_LABELS) -f catalog.Dockerfile -t $(CATALOG_IMG) ."; \
+		$(CONTAINER_TOOL) build $(IMAGE_LABELS) -f catalog.Dockerfile -t $(CATALOG_IMG) .; fi
 
 .PHONY: catalog-push
 catalog-push: ## Push the catalog image.
@@ -272,7 +293,9 @@ release-check: yq ## Refuse to release to the placeholder registry or a VERSION 
 	@YQ=$(YQ) hack/catalog-add.sh --check $(CATALOG_TEMPLATE) $(PACKAGE_NAME) $(CATALOG_CHANNEL) $(VERSION) $(BUNDLE_REF)
 
 # The steps run one after another (also under make -j). The operator image is
-# pushed before `bundle` so USE_IMAGE_DIGESTS=true can resolve it. The bundle
+# pushed before `bundle` so USE_IMAGE_DIGESTS=true can resolve it. A
+# pre-release VERSION (with a '-', for example 0.3.0-rc1) leaves the :latest
+# tags alone. The bundle
 # is recorded in the catalog by tag: every `make bundle` writes a new createdAt,
 # so its digest is only known after this target pushes it. A BUNDLE_REF other
 # than BUNDLE_IMG would record a different bundle, so it is refused before
@@ -288,7 +311,8 @@ release: release-check ## Build and push operator, bundle and catalog images for
 	$(MAKE) catalog-add
 	$(MAKE) catalog-render
 	$(MAKE) catalog-build catalog-push
-	$(MAKE) latest
+	@case "$(VERSION)" in *-*) echo "$(VERSION) is a pre-release: the :latest tags stay where they are.";; \
+	*) $(MAKE) latest;; esac
 	@echo "Released $(VERSION). Commit $(CATALOG_TEMPLATE) and $(CATALOG_DIR)/, then run 'make increment'."
 
 .PHONY: latest

@@ -207,9 +207,10 @@ fails validation.
 
 ### Upgrading from 0.2.x
 
-0.3.0 is published in the `alpha` channel as the upgrade of the newest 0.2.x in each catalog (0.2.68, with
-`skipRange: <0.3.0`, in the project's own catalog; 0.2.66 in the community catalogs), so every 0.2.x Subscription is
-offered it. The common install needs no changes: the operator in its own namespace (for example
+0.3.0 is published in the `alpha` channel with `skipRange: <0.3.0`. The project's own catalog starts afresh with
+0.3.0 on a new registry (`ghcr.io`), without the 0.2.x bundles: point the CatalogSource of a 0.2.x install at the new
+catalog image and its Subscription (channel `alpha`) is offered 0.3.0 through that `skipRange`. In the community
+catalogs 0.3.0 is the upgrade of 0.2.66, so every 0.2.x Subscription there is offered it. The common install needs no changes: the operator in its own namespace (for example
 `node-upgrade-mutex-operator`, through the console, which creates an `OwnNamespace` OperatorGroup) with every
 MutexRule, MutexTarget and MutexRunConfig in that same namespace keeps working, as long as the CRs pass the new
 schemas (step 3 below) and the canary passes the new checks (step 5). Four changes can break other installs:
@@ -831,13 +832,16 @@ To use your own binary, pass its path, for example `make bundle OPM=/usr/local/b
 
 ### Version and registry
 
-`.envrc` holds the release settings: `MAJOR`, `MINOR`, `PATCH`, `IMAGE_TAG_BASE`, and `USE_IMAGE_DIGESTS=true`, which
-pins the operator image by digest in the bundle. [direnv](https://direnv.net) exports them. Without direnv the
-Makefile still reads the version from `.envrc`, but `IMAGE_TAG_BASE` falls back to the placeholder
-`example.com/openshift-node-upgrade-mutex-operator`, which `make release` refuses, and `USE_IMAGE_DIGESTS` to `false`,
-so the bundle references the operator image by tag. Pass both, for example
+`.envrc` holds the release settings: `MAJOR`, `MINOR`, `PATCH`, `IMAGE_TAG_BASE` (the `ghcr.io` package of this
+repository's owner), `IMAGE_SOURCE` (this repository's URL, which `org.opencontainers.image.source` labels on the
+images link the `ghcr.io` packages to), and `USE_IMAGE_DIGESTS=true`, which pins the operator image by digest in the
+bundle. [direnv](https://direnv.net) exports them. Without direnv the Makefile still reads the version from `.envrc`,
+but `IMAGE_TAG_BASE` falls back to the placeholder `example.com/openshift-node-upgrade-mutex-operator`, which
+`make release` refuses, `IMAGE_SOURCE` to empty (no label), and `USE_IMAGE_DIGESTS` to `false`, so the bundle
+references the operator image by tag. Pass them, for example
 `make release IMAGE_TAG_BASE=<registry>/openshift-node-upgrade-mutex-operator USE_IMAGE_DIGESTS=true`. Set
-`IMAGE_TAG_BASE` to a registry you can push to before you push anything.
+`IMAGE_TAG_BASE` to a registry you can push to before you push anything. The release workflow sets all of them
+itself (see Releasing).
 
 ### Make targets
 
@@ -904,10 +908,35 @@ secrets and pushes nothing.
 * **Build and validate**, with podman and `IMAGE_TAG_BASE=localhost/...`: `docker-build`, `image-smoke-test`,
   `bundle` with `bundle-validate`, `verify-manifests`, `bundle-build`, `catalog-validate` and `catalog-build`.
 
+`.github/workflows/release.yaml` runs only when a version tag is pushed and publishes a release (see Releasing). It is
+the only workflow that pushes anything, and it uses the workflow's own `GITHUB_TOKEN` (`contents: write`,
+`packages: write`), no other secret.
+
 ### Releasing
 
 The catalog source of truth is `catalog-template.yaml`, an opm basic template that lists every released bundle and the
 upgrade edges of the `alpha` channel. `catalog/openshift-node-upgrade-mutex-operator/catalog.yaml` is rendered from it.
+The catalog was started afresh for the move to `ghcr.io` (`make catalog-reset` keeps only the package entry): the
+0.1.x and 0.2.x bundles are not in it, because their images are on the old registry. Until the first release
+`catalog-validate` only checks that the two files match, since opm refuses a channel without a bundle, and
+`catalog-build` builds nothing.
+
+**With the release workflow** (`.github/workflows/release.yaml`):
+
+1. Check the version in `.envrc`. It must not be in `catalog-template.yaml` yet.
+2. Push a tag `v<VERSION>` on the commit to release, for example `git tag v0.3.0 && git push origin v0.3.0`. For a
+   pre-release add a suffix, for example `v0.3.0-rc1`: the version without the suffix must still match `.envrc`, and
+   the `:latest` tags are not moved.
+3. The workflow runs `make release` (below) with
+   `IMAGE_TAG_BASE=ghcr.io/<repository owner>/openshift-node-upgrade-mutex-operator`, `IMAGE_SOURCE` set to the
+   repository and `USE_IMAGE_DIGESTS=true`, logged in to `ghcr.io` with its `GITHUB_TOKEN`. It then pushes the updated `catalog-template.yaml` and `catalog/` to the branch `release/<tag>`,
+   and the run's summary links the comparison. Open a pull request from that branch and merge it, then run
+   `make increment` for the next version (after a final release, not after a pre-release).
+4. The first push creates the three packages (`openshift-node-upgrade-mutex-operator`, `-bundle`, `-catalog`) under
+   the repository owner, linked to the repository by the image label. They start private: make each one public once
+   (package settings, Danger Zone, Change visibility) so that clusters can pull them without a pull secret.
+
+**By hand:**
 
 1. Set `IMAGE_TAG_BASE` (in `.envrc`) and log in to that registry. Check the version in `.envrc`. It must not be in
    `catalog-template.yaml` yet.
@@ -917,7 +946,8 @@ upgrade edges of the `alpha` channel. `catalog/openshift-node-upgrade-mutex-oper
      pushes the bundle image;
    * `catalog-add` makes the bundle the new channel head, with `replaces` set to the old head and `skipRange: <VERSION`;
    * `catalog-render` pulls every bundle image and takes a few minutes;
-   * builds and pushes the catalog image, and tags all three images as `:latest`.
+   * builds and pushes the catalog image, and tags all three images as `:latest` (not for a pre-release, a `VERSION`
+     with a `-` such as `0.3.0-rc1`).
 3. Commit `catalog-template.yaml` and `catalog/`.
 4. Run `make increment` to bump `PATCH` in `.envrc`, then commit it.
 

@@ -207,9 +207,10 @@ fails validation.
 
 ### Upgrading from 0.2.x
 
-0.3.0 is published in the `alpha` channel as the upgrade of the newest 0.2.x in each catalog (0.2.68, with
-`skipRange: <0.3.0`, in the project's own catalog; 0.2.66 in the community catalogs), so every 0.2.x Subscription is
-offered it. The common install needs no changes: the operator in its own namespace (for example
+0.3.0 is published in the `alpha` channel with `skipRange: <0.3.0`. The project's own catalog starts afresh with
+0.3.0 on a new registry (`ghcr.io`), without the 0.2.x bundles: point the CatalogSource of a 0.2.x install at the new
+catalog image and its Subscription (channel `alpha`) is offered 0.3.0 through that `skipRange`. In the community
+catalogs 0.3.0 is the upgrade of 0.2.66, so every 0.2.x Subscription there is offered it. The common install needs no changes: the operator in its own namespace (for example
 `node-upgrade-mutex-operator`, through the console, which creates an `OwnNamespace` OperatorGroup) with every
 MutexRule, MutexTarget and MutexRunConfig in that same namespace keeps working, as long as the CRs pass the new
 schemas (step 3 below) and the canary passes the new checks (step 5). Four changes can break other installs:
