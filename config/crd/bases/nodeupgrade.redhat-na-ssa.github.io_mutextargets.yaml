@@ -84,10 +84,10 @@ spec:
             properties:
               nodes:
                 description: |-
-                  The nodes that MCO assigns to the target pools, sorted by name. A node belongs
-                  to the custom pool its labels match, else to 'master' if it matches master,
-                  else to 'worker', so a worker-labelled node in the canary, infra or another
-                  custom pool is not a node of the 'worker' target. Both matchLabels and
+                  The nodes of the target pools, sorted by name. A node is listed under the
+                  custom pool its labels match, else 'master', else 'worker' (MCO instead keeps
+                  a master and custom pool node in master), so a worker-labelled node in the
+                  canary or another custom pool is not a node of the 'worker' target. Both matchLabels and
                   matchExpressions of each pool are used. While a MutexRunConfig run has changed
                   the selector of a pool, the original matchExpressions saved in its
                   nodeupgrade.redhat-na-ssa.github.io/original-match-expressions annotation are used,

@@ -13,10 +13,10 @@
 #     created); podAffinity, podAntiAffinity and preferred terms are kept;
 #   * the Job is created with generateName '<jobName>-' (cleanup:
 #     'cleanup-<jobName>-') in spec.jobNamespace (default: the MutexRule's
-#     namespace) and must reach Complete within the rule's spec.timeoutSeconds
-#     (the CRD defaults it to 3600, so the literal fallback below only covers a
-#     rule read without the default). A Failed condition stops the run at
-#     once.
+#     namespace). The operator waits up to the rule's spec.timeoutSeconds for
+#     Complete (the CRD defaults it to 3600; the fallback below only covers a
+#     rule read without the default). On expiry the run fails, but the Job is
+#     not stopped. A Failed condition stops the run at once.
 #   * the Job carries the job-key label, a hash of MutexRunConfig, node, rule,
 #     phase and desired version. A re-entered run reuses a Job with the same
 #     key that has not failed (waiting for it if it still runs) rather than

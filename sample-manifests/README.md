@@ -54,8 +54,8 @@ order below, and check each step before the next.
    oc get catalogsource node-upgrade-mutex-operator-catalog -n openshift-marketplace -o jsonpath='{.status.connectionState.lastObservedState}{"\n"}'
    ```
 
-   Expected: `READY`. Before the project's first release there is no catalog image to read; see the file's comments
-   for the tags and for using a catalog of your own.
+   Expected: `READY`. The file uses the tag `:v0.3.0-rc2`, which exists only once that version is released; see the
+   file's comments for the tags and for using a catalog of your own.
 
 5. Install the operator, then approve its first InstallPlan (the Subscription uses Manual approval):
 
@@ -99,7 +99,7 @@ order below, and check each step before the next.
 | [canary-mcp.yaml](canary-mcp.yaml) | MachineConfigPool `canary` | The canary for the target pool `worker`. Keep it empty. | Not applied on a cluster in this form; the same pool spec was the sample canary of the live runs |
 | [canary-mcp-custom-pool.yaml](canary-mcp-custom-pool.yaml) | MachineConfigPool `canary-app` | The canary for a custom target pool, here `app`. Edit it first. | Not applied on a cluster |
 | [catalogsource.yaml](catalogsource.yaml) | CatalogSource `node-upgrade-mutex-operator-catalog` in `openshift-marketplace` | Offers the project's catalog image, `ghcr.io/redhat-na-ssa/openshift-node-upgrade-mutex-operator-catalog`, to OLM. | Not applied on a cluster |
-| [operator-install.yaml](operator-install.yaml) | Namespace, OperatorGroup and Subscription `node-upgrade-mutex-operator` | Installs the operator into its own namespace (install mode `OwnNamespace`), channel `alpha`, Manual approval. | Not applied on a cluster |
+| [operator-install.yaml](operator-install.yaml) | Namespace and OperatorGroup `node-upgrade-mutex-operator`, Subscription `openshift-node-upgrade-mutex-operator` | Installs the operator into its own namespace (install mode `OwnNamespace`), channel `alpha`, Manual approval. | Not applied on a cluster |
 | [job-example.yaml](job-example.yaml) | ServiceAccount, ClusterRole and ClusterRoleBinding `mutex-node-labeler`; MutexRule `label-node` | The Quick start rule: its Job labels the node before its upgrade, its cleanup Job removes the label after. | Not applied on a cluster in this form; earlier revisions: unknown |
 | [job-wait-for-app.yaml](job-wait-for-app.yaml) | ServiceAccount, Role and RoleBinding `mutex-wait-for-app` in `my-app`; MutexRule `wait-for-app` | Waits until a Deployment is fully available, before each node is drained and after it is back. Edit it first. | Not applied on a cluster |
 | [mutex-target-and-runconfig.yaml](mutex-target-and-runconfig.yaml) | MutexTarget and MutexRunConfig `workers` | Upgrades the nodes of pool `worker` one at a time through `canary`, each after the Job of `label-node`. | Not applied on a cluster |

@@ -31,8 +31,9 @@ Steps 1 to 3 had to be done before the first public release. They are done; each
    example the stuck node (S24), the manual restore (S28), an abort on the shipped design (S25) and a minor upgrade
    (S39).
 8. **Docs after the release.** Until the first release, USAGE says that nothing is released yet. Once `v0.3.0-rc2`
-   (or `v0.3.0`) is in the catalog, update the status and Install text in `docs/USAGE.md`, and the tested
-   environments after step 7, then run `make document`.
+   (or `v0.3.0`) is in the catalog, update the status and Install text in `docs/USAGE.md` (the status table, Catalog
+   and versions, Quick start step 6), and the tested environments after step 7, then run `make document`. The sample
+   `sample-manifests/catalogsource.yaml` uses the tag `:v0.3.0-rc2`; move it to the newest release each time.
 9. **Open decisions and known gaps.** Go through [Decisions left to the new owner](#decisions-left-to-the-new-owner)
    and [Known gaps](#known-gaps). File issues for the ones you keep. This file travels with the repository; issues in
    the old repository did not move.
@@ -133,10 +134,10 @@ so `README.md` and the CSV description), and this file.
 0.3.0 is the first version with this group. 0.2.x and every earlier build, the 0.3.0-rc1 pre-release included, used
 the old group: their CRs, labels and annotations are not read by 0.3.0, so there is no in-place upgrade from them, and
 the catalog's `skipRange` starts at `0.3.0-0` (`CATALOG_SKIP_FROM` in the Makefile) so that OLM never offers 0.3.0 as
-an upgrade of them. The roles still carry the code that takes over the state of earlier builds of the same group (the
-selector of an earlier canary design, mutex labels without `labelled-by`). With the new group nothing older than
-0.3.0 can leave such state, so that code only matters for runs of 0.3.0 builds from before a later change. Changing
-the group again creates a new API in the same way.
+an upgrade of them. The roles still carry code that takes over the state of earlier builds (the selector of an
+earlier canary design, mutex labels without `labelled-by`). Every build that wrote such state used the old group, so
+with the new group only a hand-made label or annotation can reach that code (DESIGN,
+[Compatibility paths](DESIGN.md#compatibility-paths)). Changing the group again creates a new API in the same way.
 
 The live tests ran with the old group. In `roles/` the rename changed only names and the license metadata (commit
 b6f0d75), and the kind E2E passed with it (test row S44).
@@ -182,6 +183,9 @@ b6f0d75), and the kind E2E passed with it (test row S44).
   so the console shows the whole user guide, also on a disconnected cluster. In exchange, USAGE has to follow the
   console rules (no blockquotes or alerts, no raw HTML, no h5 or h6), and its diagrams reach the console only as
   links. A short description that links to the repository is the alternative.
+* **Compatibility paths.** The code that handles state of earlier builds can no longer be reached by any build with
+  the current group. Remove it, or keep it as a guard against hand edits (DESIGN,
+  [Compatibility paths](DESIGN.md#compatibility-paths)).
 * **Release notes.** No GitHub Release or changelog is created (Known gaps G15). The notes for 0.3.0 should point to
   USAGE, [Moving from 0.2.x](USAGE.md#moving-from-02x), which is also in the CSV description.
 
@@ -213,6 +217,8 @@ root. File names without a directory, and `07:` for `07-run-job.yml`, are in `ro
 | G17 | A Job author cannot see the Job the operator would create without running an upgrade | no such target in the Makefile | `make render-job`, built on the logic of `07` | low |
 | G18 | Two embedded assets have no source file: the MachineConfig script exists only in a comment and as a base64 data URL, and the icon only as base64 | `sample-manifests/machineconfig.yaml:25-108,126`; `spec.icon` in the CSV base; `catalog-template.yaml` | Commit both sources and a target that encodes them | low |
 | G19 | The molecule scenario named `default` runs against whatever `KUBECONFIG` points at, and a plain `molecule test` picks it. It is guarded, but the name invites mistakes | `molecule/default/molecule.yml:1-19`; the guard in `molecule/default/tasks/olm_guard.yml` | Rename it to `cluster`, or make `kind` the default | low |
+| G20 | A MutexTarget's `status.nodes` does not follow MCO in two cases. MCO keeps a node that matches `master` and a custom pool in `master`, and manages a node that matches two custom pools in no pool; the role lists both under their custom pool. So a control-plane node can become a target node of a custom pool | `roles/mutextarget/tasks/02-gather-nodes.yml:89-96`; MCO `GetPoolsForNode` (DESIGN, [What the operator assumes about MCO](DESIGN.md#what-the-operator-assumes-about-mco)) | Follow MCO: put a `master` match first, and leave out nodes that match two custom pools, with a condition that names them | medium |
+| G21 | The `NodeUpgradeFailed` message repeats itself in the common case ("`<node>` did not finish its upgrade: `<node>` did not finish its upgrade to ..."), and it is also used when MCO started updating another target node, where "did not finish its upgrade" is wrong | `06-execute-jobs.yml:146-152`, `:294-299`, `:393` | Word the inner messages so the prefix reads once, and give the guard its own message or reason | low |
 
 ## Old versions
 

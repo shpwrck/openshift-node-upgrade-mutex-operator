@@ -50,9 +50,9 @@ of the Machine Config Operator, the same on the `release-4.16` and `release-4.21
 - A node that matches two custom pools, one of them a target: the role lists it in `status.nodes`, while MCO manages
   it in no pool.
 
-The comment at `tasks/02-gather-nodes.yml:10-13` describes the role's rule, not MCO's. So a target pool should never
-select control-plane nodes, and no node should match two custom pools. [DESIGN.md](../../docs/DESIGN.md) lists the other
-places that depend on MCO's choice.
+The comment at `tasks/02-gather-nodes.yml:10-13` says so too (HANDOFF [Known gaps](../../docs/HANDOFF.md#known-gaps)
+G20). So a target pool should never select control-plane nodes, and no node should match two custom pools.
+[DESIGN.md](../../docs/DESIGN.md) lists the other places that depend on MCO's choice.
 
 ## Inputs
 

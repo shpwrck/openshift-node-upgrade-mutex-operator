@@ -159,6 +159,17 @@ To change a diagram:
 3. Commit the `.mmd` and the `.svg` together. If the diagram is embedded in `docs/USAGE.md` or this file, run
    `make document` and commit its output too.
 
+Pitfalls met while drawing the current diagrams:
+
+- `;` ends a statement in a sequence diagram, and a state description that ends with `:` does not parse.
+- Write `<` and `>` in labels as `#lt;` and `#gt;`.
+- A stadium node `([...])` adds about 30 KB of drawn path to the SVG; use a rounded node `("...")`.
+- A sequence note that spans every participant widens the whole diagram once one of its lines passes about 45
+  characters.
+- Invisible subgraphs (`classDef row fill:none,stroke:none`) keep rows in a fixed order, as in `pool-membership.mmd`.
+- Each `.mmd` sets its own `themeCSS` in its front matter, for example opaque edge-label backgrounds. Moving it into
+  `mermaid.json` would change every stamp.
+
 CI runs three checks. Run them before you open a pull request:
 
 - `make docs-lint` checks links, anchors, alt text, the console rules, this file's targets table, that every SVG is

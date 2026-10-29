@@ -7,10 +7,10 @@
 # matchExpressions saved in its annotation are used, so status.nodes stays
 # the same for the whole run.
 #
-# A node can match several pools, so the pool it belongs to follows MCO's
-# rule: the custom pool it matches, else 'master' if it matches master, else
-# 'worker'. A worker-labelled node in the canary, infra or another custom pool
-# is therefore not a node of the 'worker' target.
+# A node can match several pools. It is listed under the custom pool it
+# matches, else 'master', else 'worker', so a worker-labelled node in the
+# canary or another custom pool is not a node of the 'worker' target. Unlike
+# MCO, a master + custom or two-custom-pool node is listed (HANDOFF G20).
 #
 # A target pool with an empty selector is an error: MCO selects no nodes from
 # it, and an empty label selector would list every node in the cluster.

@@ -276,8 +276,8 @@ Each step has a command and what you should see. The sample files are in
    cluster's version on every target node.
 5. **Create the canary pool.** `oc apply -f sample-manifests/canary-mcp.yaml`, then `oc get mcp canary`. Expected:
    `MACHINECOUNT` `0`.
-6. **Install the operator.** `oc apply -f sample-manifests/catalogsource.yaml` (until 0.3.0 is released, change its
-   tag first, see [Catalog and versions](#catalog-and-versions)), then
+6. **Install the operator.** `oc apply -f sample-manifests/catalogsource.yaml` (it uses the tag `:v0.3.0-rc2`, see
+   [Catalog and versions](#catalog-and-versions)), then
    `oc apply -f sample-manifests/operator-install.yaml` (namespace, OperatorGroup, and a Subscription with `Manual`
    approval). Approve the InstallPlan:
 
@@ -436,7 +436,7 @@ it during a run. The message names the nodes and gives the `oc label` command th
 
 | Catalog | Image | What it offers |
 | --- | --- | --- |
-| This project's catalog | `ghcr.io/redhat-na-ssa/openshift-node-upgrade-mutex-operator-catalog`, tag `:v<version>` for every release and pre-release, `:latest` for the newest final release only | 0.3.0 and later, channel `alpha`. Empty until the first release from this repository, 0.3.0-rc2. Until 0.3.0 itself is released there is no `:latest`: set a pre-release tag such as `:v0.3.0-rc2` in the CatalogSource. |
+| This project's catalog | `ghcr.io/redhat-na-ssa/openshift-node-upgrade-mutex-operator-catalog`, tag `:v<version>` for every release and pre-release, `:latest` for the newest final release only | 0.3.0 and later, channel `alpha`. Empty until the first release from this repository, 0.3.0-rc2. Until 0.3.0 itself is released there is no `:latest`, so the sample CatalogSource uses the pre-release tag `:v0.3.0-rc2`. |
 | Your own build | the catalog image you push with `make release` | what you built. Not released yet, or need your own registry: see [Releasing](DEVELOPMENT.md#releasing). |
 | Community catalogs in OperatorHub | | 0.2.x only, which works differently, is not covered here and can no longer be installed (its images are gone). |
 
@@ -1058,8 +1058,8 @@ and node annotations, and unpauses the pools this MutexRunConfig paused.
 
 **The remaining nodes then upgrade WITHOUT Jobs, as many at a time as each pool's `maxUnavailable` allows.** A node
 that was released and still waits for its cleanup Jobs, for example after a `NodeUpgradeFailed`, does not get them:
-run them yourself if you need them. With canary nodes of its
-own, see [Residual risks](#residual-risks) (the finalizer's single pass).
+run them yourself if you need them. With canary nodes of its own, see [Residual risks](#residual-risks) (the
+finalizer's single pass).
 
 ### The operator is gone in the middle of a run
 
@@ -1220,7 +1220,7 @@ If the operator is already gone, first [restore by hand](#restore-by-hand) for e
 4. Delete the Subscription and the CSV:
 
    ```sh
-   oc delete subscription --all -n node-upgrade-mutex-operator
+   oc delete subscriptions.operators.coreos.com --all -n node-upgrade-mutex-operator
    oc get csv -n node-upgrade-mutex-operator -o name | grep openshift-node-upgrade-mutex-operator |
      xargs oc delete -n node-upgrade-mutex-operator
    ```
@@ -1393,9 +1393,9 @@ built into the image. There is no operator-wide setting.
 #### Why some steps wait 5 minutes
 
 This applies only when the canary has nodes of its own. MCO's controller can work from an old view of the nodes:
-after an API outage it reads the nodes again 60 to 90 seconds after the API is back, and renders their pools about 2
-minutes later. A selector change that depends on a release label must not reach MCO before the label does, or MCO
-could move a node into the wrong pool. So:
+after an API outage it saw the nodes again 70 to 115 seconds after the API was back in the live runs, and rendered
+their pools about 2 minutes after it. A selector change that depends on a release label must not reach MCO before the
+label does, or MCO could move a node into the wrong pool. So:
 
 * **At the start of a run** the canary's own nodes get the release label. The operator records the time in the
   canary's `release-labelled-at` annotation before the label changes, and again after the last one. Meanwhile the
@@ -1499,7 +1499,7 @@ What changes for the CRs you create again:
 * **The canary must not reach other nodes** (see [The canary pool](#the-canary-pool)). With a custom target pool and
   the sample canary, `ConfigValidated` stays `False` until the canary gets an expression such as
   `node-role.kubernetes.io/app Exists`.
-* **Jobs may run longer.** 0.2.x stopped the run when a Job had not completed within 2 minutes. 0.3.0 waits up to the
+* **Jobs can take longer.** 0.2.x stopped the run when a Job had not completed within 2 minutes. 0.3.0 waits up to the
   rule's `spec.timeoutSeconds`, 3600 by default.
 
 To move:

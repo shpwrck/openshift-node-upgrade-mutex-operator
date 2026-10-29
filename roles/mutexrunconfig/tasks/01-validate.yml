@@ -376,7 +376,7 @@
       when: targetNodeList | difference(item.resources | map(attribute='metadata.name') | list) | length == 0
 
     # MCO refuses a node that matches two custom pools ("belongs to 2 custom
-    # roles") or the master pool and a custom pool, and it moves a node that
+    # roles"), keeps a master-and-custom node in master, and moves a node that
     # matches the worker pool and one custom pool into the custom pool. During
     # a run the canary selects its matchLabels plus the kept expressions plus
     # the release label with this MutexRunConfig's value, and only target

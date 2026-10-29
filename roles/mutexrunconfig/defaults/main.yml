@@ -6,8 +6,8 @@
 # with currentConfig equal to desiredConfig, and Ready) after it was
 # released, and for a node MCO was already updating to finish that update:
 # retries x delay seconds (default 120 x 60s = 2 hours per node).
-# How long one Job may run is set per MutexRule (spec.timeoutSeconds, default
-# 3600 in the CRD).
+# How long the operator waits for one Job in one attempt is set per MutexRule
+# (spec.timeoutSeconds, default 3600 in the CRD); it does not stop the Job.
 mutexrunconfig_node_upgrade_retries: 120
 mutexrunconfig_node_upgrade_delay: 60
 
@@ -23,7 +23,7 @@ mutexrunconfig_apiservice_delay: 10
 # label changed: the re-point at the start of a run after the canary's own
 # nodes got the label (the canary's release-labelled-at annotation), and the
 # removal of the label from them after the canary's restore (its restored-at
-# annotation). After an API outage MCO's controller re-lists the nodes 60-90
-# seconds after the API is back and re-renders about 2 minutes later, so it
-# has seen the label change by then.
+# annotation). After an API outage MCO's controller saw the nodes again 70-115
+# seconds after the API was back in live runs on 4.21, and re-rendered about 2
+# minutes after it, so it has seen the label change by then.
 mutexrunconfig_label_settle_seconds: 300

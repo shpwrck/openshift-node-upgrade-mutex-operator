@@ -49,8 +49,9 @@ What the design column means for each row:
   rows that ran on the earlier design ran today's logic in those files. The node handling around the Jobs
   (`06-execute-jobs.yml`), the labels (`04`), the canary re-point (`05`) and the restore (`08`) changed with the
   redesign.
-* After 4ae3083, `roles/` and `watches.yaml` changed only by the API group rename and the license metadata (b6f0d75).
-  The kind E2E passed on that commit.
+* After 4ae3083, `roles/` and `watches.yaml` changed only by the API group rename and the license metadata (b6f0d75),
+  and in the documentation sweep after it by comments, the role READMEs and the wording of two condition messages
+  (`JobRunFailed` and `NodeUpgradeFailed` in `06-execute-jobs.yml`). The kind E2E passed on b6f0d75.
 
 ### Rehearsals
 

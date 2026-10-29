@@ -348,7 +348,7 @@ release-check: yq ## Refuse to release to the placeholder registry or a VERSION 
 # Each step is its own sub-make, so they run one after another also under
 # make -j (a sub-make runs its command-line goals in parallel). The operator
 # image is pushed before `bundle` so USE_IMAGE_DIGESTS=true can resolve it. A
-# pre-release VERSION (with a '-', for example 0.3.0-rc1) leaves the :latest
+# pre-release VERSION (with a '-', for example 0.3.0-rc2) leaves the :latest
 # tags alone. The bundle is recorded in the catalog by tag: every `make bundle`
 # writes a new createdAt, so its digest is only known after this target pushes
 # it. A BUNDLE_REF other than BUNDLE_IMG would record a different bundle, so it
