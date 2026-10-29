@@ -61,8 +61,13 @@
                     - -c
                   args:
                     - echo "failing on purpose for node $(NODE_NAME)"; exit 1
+                    # $0 of the script: template expressions, which must
+                    # reach the Job as written.
+                    - "{{ e2e_template_arg }}"
                   securityContext: "{{ e2e_sample_rule.spec.jobSpec.template.spec.containers[0].securityContext }}"
 
+# Also checks that the operator did not evaluate e2e_template_arg: the Go
+# template in it is not valid Jinja.
 - name: Wait for the failing MutexRule to pass the dry run
   ansible.builtin.include_tasks: conditions.yml
   vars:
@@ -114,6 +119,12 @@
     e2e_job_rule: e2e-failing-rule
     e2e_job_outcome: Failed
     e2e_job_log_pattern: false
+
+- name: Check that the template expressions reached the Job as written
+  ansible.builtin.assert:
+    that:
+      - (e2e_job.spec.template.spec.containers | first).args | default([]) | last == e2e_template_arg
+    fail_msg: "args of {{ e2e_job.metadata.name }}: {{ (e2e_job.spec.template.spec.containers | first).args | default([]) | to_json }}"
 
 - name: Read the pools and nodes in the middle of the failed run
   ansible.builtin.include_tasks: pools.yml

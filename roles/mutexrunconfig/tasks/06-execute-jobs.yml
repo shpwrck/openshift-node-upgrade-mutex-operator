@@ -374,7 +374,7 @@
             status: "False"
             reason: JobRunFailed
             message: |-
-              Jobs for {{ targetNode }} have run not successfully: {{ mutexrunconfig_failed_msg | truncate(900) }}
+              Jobs for {{ targetNode }} failed: {{ mutexrunconfig_failed_msg | truncate(900) }}
               Node is {{ mutexrunconfig_node_position | default('') }}
             lastTransitionTime: "{{ mutexrunconfig_now }}"
       when: mutexrunconfig_node_step | default('jobs') != 'wait'
@@ -390,7 +390,7 @@
             status: "False"
             reason: NodeUpgradeFailed
             message: |-
-              Upgrade for {{ targetNode }} has run not successfully: {{ mutexrunconfig_failed_msg | truncate(900) }}
+              {{ targetNode }} did not finish its upgrade: {{ mutexrunconfig_failed_msg | truncate(900) }}
               Node is {{ mutexrunconfig_node_position | default('') }}
             lastTransitionTime: "{{ mutexrunconfig_now }}"
       when: mutexrunconfig_node_step | default('jobs') == 'wait'

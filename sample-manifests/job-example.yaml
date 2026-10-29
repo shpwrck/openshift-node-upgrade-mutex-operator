@@ -1,14 +1,27 @@
-# A MutexRule whose Jobs act on the node being upgraded: before the upgrade
-# the Job labels the node, after it the cleanup Job removes the label again.
+# MutexRule label-node, the rule of the Quick start in docs/USAGE.md. Before
+# each node's upgrade its Job labels the node; after the upgrade its cleanup
+# Job removes the label again. docs/JOBS.md explains every field used here.
 #
-# Job contract: the operator adds NODE_NAME (the node being upgraded) and
-# MUTEX_RULE (this MutexRule's name) to every container's env, so the
-# commands use $(NODE_NAME) instead of a hard-coded node. It also keeps the
-# pod off that node. See config/samples for the other fields.
+# Env: the operator appends NODE_NAME (the node being upgraded, in the
+# cleanup Job too; never the node this pod runs on) and MUTEX_RULE (this
+# MutexRule's name) to the env of every container and initContainer,
+# replacing entries with those names. Use $(NODE_NAME) in command and args,
+# or $NODE_NAME in a shell script. A $(NODE_NAME) inside your own env values
+# is not expanded, because the injected entries come last. The operator also
+# keeps the pod off that node.
 #
 # The Jobs run as a dedicated ServiceAccount that may only read and patch
 # nodes. Do not grant node access to the 'default' ServiceAccount: every pod
 # in the namespace that sets no serviceAccountName would get it.
+#
+# timeoutSeconds is how long the operator waits for each Job in one attempt;
+# the Job keeps running after it. activeDeadlineSeconds, below
+# timeoutSeconds, makes the Job itself fail first, so the next retry starts a
+# new Job instead of waiting for the old one again.
+#
+# Both commands are safe to run again: the label is set with --overwrite, and
+# removing a label the node does not have only prints a message. So the
+# cleanup Job also succeeds when the pre-upgrade Job never ran.
 #
 # Everything is created in the operator's namespace (MutexRules are only
 # reconciled there); replace node-upgrade-mutex-operator if you installed
@@ -60,6 +73,15 @@ spec:
   timeoutSeconds: 300
   jobSpec:
     backoffLimit: 2
+    activeDeadlineSeconds: 240
+    ttlSecondsAfterFinished: 86400
+    # A pod evicted by a drain elsewhere (other pools upgrade at the same
+    # time) does not count against backoffLimit.
+    podFailurePolicy:
+      rules:
+        - action: Ignore
+          onPodConditions:
+            - type: DisruptionTarget
     template:
       spec:
         serviceAccountName: mutex-node-labeler
@@ -83,6 +105,13 @@ spec:
                 type: RuntimeDefault
   cleanUpJobSpec:
     backoffLimit: 2
+    activeDeadlineSeconds: 240
+    ttlSecondsAfterFinished: 86400
+    podFailurePolicy:
+      rules:
+        - action: Ignore
+          onPodConditions:
+            - type: DisruptionTarget
     template:
       spec:
         serviceAccountName: mutex-node-labeler

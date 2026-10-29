@@ -1,9 +1,27 @@
-# CatalogSource for installing the operator from the project's catalog image,
-# published by the release workflow. :latest follows the newest final release;
-# to install a pre-release, use its tag instead (for example :v0.3.0-rc2). For
-# a catalog you built yourself (make release, or make catalog-build
-# catalog-push with CATALOG_IMG set), use that image.
-# registryPoll makes OLM pick up new versions pushed to the same tag.
+# CatalogSource for the project's catalog image, which the release workflow
+# publishes to ghcr.io. operator-install.yaml subscribes to it by name.
+#
+# Tags: :latest follows the newest final release and exists only after the
+# first one; a pre-release has only its own tag, for example :v0.3.0-rc2.
+# Before the project's first release there is no catalog image at all, so
+# nothing can be installed from it. To see which tags exist:
+#   skopeo list-tags docker://ghcr.io/redhat-na-ssa/openshift-node-upgrade-mutex-operator-catalog
+#
+# This file uses :v0.3.0-rc2, the first release from this repository. Change
+# the tag to the version you want, for example :latest after 0.3.0.
+#
+# registryPoll makes OLM fetch the image again every 10 minutes, so a new
+# version pushed to the same tag appears in the channel. That suits :latest
+# on a test cluster. In production, use a :v<version> tag and change it on
+# purpose when you want to offer a newer version; keep the Subscription on
+# Manual approval either way.
+#
+# To use your own catalog instead (one you built with make release, or with
+# make catalog-build catalog-push and CATALOG_IMG set, or a copy mirrored for
+# a disconnected cluster), replace spec.image with that image.
+#
+# After applying it, this prints READY once OLM can read the catalog:
+#   oc get catalogsource node-upgrade-mutex-operator-catalog -n openshift-marketplace -o jsonpath='{.status.connectionState.lastObservedState}'
 apiVersion: operators.coreos.com/v1alpha1
 kind: CatalogSource
 metadata:
@@ -11,7 +29,7 @@ metadata:
   namespace: openshift-marketplace
 spec:
   displayName: Node Upgrade Mutex Operator
-  image: ghcr.io/redhat-na-ssa/openshift-node-upgrade-mutex-operator-catalog:latest
+  image: ghcr.io/redhat-na-ssa/openshift-node-upgrade-mutex-operator-catalog:v0.3.0-rc2
   sourceType: grpc
   updateStrategy:
     registryPoll:

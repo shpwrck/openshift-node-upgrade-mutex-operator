@@ -16,11 +16,27 @@
 # change shortly before the node reboots.
 #
 # WARNING: applying (or changing) this MachineConfig rolls out to the whole
-# worker pool: MCO drains and reboots every worker, as many at a time as the
-# pool's maxUnavailable allows. New files and systemd units are not
-# rebootless changes. Apply it in a maintenance window, before using the
-# operator. It keeps the name of the earlier sample, so applying it replaces
-# that one.
+# worker pool: MCO reboots every worker, as many at a time as the pool's
+# maxUnavailable allows. New files and systemd units are not rebootless
+# changes. Whether MCO drains the nodes first is not recorded for this
+# MachineConfig: in the live runs, one that only added files rebooted nodes
+# without evicting their pods (tests/Scenarios.md). The same happens in every
+# other pool that selects the MachineConfigs with role worker: the canary, and
+# custom pools such as an infra pool with role In [worker, infra]. Apply it in
+# a maintenance window, before using the operator. It keeps the name of the
+# earlier sample, so applying it replaces that one.
+#
+# Apply nodefeaturediscovery.yaml first (sample-manifests/README.md has the
+# order). Then wait until the pools have rolled out, and check that each
+# target node shows the cluster's version:
+#   oc get mcp -w                 # until UPDATED is True for every pool
+#   oc get clusterversion version -o jsonpath='{.status.desired.version}{"\n"}'
+#   oc get nodes -L machineconfiguration.openshift.io/release-image-version
+# The label appears within a few minutes of a node's boot: the timer below
+# runs every 60 seconds, and nfd-worker reads the file every 60 seconds
+# (sleepInterval in nodefeaturediscovery.yaml). Only pools that select the
+# MachineConfigs with role worker get this file. A target pool that does not
+# needs a copy of this MachineConfig labelled with its own role.
 #
 # The data: URL below is this script, base64-encoded, installed as
 # /usr/local/bin/release-image-version-feature.sh:

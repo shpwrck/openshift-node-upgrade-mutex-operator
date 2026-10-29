@@ -46,12 +46,22 @@ jobs:
       - name: shellcheck
         run: shellcheck hack/*.sh
 
+      - name: Diagrams match their .mmd sources
+        # Checks the source-hash stamp in each SVG: no podman, no rendering.
+        run: make diagrams-check
+
+      - name: Docs links, anchors and the console-safe docs/USAGE.md
+        run: make docs-lint
+
   build:
     name: Build and validate
     runs-on: ubuntu-24.04
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: README.md and the CSV description are generated from docs/
+        run: make document-check
 
       - name: Build the operator image
         run: make docker-build

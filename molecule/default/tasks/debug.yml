@@ -36,17 +36,19 @@
 - name: Show the node labels, Jobs and pods
   ansible.builtin.debug:
     msg:
-      nodes: "{{ dict(e2e_nodes | map(attribute='metadata.name') | zip(e2e_nodes | map(attribute='metadata.labels'))) }}"
+      nodes: "{{ dict(e2e_debug_nodes | map(attribute='metadata.name') | zip(e2e_debug_nodes | map(attribute='metadata.labels'))) }}"
       jobs: >-
-        {{ e2e_jobs | map(attribute='metadata.name') | zip(e2e_jobs | map(attribute='metadata.annotations', default={}),
-                                                            e2e_jobs | map(attribute='status', default={})) | list }}
+        {{ e2e_debug_jobs | map(attribute='metadata.name') | zip(e2e_debug_jobs | map(attribute='metadata.annotations', default={}),
+                                                            e2e_debug_jobs | map(attribute='status', default={})) | list }}
       pods: >-
-        {{ e2e_pods | map(attribute='metadata.name') | zip(e2e_pods | map(attribute='spec.nodeName', default=''),
-                                                            e2e_pods | map(attribute='status.phase', default='')) | list }}
+        {{ e2e_debug_pods | map(attribute='metadata.name') | zip(e2e_debug_pods | map(attribute='spec.nodeName', default=''),
+                                                            e2e_debug_pods | map(attribute='status.phase', default='')) | list }}
+  # Not e2e_nodes or e2e_jobs: preflight.yml and job.yml register those, and a
+  # registered variable takes precedence over these task vars.
   vars:
-    e2e_nodes: "{{ (e2e_debug_resources.results | selectattr('item.kind', 'equalto', 'Node') | first).resources | default([]) }}"
-    e2e_jobs: "{{ (e2e_debug_resources.results | selectattr('item.kind', 'equalto', 'Job') | first).resources | default([]) }}"
-    e2e_pods: "{{ (e2e_debug_resources.results | selectattr('item.kind', 'equalto', 'Pod') | first).resources | default([]) }}"
+    e2e_debug_nodes: "{{ (e2e_debug_resources.results | selectattr('item.kind', 'equalto', 'Node') | first).resources | default([]) }}"
+    e2e_debug_jobs: "{{ (e2e_debug_resources.results | selectattr('item.kind', 'equalto', 'Job') | first).resources | default([]) }}"
+    e2e_debug_pods: "{{ (e2e_debug_resources.results | selectattr('item.kind', 'equalto', 'Pod') | first).resources | default([]) }}"
 
 - name: Read the operator log
   kubernetes.core.k8s_log:

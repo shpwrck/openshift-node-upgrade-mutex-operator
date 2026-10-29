@@ -1,0 +1,56 @@
+---
+config:
+  themeCSS: "text.messageText { stroke: #ffffff; stroke-width: 4px; paint-order: stroke fill; } .rect { stroke: #b42318; stroke-width: 2px; }"
+  sequence:
+    width: 130
+    actorMargin: 30
+    noteMargin: 8
+---
+sequenceDiagram
+  accTitle: One node's turn
+  accDescr: One node's turn: pre-upgrade Jobs run on other nodes, the node is released into the canary, MCO drains, updates and reboots it, the operator waits until it is upgraded and ready, cleanup Jobs run, and the node returns to its paused pool.
+  autonumber
+  participant Op as Operator
+  participant Pre as Pre-upgrade Jobs
+  participant N as Node N
+  participant MCO as MCO<br/>(canary pool)
+  participant Post as Cleanup Jobs
+
+  Note over Op,Post: UpgradeReady=True and MCPUpdated=True,<br/>the previous node has finished,<br/>its cleanup Jobs included
+  Note over Op,Post: The operator reads the MutexRunConfig again<br/>and stops if it is being deleted
+  Note over Op,Post: N already at X and not released:<br/>no Jobs, NodeUpgrade=True NodeAlreadyUpgraded
+  Note over Op,Post: MCO already updating N: wait for it first.<br/>MCO updating another target node:<br/>stop and retry later.
+  loop each rule, in spec.mutexRules order, whose mutex label N still carries
+    Op->>Pre: create a Job, or<br/>re-use the one with<br/>the same job-key<br/>that has not failed
+    Note over Op,Post: generateName #lt;jobName#gt;-,<br/>env NODE_NAME=N and MUTEX_RULE=#lt;rule#gt;,<br/>affinity kubernetes.io/hostname NotIn [N],<br/>label nodeupgrade.redhat-na-ssa.github.io/job-key
+    Op->>Pre: poll every 10 s,<br/>up to timeoutSeconds
+    alt Failed, or still running at timeoutSeconds
+      rect rgb(253, 226, 225)
+        Note over Op,Post: JobRun=False JobRunFailed, Degraded=True:<br/>the run stops, N stays held<br/>in its paused pool (fail-closed)
+      end
+    end
+  end
+  Note over Op,Post: [JobRun=True JobRunSucceeded]
+  Note over N: schedulable, in its<br/>paused pool,<br/>workloads running
+  Op->>N: one patch: remove the mutex<br/>labels and labelled-by,<br/>add release=v and<br/>released-by=#lt;ns#gt;/#lt;name#gt;|X
+  MCO->>N: N now matches the<br/>canary: desiredConfig<br/>= rendered-canary-*
+  MCO->>N: cordon, drain<br/>(PDBs apply), update,<br/>reboot, uncordon
+  Note over N,MCO: NFD may change the version<br/>label before MCO is done:<br/>the label alone is not enough
+  Op->>N: poll every 60 s, 121 times<br/>at most (2 h), until all hold
+  Note over Op,Post: release-image-version = X,<br/>machineconfiguration.openshift.io/state<br/>= Done, currentConfig = desiredConfig,<br/>a rendered-#lt;canary#gt;-* config, Ready=True
+  alt not all hold after 2 h
+    rect rgb(253, 226, 225)
+      Note over Op,Post: NodeUpgrade=False NodeUpgradeFailed,<br/>Degraded=True: the run stops. N stays<br/>released, the retry resumes at this wait
+    end
+  end
+  loop every rule that has a cleanUpJobSpec, in the same order
+    Op->>Post: generateName cleanup-#lt;jobName#gt;-,<br/>same env, affinity and timeout
+    alt Failed, or still running at timeoutSeconds
+      rect rgb(253, 226, 225)
+        Note over Op,Post: JobRun=False JobRunFailed, Degraded=True:<br/>the run stops. N stays released, the retry<br/>resumes at the wait, then the cleanup Jobs
+      end
+    end
+  end
+  Op->>N: one patch removes release<br/>and released-by: N returns<br/>to its paused pool, no reboot
+  Note over Op,Post: [NodeUpgrade=True NodeUpgradeSucceeded<br/>"Node is i of n"]
+  Note over Op,Post: Operator restart after the release patch:<br/>N resumes at the wait (released-by).<br/>MutexRunConfig deleted: its finalizer<br/>runs no cleanup Jobs.

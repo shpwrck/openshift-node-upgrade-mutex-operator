@@ -6,10 +6,13 @@
 # Everywhere (also on a real OpenShift cluster):
 #   preflight, MutexRule (dry-run validation), MutexTarget (status.nodes),
 #   MutexRunConfig with no upgrade pending (only when that cannot start a
-#   run), namespace boundary.
+#   run; also a canary name that is a template expression), namespace
+#   boundary (also template expressions in another namespace, and a
+#   MutexTarget there used from the operator namespace).
 # Fake OpenShift only (kind scenario, e2e_fake_openshift):
-#   a full simulated upgrade, then the finalizer, including deletion in the
-#   middle of a run.
+#   the pool checks of the namespace boundary, a full simulated upgrade,
+#   then the finalizer, including deletion in the middle of a run (that
+#   run's Job arguments carry template expressions).
 - name: Verify
   hosts: localhost
   connection: local

@@ -1,0 +1,50 @@
+---
+config:
+  themeCSS: ".warn text { stroke: none !important; } .edgeLabel rect { opacity: 1 !important; fill: #ffffff !important; }"
+  flowchart:
+    wrappingWidth: 400
+    nodeSpacing: 30
+    rankSpacing: 35
+---
+flowchart TD
+  accTitle: How a MutexRule Job is created, re-used and retried
+  accDescr: How the operator creates, re-uses and retries a Job, and why a Job that outlives timeoutSeconds is waited for again on every retry.
+
+  need("A Job is needed for one node,<br/>one rule and one phase<br/>(pre or cleanup)")
+  key["job-key = SHA-1 of the MutexRunConfig,<br/>the node, the rule, the phase and<br/>the desired version. The JobSpec<br/>is NOT part of it."]
+  list["List the Jobs in jobNamespace<br/>with this job-key label"]
+  q("A Job without<br/>Failed=True exists?")
+  reuse["Re-use it.<br/>Complete: done, not run again,<br/>even after a MutexRule edit.<br/>Running: wait for it."]
+  create["Create it: generateName, env,<br/>affinity, the job-key label and<br/>annotations. Owner reference to<br/>the MutexRunConfig only in the<br/>MutexRunConfig's namespace."]
+  poll["Poll every 10 s,<br/>up to timeoutSeconds"]
+  done["Next rule, release the node,<br/>or return it to its pool"]
+  failed["JobRun=False, Degraded=True,<br/>the pools stay paused,<br/>the failed Job is kept"]
+  timeout["JobRun=False 'did not finish<br/>within Ns (timeoutSeconds)'.<br/>The Job KEEPS RUNNING."]
+  retry1["Retry with backoff:<br/>the next attempt<br/>creates a NEW Job"]
+  retry2["Retry with backoff: the next<br/>attempt RE-USES the same Job.<br/>Set activeDeadlineSeconds below<br/>timeoutSeconds to break this loop."]
+
+  need --> key --> list --> q
+  q -- yes --> reuse
+  q -- no --> create
+  reuse --> poll
+  create --> poll
+  poll -- Complete --> done
+  poll -- "Failed (backoffLimit or<br/>activeDeadlineSeconds)" --> failed
+  poll -- "still Running at<br/>timeoutSeconds" --> timeout
+  failed --> retry1
+  timeout --> retry2
+  retry1 -.-> need
+  retry2 -.-> need
+
+  subgraph notes["Also"]
+    n1["Pods never created (missing<br/>ServiceAccount, SCC): the Job<br/>looks Running. Check the events."]
+    n2["Job deleted (TTL or by hand)<br/>before it is re-used:<br/>a new Job runs."]
+    n3["MutexRunConfig deleted: its Jobs<br/>in its own namespace are garbage-<br/>collected, their logs are lost."]
+    n1 ~~~ n2 ~~~ n3
+  end
+  done ~~~ notes
+
+  classDef warn fill:#fde2e1,stroke:#b42318,color:#000000
+  classDef note fill:#f6f8fa,stroke:#d0d7de
+  class timeout,retry2 warn
+  class notes note

@@ -1,8 +1,18 @@
 ---
 # Trust boundary: a CR outside the operator's namespace (POD_NAMESPACE) gets
-# Reconciled=False reason NamespaceNotAllowed and nothing else happens. This
-# needs the operator to watch every namespace (WATCH_NAMESPACE empty, which is
-# the case outside OLM).
+# Reconciled=False reason NamespaceNotAllowed and nothing else happens, and a
+# MutexRunConfig in the operator namespace may not use a MutexTarget outside
+# it. This needs the operator to watch every namespace (WATCH_NAMESPACE empty,
+# which is the case outside OLM).
+#
+# Fake OpenShift only: a pool no node is in, marked so that a wrong restore
+# by either MutexRunConfig below would change it. Its paused-by names the
+# MutexRunConfig in the second namespace, whose finalizer run must end at the
+# namespace check. Its original-match-expressions without modified-by is what
+# 08-restore.yml restores for a pool of a MutexTarget the finalizer read,
+# which the finalizer of the MutexRunConfig in the operator namespace must not
+# do for a MutexTarget in the second namespace. The saved expressions are the
+# pool's own, so even a wrong restore leaves it selecting no node.
 - name: Explain why the namespace boundary check is skipped
   ansible.builtin.debug:
     msg: The operator does not watch every namespace, so a CR in another namespace is never reconciled.
@@ -12,6 +22,13 @@
   when: e2e_watches_all_namespaces | bool
   vars:
     e2e_foreign_namespace: "{{ e2e_namespace }}-foreign"
+    e2e_foreign_pool: e2e-foreign-pool
+    e2e_foreign_pool_expressions:
+      - key: e2e.nodeupgrade.redhat-na-ssa.github.io/no-node
+        operator: Exists
+    e2e_foreign_pool_annotations: >-
+      {{ {e2e_annotation_original_expressions: e2e_foreign_pool_expressions | to_json,
+          e2e_annotation_paused_by: e2e_foreign_namespace ~ '/e2e-foreign-template'} }}
   block:
     - name: Create a second namespace
       kubernetes.core.k8s:
@@ -43,7 +60,181 @@
           - e2e_cr.resources[0].status.conditions | map(attribute='type') | list == ['Reconciled']
         fail_msg: "conditions: {{ e2e_cr.resources[0].status.conditions | to_json }}"
 
+    - name: Create a pool that a wrong restore would change
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: machineconfiguration.openshift.io/v1
+          kind: MachineConfigPool
+          metadata:
+            name: "{{ e2e_foreign_pool }}"
+            annotations: "{{ e2e_foreign_pool_annotations }}"
+          spec:
+            machineConfigSelector:
+              matchLabels:
+                machineconfiguration.openshift.io/role: worker
+            nodeSelector:
+              matchExpressions: "{{ e2e_foreign_pool_expressions }}"
+            paused: true
+      when: e2e_fake_openshift | bool
+
+    - name: Create a MutexTarget for that pool in the second namespace
+      kubernetes.core.k8s:
+        state: present
+        namespace: "{{ e2e_foreign_namespace }}"
+        definition:
+          apiVersion: "{{ e2e_api_version }}"
+          kind: MutexTarget
+          metadata:
+            name: e2e-foreign-target
+          spec:
+            machineConfigPools:
+              - "{{ e2e_foreign_pool }}"
+
+    # The namespace check must come before any use of the CR's values. An
+    # operator that evaluated them would fail on the Go template, which is not
+    # valid Jinja, before it reports NamespaceNotAllowed: in the canary name
+    # if it read the spec, in the annotation if it read the whole CR.
+    - name: Create a MutexRunConfig with template expressions in the second namespace
+      kubernetes.core.k8s:
+        state: present
+        namespace: "{{ e2e_foreign_namespace }}"
+        definition:
+          apiVersion: "{{ e2e_api_version }}"
+          kind: MutexRunConfig
+          metadata:
+            name: e2e-foreign-template
+            annotations:
+              e2e.nodeupgrade.redhat-na-ssa.github.io/template: "{{ e2e_template_arg }}"
+          spec:
+            canary:
+              name: "{{ e2e_template_arg }}"
+            mutexRules:
+              - name: "{{ e2e_rule_name }}"
+            mutexTargets:
+              - name: e2e-foreign-target
+
+    - name: Wait for the MutexRunConfig outside the operator namespace to be refused
+      ansible.builtin.include_tasks: conditions.yml
+      vars:
+        e2e_kind: MutexRunConfig
+        e2e_name: e2e-foreign-template
+        e2e_cr_namespace: "{{ e2e_foreign_namespace }}"
+        e2e_expected:
+          - type: Reconciled
+            status: "False"
+            reason: NamespaceNotAllowed
+
+    - name: Check that the refused MutexRunConfig was not validated
+      ansible.builtin.assert:
+        that:
+          - e2e_cr.resources[0].status.conditions | map(attribute='type') | list == ['Reconciled']
+        fail_msg: "conditions: {{ e2e_cr.resources[0].status.conditions | to_json }}"
+
+    - name: Create a MutexRunConfig in the operator namespace that uses the MutexTarget in the second namespace
+      kubernetes.core.k8s:
+        state: present
+        namespace: "{{ e2e_namespace }}"
+        definition:
+          apiVersion: "{{ e2e_api_version }}"
+          kind: MutexRunConfig
+          metadata:
+            name: e2e-foreign-reference
+          spec:
+            canary:
+              name: "{{ e2e_canary_pool }}"
+            mutexRules:
+              - name: "{{ e2e_rule_name }}"
+            mutexTargets:
+              - name: e2e-foreign-target
+                namespace: "{{ e2e_foreign_namespace }}"
+
+    - name: Wait for the MutexRunConfig with the foreign reference to fail validation
+      ansible.builtin.include_tasks: conditions.yml
+      vars:
+        e2e_kind: MutexRunConfig
+        e2e_name: e2e-foreign-reference
+        e2e_expected:
+          - {type: ConfigValidated, status: "False", reason: ValidationFailed}
+          - {type: Degraded, status: "False", reason: NoPoolsPaused}
+
+    - name: Check that the validation names the second namespace
+      ansible.builtin.assert:
+        that:
+          - "'must live in the operator namespace' in e2e_message"
+          - e2e_foreign_namespace in e2e_message
+        fail_msg: "ConfigValidated message: {{ e2e_message }}"
+      vars:
+        e2e_message: >-
+          {{ (e2e_cr.resources[0].status.conditions | selectattr('type', 'equalto', 'ConfigValidated') | first).message | default('') }}
+
+    - name: Delete the refused MutexRunConfig (its finalizer run must end without a failed task)
+      kubernetes.core.k8s:
+        api_version: "{{ e2e_api_version }}"
+        kind: MutexRunConfig
+        name: e2e-foreign-template
+        namespace: "{{ e2e_foreign_namespace }}"
+        state: absent
+        wait: true
+        wait_timeout: "{{ e2e_timeout }}"
+
+    - name: Delete the MutexRunConfig with the foreign reference (runs its finalizer)
+      kubernetes.core.k8s:
+        api_version: "{{ e2e_api_version }}"
+        kind: MutexRunConfig
+        name: e2e-foreign-reference
+        namespace: "{{ e2e_namespace }}"
+        state: absent
+        wait: true
+        wait_timeout: "{{ e2e_timeout }}"
+
+    - name: Read the pool a wrong restore would have changed
+      kubernetes.core.k8s_info:
+        api_version: machineconfiguration.openshift.io/v1
+        kind: MachineConfigPool
+        name: "{{ e2e_foreign_pool }}"
+      register: e2e_foreign_pool_info
+      when: e2e_fake_openshift | bool
+
+    - name: Check that neither finalizer restored or unpaused the pool
+      ansible.builtin.assert:
+        that:
+          - e2e_pool.spec.paused | bool
+          - e2e_pool.spec.nodeSelector.matchExpressions | default([]) == e2e_foreign_pool_expressions
+          - e2e_pool_annotations[e2e_annotation_original_expressions] | default('') == e2e_foreign_pool_annotations[e2e_annotation_original_expressions]
+          - e2e_pool_annotations[e2e_annotation_paused_by] | default('') == e2e_foreign_pool_annotations[e2e_annotation_paused_by]
+        fail_msg: "pool {{ e2e_foreign_pool }}: paused {{ e2e_pool.spec.paused }}, annotations {{ e2e_pool_annotations | to_json }}"
+      vars:
+        e2e_pool: "{{ e2e_foreign_pool_info.resources[0] }}"
+        e2e_pool_annotations: "{{ e2e_pool.metadata.annotations | default({}, true) }}"
+      when: e2e_fake_openshift | bool
+
   always:
+    - name: Delete the MutexRunConfig with the foreign reference
+      kubernetes.core.k8s:
+        api_version: "{{ e2e_api_version }}"
+        kind: MutexRunConfig
+        name: e2e-foreign-reference
+        namespace: "{{ e2e_namespace }}"
+        state: absent
+        wait: true
+        wait_timeout: "{{ e2e_timeout }}"
+      failed_when: false
+
+    # A MutexRunConfig the operator did not finalize would keep the second
+    # namespace Terminating, and a re-run could not create anything in it.
+    - name: Remove the finalizer from a MutexRunConfig left in the second namespace
+      kubernetes.core.k8s:
+        api_version: "{{ e2e_api_version }}"
+        kind: MutexRunConfig
+        name: e2e-foreign-template
+        namespace: "{{ e2e_foreign_namespace }}"
+        state: patched
+        definition:
+          metadata:
+            finalizers: []
+      failed_when: false
+
     - name: Delete the second namespace
       kubernetes.core.k8s:
         api_version: v1
@@ -52,3 +243,13 @@
         state: absent
         wait: true
         wait_timeout: "{{ e2e_timeout }}"
+
+    - name: Delete the pool
+      kubernetes.core.k8s:
+        api_version: machineconfiguration.openshift.io/v1
+        kind: MachineConfigPool
+        name: "{{ e2e_foreign_pool }}"
+        state: absent
+        wait: true
+      when: e2e_fake_openshift | bool
+      failed_when: false

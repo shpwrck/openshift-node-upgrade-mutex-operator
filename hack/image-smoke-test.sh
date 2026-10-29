@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Smoke-test a built operator image without a cluster. Runs as an arbitrary
-# UID in group 0 (as OpenShift does), lists the installed collections,
-# imports the python libraries the roles need and syntax-checks a play that
-# includes every role from watches.yaml.
+# UID in group 0 (as OpenShift does), checks that the license is at
+# /licenses/LICENSE, lists the installed collections, imports the python
+# libraries the roles need and syntax-checks a play that includes every role
+# from watches.yaml. Then checks the image's org.opencontainers.image.licenses
+# label.
 #
 # Usage: hack/image-smoke-test.sh IMAGE
 #
@@ -30,10 +32,17 @@ $(printf '    - %s\n' $roles)"
 set -euo pipefail
 cd "$HOME"
 id
+test -s /licenses/LICENSE || { echo "error: /licenses/LICENSE is missing or empty" >&2; exit 1; }
 ansible --version | head -n 1
 ansible-galaxy collection list 2>/dev/null
 python3 -c "import kubernetes, yaml, jinja2; print(\"kubernetes\", kubernetes.__version__)"
 printf "%s\n" "$SYNTAX_PLAY" > /tmp/syntax.yml
 ANSIBLE_ROLES_PATH="$HOME/roles" ansible-playbook --syntax-check /tmp/syntax.yml
 '
+
+# podman and docker both read the label from .Config.Labels.
+license=$("$tool" image inspect --format '{{ index .Config.Labels "org.opencontainers.image.licenses" }}' "$image")
+[ "$license" = Apache-2.0 ] || {
+  echo "error: label org.opencontainers.image.licenses is '$license', not Apache-2.0" >&2; exit 1; }
+echo "license: /licenses/LICENSE, label org.opencontainers.image.licenses=$license"
 echo "image smoke test passed: $image"

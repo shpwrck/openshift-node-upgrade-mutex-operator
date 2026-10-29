@@ -1,0 +1,54 @@
+---
+config:
+  themeCSS: ".warn text { stroke: none !important; } .edgeLabel rect { opacity: 1 !important; fill: #ffffff !important; }"
+  flowchart:
+    wrappingWidth: 400
+    nodeSpacing: 25
+    rankSpacing: 35
+---
+flowchart TB
+  accTitle: Docs and release pipeline
+  accDescr: How docs and diagrams are generated and checked, and how a tag becomes the operator, bundle and catalog images and a catalog pull request.
+
+  subgraph docs["Docs lane: every pull request"]
+    direction LR
+    src["docs/USAGE.md<br/>docs/DEVELOPMENT.md"] --> doc["make document"] --> gen["README.md and the<br/>CSV description and<br/>links (to main)"]
+    mmd["docs/diagrams/*.mmd"] --> dia["make diagrams<br/>(pinned mermaid-cli)"] --> svg["*.svg with a<br/>source-hash stamp"]
+    gen --> ci["CI (ci.yaml):<br/>document-check,<br/>diagrams-check,<br/>docs-lint"]
+    svg --> ci
+  end
+
+  subgraph rel["Release lane"]
+    direction TB
+    subgraph ra["1. Tag"]
+      direction LR
+      ver[".envrc holds VERSION,<br/>not yet in<br/>catalog-template.yaml"] --> pre["Before you tag, by hand:<br/>release gates, and Lint, Build<br/>and validate and Molecule on<br/>kind green on the commit"] --> tag["Maintainer pushes<br/>v#lt;VERSION#gt;[-rcN] on a commit<br/>of the default branch"] --> chk["release.yaml checks: semver tag,<br/>base version = .envrc, tag on the<br/>default branch, same .github/workflows"]
+    end
+    subgraph rb["2. make release (USE_IMAGE_DIGESTS=true)"]
+      direction LR
+      rc["release-check"] --> op["operator image<br/>build, push"] --> bun["bundle: operator pinned<br/>by digest, description<br/>links pinned to the tag"] --> bimg["bundle image<br/>build, push"]
+    end
+    subgraph rc2["3. Catalog (still make release)"]
+      direction LR
+      cadd["catalog-add: new head,<br/>replaces the old head,<br/>skipRange #gt;=0.3.0-rc2 #lt;VERSION"] --> crender["catalog-render"] --> cimg["catalog image<br/>build, push"] --> latest[":latest tags<br/>(final releases only)"]
+    end
+    subgraph rd["4. Catalog pull request"]
+      direction LR
+      branch["release.yaml pushes<br/>release/#lt;tag#gt;"] --> pr["open the pull request<br/>into the default branch"] --> merge["merge it BEFORE<br/>the next tag"] --> upd["update the docs for<br/>the new version"] --> inc["make increment, in a pull<br/>request (final releases only)"]
+    end
+    ra --> rb --> rc2 --> rd
+  end
+
+  n1["First release: check that the three<br/>ghcr.io packages are public"]
+  n2["Optional: pull requests to the<br/>community-operators catalogs"]
+  docs ~~~ rel
+  rel ~~~ n1 & n2
+
+  classDef lane fill:#f6f8fa,stroke:#8c959f
+  classDef step fill:#ffffff,stroke:#d0d7de
+  classDef note fill:#f6f8fa,stroke:#d0d7de
+  classDef warn fill:#fde2e1,stroke:#b42318,color:#000000
+  class docs,rel lane
+  class ra,rb,rc2,rd step
+  class n1,n2 note
+  class merge,pre warn

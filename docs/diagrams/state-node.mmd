@@ -1,0 +1,118 @@
+---
+config:
+  themeCSS: ".warn text { stroke: none !important; } .edgeLabel rect { opacity: 1 !important; fill: #ffffff !important; }"
+---
+stateDiagram-v2
+  accTitle: A target node and a node of the canary's own during a run
+  accDescr: The states of a target node during a run, from behind to held, through its pre-upgrade Jobs, released into the canary, upgraded there, through its cleanup Jobs and back into its paused pool, plus the side paths for a node MCO was already updating, a failed Job, a timed-out wait and the finalizer, and the states of a node the canary had before the run.
+
+  state "A node of the canary's own (not a target node)" as OwnS {
+    state "Canary member" as Member
+    Member : matches the canary's own selector,
+    Member : not held by this run (01)
+
+    state "Labelled for the run" as Labelled
+    Labelled : 04 adds the release label, after
+    Labelled : a stamp while the canary is
+    Labelled : not re-pointed yet
+
+    state "Kept after the restore" as Kept
+    Kept : release label stays, the canary
+    Kept : has its own selector and restored-at
+
+    [*] --> Member
+    Member --> Labelled : 04, start of the run or it joins the canary
+    Labelled --> Kept : 08 restores the canary
+    Kept --> Labelled : a new run before the sweep
+    Kept --> Member : 08, 300 s or more after restored-at, or the finalizer
+    Labelled --> Member : 04 when it leaves the canary, or the finalizer
+  }
+
+  state "Not behind" as Current
+  Current : release-image-version at or above
+  Current : the desired version, no marks of this run
+  Current : 06 skips it (NodeAlreadyUpgraded)
+
+  state "Behind" as Behind
+  Behind : release-image-version below
+  Behind : status.desired.version (02)
+
+  state "MCO already updating it" as InFlight
+  InFlight : desiredConfig differs from currentConfig
+  InFlight : and no released-by of this run (02)
+  InFlight : 06 waits for MCO first, up to 2 h
+
+  state "Held: a mutex label per rule and labelled-by, no release label, in its paused pool" as HeldS {
+    state "Waiting for its turn" as Waiting
+    Waiting : labelled by 04
+
+    state "Pre-upgrade Jobs" as Pre
+    Pre : 07, one Job at a time for each rule
+    Pre : whose mutex label the node carries,
+    Pre : the labels stay until the release
+
+    Waiting --> Pre : its turn in the 06 loop
+    Waiting --> Waiting : MCO on another node, NodeUpgradeFailed, retry
+    Pre --> Waiting : a Job Failed or ran past timeoutSeconds (JobRunFailed), retry
+  }
+
+  state "Released: release label and released-by, in the canary" as RelS {
+    state "Released" as Released
+    Released : one patch in 06 swapped the mutex
+    Released : labels and labelled-by for these
+
+    state "Updating in the canary" as Updating
+    Updating : desiredConfig rendered-#lt;canary#gt;-*
+    Updating : MCO drains, updates, reboots
+
+    state "Done on the canary's config" as Done
+    Done : version label is the desired one, Done,
+    Done : currentConfig = desiredConfig, a
+    Done : rendered-#lt;canary#gt;-* config, Ready=True
+
+    state "Cleanup Jobs" as Cleanup
+    Cleanup : 07, for each rule with a cleanUpJobSpec
+
+    Released --> Updating : MCO moves it into the canary
+    Updating --> Updating : 2 h, NodeUpgradeFailed, retry
+    Updating --> Done : the 06 wait passes
+    Done --> Cleanup : 06 calls 07 (phase cleanup)
+    Cleanup --> Done : a Job failed (JobRunFailed), retry from the wait
+  }
+
+  state "Back in its paused pool" as Back
+  Back : one patch in 06 removed the release
+  Back : label and released-by
+  Back : keeps the canary's currentConfig
+  Back : NodeUpgrade=True NodeUpgradeSucceeded
+
+  state "On its own pool's config" as OwnPool
+  OwnPool : 08 restored and unpaused its pool
+  OwnPool : MCO gives it rendered-#lt;pool#gt;-*
+  OwnPool : MCD logs SkipReboot when both pools
+  OwnPool : render the same MachineConfigs
+
+  state "Unmarked by the finalizer (WITHOUT Jobs)" as Final
+  Final : 08 removes the mutex labels, labelled-by,
+  Final : the release label and released-by in one pass
+  Final : MCO upgrades it without its pre-upgrade
+  Final : or cleanup Jobs once its pool is unpaused
+
+  [*] --> Current
+  Current --> Behind : ClusterVersion desired.version passes its label
+  Behind --> Waiting : 03 paused its pool, 04 labels it
+  Behind --> InFlight : MCO started before 03 paused the pool
+  InFlight --> Current : its label already showed the desired version (WITHOUT Jobs)
+  InFlight --> Pre : otherwise, its Jobs run after that update
+  InFlight --> Released : it was updating to a canary config: no mutex label, no pre-upgrade Jobs
+  InFlight --> InFlight : 2 h, NodeUpgradeFailed, retry
+  Pre --> Released : every pre-upgrade Job Complete
+  Cleanup --> Back : every cleanup Job Complete
+  Done --> Back : no rule has a cleanUpJobSpec
+  Back --> OwnPool : 08 restores and unpauses the pools
+  OwnPool --> [*]
+  HeldS --> Final : delete
+  RelS --> Final : delete while the run is stopped
+
+  classDef warn fill:#fde2e1,stroke:#b42318,color:#000000
+  class Final warn

@@ -2,13 +2,17 @@
 # Publish a release when a tag v<MAJOR>.<MINOR>.<PATCH>[-<pre-release>] is
 # pushed. `make release` builds and pushes the operator, bundle and catalog
 # images to ghcr.io/<repository owner> with GITHUB_TOKEN, labelled with this
-# repository, and adds the bundle to the catalog. The updated catalog template
-# and rendered catalog are then pushed to the branch release/<tag>, for a pull
-# request into the default branch. A pre-release (for example v0.3.0-rc1)
-# does not move the :latest tags. The version without its pre-release part
-# must match .envrc. The tag must be on the default branch, with the same
-# .github/workflows: GITHUB_TOKEN cannot push a branch whose workflows differ
-# from the default branch's.
+# repository, and adds the bundle to the catalog. The bundle's CSV description
+# links to this repository at the tag (REPO_URL and BUNDLE_DOCS_REF in the
+# Makefile). The updated catalog template and rendered catalog are then pushed
+# to the branch release/<tag>, for a pull request into the default branch, in
+# a commit authored by the person who pushed the tag.
+# A pre-release (for example v0.3.0-rc2) does not move the :latest tags. The
+# version without its pre-release part must match .envrc. The tag must be on
+# the default branch, with the same .github/workflows: GITHUB_TOKEN cannot
+# push a branch whose workflows differ from the default branch's. Nothing here
+# checks CI: check it on the commit before you push the tag
+# (docs/DEVELOPMENT.md, Releasing).
 name: Release
 
 on:
@@ -60,6 +64,7 @@ jobs:
             echo "VERSION=${tag#v}"
             echo "IMAGE_TAG_BASE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/openshift-node-upgrade-mutex-operator"
             echo "IMAGE_SOURCE=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+            echo "REPO_URL=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
           } >> "$GITHUB_ENV"
 
       - name: Check that the tag is on the default branch
@@ -91,8 +96,11 @@ jobs:
       - name: Push the catalog update
         run: |
           branch=release/$GITHUB_REF_NAME
-          git config user.name "github-actions[bot]"
-          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          # Author the commit as the person who pushed the tag, with their
+          # GitHub no-reply address. GITHUB_ACTOR and GITHUB_ACTOR_ID are set
+          # by Actions; a re-run keeps the actor of the first run.
+          git config user.name "$GITHUB_ACTOR"
+          git config user.email "${GITHUB_ACTOR_ID}+${GITHUB_ACTOR}@users.noreply.github.com"
           git switch -c "$branch"
           git add catalog-template.yaml catalog/
           git commit -m "catalog: add $VERSION"

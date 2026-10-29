@@ -1,0 +1,39 @@
+---
+config:
+  themeCSS: ".edgeLabel rect { opacity: 1 !important; fill: #ffffff !important; }"
+  flowchart:
+    wrappingWidth: 500
+    nodeSpacing: 30
+    rankSpacing: 30
+---
+flowchart TD
+  accTitle: The mutexrunconfig role's reconcile pipeline
+  accDescr: The mutexrunconfig role's reconcile pipeline: task files in order, the gate that decides whether each runs, and the conditions each writes.
+
+  ns("In the operator namespace<br/>(POD_NAMESPACE)?<br/>reads only ansible_operator_meta")
+  out["Reconciled=False<br/>NamespaceNotAllowed (not<br/>written in a finalizer run),<br/>end_play"]
+  mode["Determine Reconcile Mode<br/>finalizing = state absent<br/>or deletionTimestamp set"]
+  r00["00-resolve-references.yml<br/>rule and target references,<br/>mutex label keys, canary name,<br/>release and hold selector expressions"]
+  fin("finalizing?")
+  gather["Gather the MutexTargets<br/>still present in the<br/>operator namespace"]
+  restoreF["08-restore.yml: follows<br/>paused-by, modified-by,<br/>labelled-by and the release<br/>label value. Then end_play,<br/>so 09 does not run."]
+  v01["01-validate.yml<br/>always<br/>writes ConfigValidated, ClusterStateValidated<br/>mutexrunconfig_apiservice_retries (3), _delay (10)"]
+  c02["02-check-for-upgrade.yml<br/>when ConfigValidated<br/>writes UpgradeChecked, NodeVersionsKnown,<br/>UpgradeAvailable, UpgradeReady<br/>gate fact UpgradabilityChecked"]
+  p03["03-pause-machine-config-pools.yml<br/>when UpgradabilityChecked and UpgradeAvailable<br/>gate fact TargetPoolsPaused<br/>(TargetPoolsPaused=False NotPaused on failure)"]
+  l04["04-apply-mutex-rules-as-labels.yml<br/>when TargetPoolsPaused<br/>writes MutexRulesApplied"]
+  m05["05-modify-machineconfigpool.yml<br/>when MutexRulesApplied<br/>writes MCPUpdated: UpdateSucceeded,<br/>CanaryMembersLabelled or UpdateFailed<br/>mutexrunconfig_label_settle_seconds (300)"]
+  j06["06-execute-jobs.yml, once per target node<br/>when UpgradeReady and MCPUpdated (JobRun=true)<br/>order: released nodes, nodes MCO is updating, the rest<br/>calls 07-run-job.yml per rule and phase<br/>writes JobRun, NodeUpgrade<br/>mutexrunconfig_node_upgrade_retries (120), _delay (60),<br/>mutexrunconfig_job_poll_delay (10), spec.timeoutSeconds"]
+  r08["08-restore.yml (Finish Run)<br/>when ConfigValidated and UpgradabilityChecked<br/>and (JobRun or not UpgradeAvailable)<br/>writes MCPUpdated=False SelectorsRestored,<br/>after a run UpgradeAvailable and<br/>UpgradeReady=False UpgradeFinished"]
+  rep09["09-report.yml<br/>always<br/>writes TargetPoolsPaused, Degraded"]
+  mt["mutextarget role"]
+  rescue["Every step's rescue sets its gate<br/>false and mutexrunconfig_failure.<br/>A gate also needs the gates<br/>of the steps before it."]
+
+  ns -- no --> out
+  ns -- yes --> mode --> r00 --> fin
+  fin -- yes --> gather --> restoreF
+  fin -- no --> v01 --> c02 --> p03 --> l04 --> m05 --> j06 --> r08 --> rep09
+  mt -. "status.nodes" .-> v01
+  rep09 ~~~ rescue
+
+  classDef note fill:#f6f8fa,stroke:#d0d7de
+  class rescue,mt note

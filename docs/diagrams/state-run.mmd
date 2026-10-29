@@ -1,0 +1,116 @@
+---
+config:
+  themeCSS: ".warn text { stroke: none !important; } .edgeLabel rect { opacity: 1 !important; fill: #ffffff !important; }"
+---
+stateDiagram-v2
+  accTitle: A MutexRunConfig run as the mutexrunconfig role drives it
+  accDescr: The phases of a MutexRunConfig run as the mutexrunconfig role drives them, from the first reconcile through the run and the restore back to the states between runs, or to the finalizer, with the task file and the trigger on each transition, including where a failure keeps the pools paused and where nothing is protected.
+
+  state "Ignored" as Ignored
+  Ignored : main.yml ends the play
+  Ignored : Reconciled=False NamespaceNotAllowed
+  Ignored : a delete ends there too, no cleanup
+
+  state "Between runs, 08 on every reconcile" as Between {
+    state "No run" as Idle
+    Idle : 01 and 02 pass, no node behind
+    Idle : or released, 08 is a cleanup pass
+    Idle : UpgradeAvailable=False UpgradeUnavailable
+    Idle : no mark of this run on a pool or node
+
+    state "Restored, sweep pending" as Sweep
+    Sweep : the canary has restored-at
+    Sweep : the canary's own nodes keep the
+    Sweep : release label, no pool selects on it
+    Sweep : (when a node had it at the restore)
+
+    Sweep --> Idle : 08, a reconcile 300 s or more after restored-at
+  }
+
+  state "Not protecting (fail-open)" as FailOpen
+  FailOpen : 01 or 02 failed, or 03 before it
+  FailOpen : paused a pool: nothing is held
+  FailOpen : later steps and 08 are skipped
+  FailOpen : Degraded=False NoPoolsPaused
+  FailOpen : MCO upgrades the nodes
+  FailOpen : WITHOUT Jobs
+
+  state "Run: pools held (fail-closed)" as Run {
+    state "Holding" as Holding
+    Holding : 03 paused the target pools (paused-by)
+    Holding : 04 gave the nodes behind their mutex
+    Holding : labels and labelled-by, and the
+    Holding : holders the release label
+    Holding : MutexRulesApplied=True
+
+    state "Settling" as Settling
+    Settling : the canary has the hold selector
+    Settling : and release-labelled-at, 05 defers
+    Settling : MCPUpdated=False CanaryMembersLabelled
+
+    state "Re-pointed, armed" as Armed
+    Armed : canary + release In (v)
+    Armed : target pools + release NotIn (v)
+    Armed : MCPUpdated=True UpdateSucceeded
+    Armed : UpgradeReady=False, so 06 does not run
+
+    state "Processing node i of n" as Processing
+    Processing : main.yml sets JobRun and loops 06
+    Processing : released nodes, in-flight nodes, the rest
+    Processing : 07 runs each pre and cleanup Job
+    Processing : JobRun, NodeUpgrade "Node is i of n"
+
+    Holding --> Settling : 04 stamped the canary, 05 defers
+    Settling --> Settling : 04 re-stamps
+    Holding --> Armed : no stamp, 05 at once
+    Settling --> Armed : 05, a reconcile 300 s or more after the stamp
+    Armed --> Processing : 02 reads history[0] Completed (UpgradeReady)
+    Processing --> Processing : 06, the next node
+  }
+
+  state "Failed, holding (fail-closed)" as Failed
+  Failed : a step failed while a pool is
+  Failed : paused or changed by this run
+  Failed : later steps and 08 are skipped,
+  Failed : nothing is unpaused
+  Failed : Degraded=True PoolsLeftPaused
+  Failed : retried with backoff
+
+  state "Restoring" as Restore
+  Restore : 08 restores the pools, canary last,
+  Restore : removes mutex labels and marks,
+  Restore : unpauses the pools it paused
+  Restore : MCPUpdated=False SelectorsRestored
+  Restore : UpgradeFinished after the last node
+
+  state "Finalizing" as Finalizing
+  Finalizing : on delete, from any state
+  Finalizing : in the namespace
+  Finalizing : main.yml runs 00 and 08, not 09
+  Finalizing : one pass, release labels go at once
+  Finalizing : the remaining nodes upgrade
+  Finalizing : WITHOUT Jobs
+
+  [*] --> Ignored : created outside POD_NAMESPACE
+  [*] --> Between : first reconcile in the namespace
+  Between --> FailOpen : 01, 02, 03 fails
+  FailOpen --> Between : fixed, retry
+  FailOpen --> Holding : fixed, a node behind
+  Between --> Holding : 02 finds a node behind, main.yml runs 03 and 04
+  Run --> Failed : a step fails, a pool held
+  Failed --> Run : retry where it stopped
+  Processing --> Restore : last node done (JobRun)
+  Run --> Restore : none behind (02)
+  Restore --> Failed : 08 fails, a pool held
+  Failed --> Restore : retry, no node behind
+  Restore --> Between : 08 done
+  Run --> Finalizing : delete, 06 stops before a node
+  Failed --> Finalizing : delete
+  Between --> Finalizing : delete
+  FailOpen --> Finalizing : delete
+  Finalizing --> Finalizing : a task failed, retry
+  Finalizing --> [*] : no task failed, ansible-operator removes the finalizer
+
+  classDef warn fill:#fde2e1,stroke:#b42318,color:#000000
+  class FailOpen warn
+  class Finalizing warn

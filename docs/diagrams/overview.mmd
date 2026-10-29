@@ -1,0 +1,48 @@
+---
+config:
+  themeCSS: ".edgeLabel rect { opacity: 1 !important; fill: #ffffff !important; }"
+  flowchart:
+    wrappingWidth: 400
+    nodeSpacing: 30
+    rankSpacing: 40
+---
+flowchart TB
+  accTitle: Overview of the OpenShift Node Upgrade Mutex Operator
+  accDescr: You create three custom resources in the operator namespace. The operator reads the cluster version, pauses the target MachineConfigPools, moves one node at a time into an unpaused canary pool where the Machine Config Operator upgrades it, and runs your Jobs before and after each node.
+
+  admin("Cluster admin")
+  cv["ClusterVersion version<br/>status.desired.version,<br/>status.history[0]"]
+
+  subgraph opns["Operator namespace<br/>(node-upgrade-mutex-operator):<br/>only CRs here are acted on"]
+    subgraph crs["Your custom resources"]
+      run["MutexRunConfig<br/>rules in order, targets, canary"]
+      rule["MutexRule<br/>Job template +<br/>optional cleanup Job"]
+      target["MutexTarget<br/>which MachineConfigPools"]
+    end
+    op["Operator pod<br/>on a control-plane node,<br/>reconciles every 10 min"]
+  end
+
+  tpool["Target pool, e.g. worker<br/>(MutexTarget<br/>spec.machineConfigPools[])<br/>paused during a run"]
+  canary["Canary pool<br/>(MutexRunConfig<br/>spec.canary.name)<br/>never paused, normally empty"]
+  jobs["Your Jobs<br/>in spec.jobNamespace,<br/>with your ServiceAccount;<br/>never on the node<br/>they prepare"]
+  nodes["Worker nodes<br/>label machineconfiguration.openshift.io/<br/>release-image-version"]
+
+  subgraph ocp["OpenShift"]
+    mco["Machine Config Operator<br/>drains, updates and reboots<br/>the nodes of unpaused pools"]
+    nfd["NFD + sample MachineConfig<br/>set the version label<br/>on every worker node"]
+  end
+
+  admin -- creates --> crs
+  admin -- "oc adm upgrade" --> cv
+  run -- "spec.mutexRules[]" --> rule
+  run -- "spec.mutexTargets[]" --> target
+  rule & target ~~~ op
+  cv -- "read every 10 min<br/>(not watched)" --> op
+  op -- "pause,<br/>change nodeSelector" --> tpool
+  op -- "change<br/>nodeSelector" --> canary
+  op -- "mutex and<br/>release labels" --> nodes
+  op -- "creates, waits;<br/>never deletes" --> jobs
+  tpool -- nodeSelector --> nodes
+  canary -- nodeSelector --> nodes
+  nodes --- mco
+  nodes --- nfd

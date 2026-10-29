@@ -1,0 +1,50 @@
+---
+config:
+  themeCSS: "text.messageText { stroke: #ffffff; stroke-width: 4px; paint-order: stroke fill; } .rect { stroke: #b42318; stroke-width: 2px; }"
+  sequence:
+    width: 110
+    actorMargin: 20
+    noteMargin: 8
+---
+sequenceDiagram
+  accTitle: One OpenShift upgrade with the operator
+  accDescr: Sequence of one OpenShift upgrade with the operator: detect, pause and hold, re-point the pools, wait for the control plane, process the nodes one at a time, restore and unpause.
+  autonumber
+  actor Admin as Cluster admin
+  participant CV as ClusterVersion
+  participant Op as Operator
+  participant TP as Target pool<br/>(worker)
+  participant CP as Canary pool
+  participant N as Target nodes
+  participant MCO
+
+  Admin->>CV: oc adm upgrade<br/>(desired.version<br/>= X)
+  Note over Admin,Op: next reconcile,<br/>at most 10 min later
+  Op->>CV: read<br/>desired.version,<br/>history[0]
+  Op->>N: read version labels:<br/>below X = "behind"<br/>[UpgradeAvailable=True]
+  rect rgb(253, 226, 225)
+    Note over Admin,MCO: A failure before the pause (next step):<br/>nothing is paused, so MCO upgrades<br/>the nodes WITHOUT Jobs (fail-open)
+  end
+  Op->>TP: spec.paused=true,<br/>paused-by<br/>[TargetPoolsPaused]
+  Note over Admin,MCO: From here on a failure stops the run:<br/>the pools stay paused (fail-closed),<br/>Degraded=True PoolsLeftPaused,<br/>retries back off up to about 17 min
+  Op->>N: behind nodes:<br/>mutex labels,<br/>labelled-by<br/>[MutexRulesApplied]
+  opt only when the canary has nodes of its own
+    Op->>CP: hold selector,<br/>release-labelled-at
+    Op->>N: release label on<br/>the canary's own nodes
+    Note over Admin,MCO: wait at least 5 min,<br/>normally until the next reconcile<br/>[MCPUpdated=False<br/>CanaryMembersLabelled]
+  end
+  Op->>CP: + release In (v)
+  Op->>TP: + release<br/>NotIn (v)<br/>[MCPUpdated=True<br/>UpdateSucceeded]
+  Note over Admin,Op: reconcile every 10 min<br/>until the control<br/>plane is done
+  CV-->>Op: history[0]:<br/>Completed X<br/>[UpgradeReady=True]
+  loop each behind node, one at a time
+    Note over Admin,MCO: One node's turn (see node-turn):<br/>pre-upgrade Jobs, release into the canary,<br/>MCO upgrades it, cleanup Jobs,<br/>back to its paused pool<br/>[JobRun, NodeUpgrade "Node is i of n"]
+  end
+  Op->>TP: restore<br/>the selector
+  Op->>CP: restore its<br/>selector, last<br/>[MCPUpdated=False<br/>SelectorsRestored]
+  Op->>N: remove leftover<br/>labels, annotations
+  Note over CP,MCO: the canary's own nodes keep<br/>the release label at least<br/>5 min more
+  Op->>TP: unpause, only<br/>with this paused-by
+  Note over Admin,MCO: [UpgradeAvailable=False UpgradeFinished]
+  MCO->>N: rendered-canary-*<br/>to<br/>rendered-worker-*
+  Note over CP,MCO: no reboot when both pools<br/>render the same<br/>MachineConfigs

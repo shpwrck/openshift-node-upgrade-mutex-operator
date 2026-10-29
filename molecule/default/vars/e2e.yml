@@ -53,3 +53,11 @@ e2e_canary_rendered_config: "rendered-{{ e2e_canary_pool }}-0e2e5678"
 e2e_canary_expressions:
   - key: isCanary
     operator: Exists
+
+# Template expressions in CR values, which the operator must pass on as
+# written (markUnsafe in watches.yaml). !unsafe keeps this test's own Ansible
+# from evaluating them. The Go template is not valid Jinja, so an operator that
+# evaluated the argument would refuse its MutexRule (ValidConfig=False).
+e2e_template_arg: !unsafe '{{ 7 * 7 }} {{ .Values.name }}'
+# Evaluated, this canary name would be the canary pool's name.
+e2e_template_canary: !unsafe "{{ 'canary' }}"
