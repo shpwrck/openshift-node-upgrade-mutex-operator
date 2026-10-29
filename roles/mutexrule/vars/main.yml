@@ -5,7 +5,7 @@
 # template, so each use renders the current time.
 mutexrule_now: "{{ now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') }}"
 
-mutexrule_spec: "{{ _openshift_optional_skrzypek_io_mutexrule_spec }}"
+mutexrule_spec: "{{ _nodeupgrade_redhat_na_ssa_github_io_mutexrule_spec }}"
 
 # Jobs run in spec.jobNamespace, or in the MutexRule's own namespace when it
 # is not set (the MutexRunConfig role uses the same default).

@@ -159,9 +159,9 @@
         definition:
           metadata:
             annotations:
-              openshift-optional.skrzypek.io/original-match-expressions: "{{ mutexrunconfig_canary_original_expressions | to_json }}"
-              openshift-optional.skrzypek.io/modified-by: "{{ mutexrunconfig_owner }}"
-              openshift-optional.skrzypek.io/release-labelled-at: "{{ mutexrunconfig_release_labelled_at }}"
+              nodeupgrade.redhat-na-ssa.github.io/original-match-expressions: "{{ mutexrunconfig_canary_original_expressions | to_json }}"
+              nodeupgrade.redhat-na-ssa.github.io/modified-by: "{{ mutexrunconfig_owner }}"
+              nodeupgrade.redhat-na-ssa.github.io/release-labelled-at: "{{ mutexrunconfig_release_labelled_at }}"
           spec: >-
             {{ {} if mutexrunconfig_canary_holds | bool
                else {'nodeSelector': {'matchExpressions': mutexrunconfig_canary_original_expressions + mutexrunconfig_canary_hold_expressions}} }}
@@ -203,12 +203,12 @@
         definition:
           metadata:
             annotations:
-              openshift-optional.skrzypek.io/release-labelled-at: "{{ mutexrunconfig_now }}"
+              nodeupgrade.redhat-na-ssa.github.io/release-labelled-at: "{{ mutexrunconfig_now }}"
       when: mutexrunconfig_canary_stamp | bool and mutexrunconfig_release_changed_nodes | length > 0
 
     - name: Report Applied
       operator_sdk.util.k8s_status:
-        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        api_version: "nodeupgrade.redhat-na-ssa.github.io/v1alpha1"
         kind: MutexRunConfig
         name: "{{ ansible_operator_meta.name }}"
         namespace: "{{ ansible_operator_meta.namespace }}"
@@ -235,7 +235,7 @@
 
     - name: Report Not Applied
       operator_sdk.util.k8s_status:
-        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        api_version: "nodeupgrade.redhat-na-ssa.github.io/v1alpha1"
         kind: MutexRunConfig
         name: "{{ ansible_operator_meta.name }}"
         namespace: "{{ ansible_operator_meta.namespace }}"

@@ -85,7 +85,7 @@
 
     - name: Report Re-point Deferred
       operator_sdk.util.k8s_status:
-        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        api_version: "nodeupgrade.redhat-na-ssa.github.io/v1alpha1"
         kind: MutexRunConfig
         name: "{{ ansible_operator_meta.name }}"
         namespace: "{{ ansible_operator_meta.namespace }}"
@@ -125,8 +125,8 @@
             definition:
               metadata:
                 annotations:
-                  openshift-optional.skrzypek.io/original-match-expressions: "{{ mutexrunconfig_original_expressions[item.item] | to_json }}"
-                  openshift-optional.skrzypek.io/modified-by: "{{ mutexrunconfig_owner }}"
+                  nodeupgrade.redhat-na-ssa.github.io/original-match-expressions: "{{ mutexrunconfig_original_expressions[item.item] | to_json }}"
+                  nodeupgrade.redhat-na-ssa.github.io/modified-by: "{{ mutexrunconfig_owner }}"
               spec:
                 nodeSelector:
                   matchExpressions: "{{ mutexrunconfig_original_expressions[item.item] + [mutexrunconfig_target_release_expression] }}"
@@ -178,7 +178,7 @@
 
         - name: Report MCP Updated
           operator_sdk.util.k8s_status:
-            api_version: "openshift-optional.skrzypek.io/v1alpha1"
+            api_version: "nodeupgrade.redhat-na-ssa.github.io/v1alpha1"
             kind: MutexRunConfig
             name: "{{ ansible_operator_meta.name }}"
             namespace: "{{ ansible_operator_meta.namespace }}"
@@ -203,7 +203,7 @@
 
     - name: Report MCP Not Updated
       operator_sdk.util.k8s_status:
-        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        api_version: "nodeupgrade.redhat-na-ssa.github.io/v1alpha1"
         kind: MutexRunConfig
         name: "{{ ansible_operator_meta.name }}"
         namespace: "{{ ansible_operator_meta.namespace }}"

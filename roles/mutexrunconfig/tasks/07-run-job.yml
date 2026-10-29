@@ -107,13 +107,13 @@
     definition:
       metadata:
         labels:
-          openshift-optional.skrzypek.io/job-key: "{{ mutexrunconfig_job_key }}"
+          nodeupgrade.redhat-na-ssa.github.io/job-key: "{{ mutexrunconfig_job_key }}"
         annotations:
-          openshift-optional.skrzypek.io/mutexrunconfig: "{{ mutexrunconfig_owner }}"
-          openshift-optional.skrzypek.io/mutexrule: "{{ mutexrunconfig_rule.namespace }}/{{ mutexrunconfig_rule.name }}"
-          openshift-optional.skrzypek.io/node: "{{ targetNode }}"
-          openshift-optional.skrzypek.io/phase: "{{ mutexrunconfig_job_phase }}"
-          openshift-optional.skrzypek.io/desired-version: "{{ desired_version }}"
+          nodeupgrade.redhat-na-ssa.github.io/mutexrunconfig: "{{ mutexrunconfig_owner }}"
+          nodeupgrade.redhat-na-ssa.github.io/mutexrule: "{{ mutexrunconfig_rule.namespace }}/{{ mutexrunconfig_rule.name }}"
+          nodeupgrade.redhat-na-ssa.github.io/node: "{{ targetNode }}"
+          nodeupgrade.redhat-na-ssa.github.io/phase: "{{ mutexrunconfig_job_phase }}"
+          nodeupgrade.redhat-na-ssa.github.io/desired-version: "{{ desired_version }}"
       spec: "{{ mutexrunconfig_job_spec }}"
     state: present
   register: mutexrunconfig_job_created

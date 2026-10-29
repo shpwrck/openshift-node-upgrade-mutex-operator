@@ -9,9 +9,8 @@ galaxy_info:
     Reconciles MutexTarget resources for the OpenShift Node Upgrade Mutex Operator:
     checks the MachineConfigPools and publishes the nodes MCO assigns to them in
     status.nodes.
-  # The repository has no LICENSE file yet; the receiving organization chooses
-  # one (see docs/HANDOFF.md). Update this field when it does.
-  license: NOASSERTION
+  # The repository's license (LICENSE).
+  license: Apache-2.0
   min_ansible_version: "2.18"
   galaxy_tags:
     - openshift

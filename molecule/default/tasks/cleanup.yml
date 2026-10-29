@@ -79,7 +79,7 @@
     kind: Job
     namespace: "{{ e2e_namespace }}"
     label_selectors:
-      - openshift-optional.skrzypek.io/job-key
+      - nodeupgrade.redhat-na-ssa.github.io/job-key
     delete_all: true
     state: absent
     delete_options:

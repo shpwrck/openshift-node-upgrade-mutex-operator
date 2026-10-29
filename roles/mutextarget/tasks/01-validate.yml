@@ -4,14 +4,14 @@
     - name: Check Pool List
       ansible.builtin.fail:
         msg: spec.machineConfigPools is empty.
-      when: _openshift_optional_skrzypek_io_mutextarget_spec.machineConfigPools | default([], true) | length == 0
+      when: _nodeupgrade_redhat_na_ssa_github_io_mutextarget_spec.machineConfigPools | default([], true) | length == 0
 
     - name: Gather Machine Config Pools
       kubernetes.core.k8s_info:
         api_version: "machineconfiguration.openshift.io/v1"
         kind: MachineConfigPool
         name: "{{ item }}"
-      loop: "{{ _openshift_optional_skrzypek_io_mutextarget_spec.machineConfigPools }}"
+      loop: "{{ _nodeupgrade_redhat_na_ssa_github_io_mutextarget_spec.machineConfigPools }}"
       register: machineConfigPools
 
     - name: Fail On Missing Machine Config Pools
@@ -23,7 +23,7 @@
 
     - name: Report Configuration Results
       operator_sdk.util.k8s_status:
-        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        api_version: "nodeupgrade.redhat-na-ssa.github.io/v1alpha1"
         kind: MutexTarget
         name: "{{ ansible_operator_meta.name }}"
         namespace: "{{ ansible_operator_meta.namespace }}"
@@ -47,7 +47,7 @@
     # an invalid target never shows a stale node list.
     - name: Report Invalid Config
       operator_sdk.util.k8s_status:
-        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        api_version: "nodeupgrade.redhat-na-ssa.github.io/v1alpha1"
         kind: MutexTarget
         name: "{{ ansible_operator_meta.name }}"
         namespace: "{{ ansible_operator_meta.namespace }}"

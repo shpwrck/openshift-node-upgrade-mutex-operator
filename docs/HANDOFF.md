@@ -22,51 +22,57 @@ description.
 | Catalog | `catalog-template.yaml` and `catalog/openshift-node-upgrade-mutex-operator/catalog.yaml` | Started afresh for the move to `ghcr.io` (`make catalog-reset`): only the package entry until the release workflow adds the first bundle. A pre-release published while the workflow was tested in the old repository (`ghcr.io/shpwrck/...-bundle:v0.3.0-rc<n>`) may be listed. | Nothing, unless such pre-release entries are listed: then run `make catalog-reset`, commit, and release from the new repository. |
 | 0.1.x and 0.2.x images | `quay.io/jskrzypek/openshift-node-upgrade-mutex-operator`, `-bundle` and `-catalog` (the old catalog files are in the history of `catalog-template.yaml` and `catalog/`, before the commit that ran `make catalog-reset`: `git log -- catalog-template.yaml`) | 124 released bundles, referenced by tag (`...-bundle:v<version>`) in the old catalog. That catalog's rendered file also has 248 references to the operator image (each CSV's `containerImage` annotation and its `relatedImages` entry), 620 `github.com/shpwrck` URLs, 372 copies of the original author's name and 124 of the author's e-mail, all read from inside the bundle images. | They go away with the old registry. To keep them installable, mirror them before then (for example `skopeo copy --all docker://quay.io/jskrzypek/...-bundle:vX docker://<new registry>/...-bundle:vX`, which keeps the tags and digests) together with the operator images; the URLs, the name and the e-mail inside them stay unless those bundles are rebuilt. Every one of them also lists `gcr.io/kubebuilder/kube-rbac-proxy` in its `relatedImages` (70 by the `v0.15.0` tag, 54 by digest), which may stop being pullable. 0.3.0 is the first version without it. |
 | Community catalogs | `operators/openshift-node-upgrade-mutex-operator/` in [k8s-operatorhub/community-operators](https://github.com/k8s-operatorhub/community-operators) and [redhat-openshift-ecosystem/community-operators-prod](https://github.com/redhat-openshift-ecosystem/community-operators-prod) | The package is published there with the original author as reviewer | Update the package's `ci.yaml` reviewers in both repositories. |
-| Role metadata | `roles/*/meta/main.yml` | `license: NOASSERTION` | The license you choose (see below). |
 
 Apart from the API group (below), nothing in `sample-manifests/` (the sample CatalogSource included) or in the
 Makefile defaults has to change: they already use neutral names and `example.com/...` placeholders.
 
-### The API group: breaking to change
+### The API group
 
-`openshift-optional.skrzypek.io` (and `domain: skrzypek.io` in `PROJECT`) is tied to the original author's domain. It
-is the group of all three CRDs, and it appears in:
+The API group was renamed for the handoff, from `openshift-optional.skrzypek.io` (tied to the original author's
+domain) to `nodeupgrade.redhat-na-ssa.github.io` (the GitHub Pages domain of the receiving organization), with
+`domain: redhat-na-ssa.github.io` and `group: nodeupgrade` in `PROJECT`. It is the group of all three CRDs, and it
+appears in:
 
-* the CRD names (`mutexrules.openshift-optional.skrzypek.io`, ...), the CSV, RBAC, samples, molecule tests and docs;
-* the finalizer `openshift-optional.skrzypek.io/finalizer`;
-* the node labels `mutexrule.openshift-optional.skrzypek.io/<rule>.<namespace>` and
-  `mutexrule.openshift-optional.skrzypek.io/release`;
-* the node annotations `openshift-optional.skrzypek.io/labelled-by` and `openshift-optional.skrzypek.io/released-by`;
-* the MachineConfigPool annotations `openshift-optional.skrzypek.io/paused-by`,
-  `openshift-optional.skrzypek.io/original-match-expressions`, `openshift-optional.skrzypek.io/modified-by`,
-  `openshift-optional.skrzypek.io/release-labelled-at` and `openshift-optional.skrzypek.io/restored-at`;
-* the Job label and annotations `openshift-optional.skrzypek.io/*`;
-* the variable names ansible-operator derives from it (`_openshift_optional_skrzypek_io_<kind>_spec`) in the roles.
+* the CRD names (`mutexrules.nodeupgrade.redhat-na-ssa.github.io`, ...), the CSV, RBAC, samples, molecule tests and
+  docs;
+* the finalizer `nodeupgrade.redhat-na-ssa.github.io/finalizer`;
+* the node labels `mutexrule.nodeupgrade.redhat-na-ssa.github.io/<rule>.<namespace>` and
+  `mutexrule.nodeupgrade.redhat-na-ssa.github.io/release`;
+* the node annotations `nodeupgrade.redhat-na-ssa.github.io/labelled-by` and
+  `nodeupgrade.redhat-na-ssa.github.io/released-by`;
+* the MachineConfigPool annotations `nodeupgrade.redhat-na-ssa.github.io/paused-by`,
+  `nodeupgrade.redhat-na-ssa.github.io/original-match-expressions`, `nodeupgrade.redhat-na-ssa.github.io/modified-by`,
+  `nodeupgrade.redhat-na-ssa.github.io/release-labelled-at` and `nodeupgrade.redhat-na-ssa.github.io/restored-at`;
+* the Job label and annotations `nodeupgrade.redhat-na-ssa.github.io/*`;
+* the variable names ansible-operator derives from it (`_nodeupgrade_redhat_na_ssa_github_io_<kind>_spec`) in the
+  roles.
 
-Changing it creates a new API. Existing MutexRules, MutexTargets and MutexRunConfigs are not migrated. A run in
-progress under the old operator would leave paused pools, labels and annotations that the new operator does not
-recognize. If you change it, ship it as a new major version, tell users to finish or delete every MutexRunConfig
-first (its finalizer restores the cluster), and recreate the CRs under the new group. Decide this before any wider
-release. The longer the group is published, the more users it breaks.
+0.3.0 is the first version with this group. 0.2.x and every earlier build, the 0.3.0-rc1 pre-release included, used
+the old group: their CRs, labels and annotations are not read by 0.3.0, so there is no in-place upgrade from them
+(USAGE, [Moving from 0.2.x](USAGE.md#moving-from-02x)), and the catalog's `skipRange` starts at `0.3.0-0`
+(`CATALOG_SKIP_FROM` in the Makefile) so that OLM never offers 0.3.0 as an upgrade of them. The roles still carry the
+code that takes over the state of earlier builds of the same group (the selector of an earlier canary design, mutex
+labels without `labelled-by`); with the new group nothing older than 0.3.0 can leave such state, so that code only
+matters for runs of 0.3.0 builds from before a later change. Changing the group again creates a new API in the same
+way.
 
 ## Decisions left to the new owner
 
-* **License.** The repository has no `LICENSE` file, so the code has no stated license. The role metadata says
-  `NOASSERTION` until one is chosen. Add the file, update `roles/*/meta/main.yml`, and mention it in the docs.
-* **API group.** See above.
+* **License.** Apache License 2.0 (`LICENSE`), chosen by the original author for the handoff; the role metadata says
+  `Apache-2.0`. Nothing to decide unless the organization requires another license or a `NOTICE` file.
+* **API group.** Done: `nodeupgrade.redhat-na-ssa.github.io` (see above).
 * **Registry and digests.** Releases go to `ghcr.io/<repository owner>` through the release workflow. Decide
   whether to mirror the 0.1.x and 0.2.x images (on `quay.io/jskrzypek`, which goes away), and whether releases record
   bundles by digest in the catalog. `make release` records them by tag; pinning by digest takes the step-by-step
   sequence under "Releasing" in `docs/DEVELOPMENT.md`, which passes the pushed bundle's digest to `make catalog-add`.
 * **Version.** `.envrc` is at 0.3.0, because 0.2.67 and 0.2.68 are already published.
-* **The 0.2.x to 0.3.0 upgrade.** In the project's own catalog 0.3.0 is the first entry of a new catalog image
-  (`skipRange: <0.3.0`, no `replaces`). 0.2.x installs get it only after they point their CatalogSource at that image
-  (USAGE, "Upgrading from 0.2.x"), and with `Automatic` approval then take it at once. 0.3.0 drops `SingleNamespace`,
-  reconciles only CRs in the operator namespace, and its CRDs validate fields that 0.2.x accepted freely. Publishing
-  `bundles/0.3.0` to the community catalogs makes it the upgrade of 0.2.66 there (their `updateGraph: semver-mode`),
-  which `Automatic` 0.2.x installs take unattended; publishing it there in a new channel instead, so that 0.2.x users
-  opt in, is the alternative. The release notes for 0.3.0 should point to
-  [Upgrading from 0.2.x](USAGE.md#upgrading-from-02x) in `docs/USAGE.md`, which is also in the CSV description.
+* **The move from 0.2.x.** 0.3.0 has a new API group, so 0.2.x installs move by reinstalling (USAGE,
+  [Moving from 0.2.x](USAGE.md#moving-from-02x)); the project's own catalog offers 0.3.0 as an upgrade of nothing
+  older. Do not publish 0.3.0 to the community catalogs in the channel of 0.2.x (`alpha`): their
+  `updateGraph: semver-mode` would make it the upgrade of 0.2.66, and `Automatic` 0.2.x installs would switch to an API
+  that ignores their CRs, so their pools would no longer be held at the next OpenShift upgrade. Publish it there in a
+  new channel (set `CHANNELS` and `DEFAULT_CHANNEL` for `make bundle`), or not at all. The release notes for 0.3.0
+  should point to [Moving from 0.2.x](USAGE.md#moving-from-02x), which is also in the CSV description.
 * **Job namespaces.** `MutexRule.spec.jobNamespace` accepts any namespace, and the Jobs can use any ServiceAccount
   there. Only users who can write in the operator namespace can use it. An allow-list, or a namespaced Role for Jobs,
   would narrow it.
@@ -134,28 +140,26 @@ cluster before relying on it:
    `openshift-node-upgrade-mutex-operator-metrics-reader` ClusterRole bound to the scraper (see the binding example
    in the Permissions section of `docs/USAGE.md`).
    **Live run:** scorecard 6/6 passed; the metrics endpoint answered 403 without the binding and 200 with it.
-8. An OLM upgrade from 0.2.68 to 0.3.0 with CRs in the operator namespace, following "Upgrading from 0.2.x" in
-   `docs/USAGE.md`.
-   **Live run** (with the old catalog, where 0.3.0 replaced 0.2.68 in the same catalog image): including a failed
-   InstallPlan and the recovery now documented there; the CRs survived and were reconciled. **Still open:** the
-   upgrade by pointing an existing 0.2.x CatalogSource at the fresh `ghcr.io` catalog (no 0.2.x bundles, 0.3.0 offered
-   through its `skipRange`).
+8. The move from 0.2.68 to 0.3.0, following "Moving from 0.2.x" in `docs/USAGE.md` (save the CRs, uninstall 0.2.x,
+   install 0.3.0 from the `ghcr.io` catalog, create the CRs again under the new group).
+   **Live run:** only of the earlier in-place OLM upgrade, before the API group changed, with a failed InstallPlan and
+   its recovery. **Still open:** the reinstall as written now.
 9. A run whose canary has nodes of its own (with the sample canary, a worker node with `isCanary`; with a custom
    target pool such as `apps`, also `node-role.kubernetes.io/app=canary`). The molecule tests have no such node. Check
    that they stay in the canary at the start and at the end of the run: the first reconcile reports `MCPUpdated=False`
    (`CanaryMembersLabelled`), and the canary then has its own `matchExpressions` plus one `DoesNotExist` per mutex
-   label and the `openshift-optional.skrzypek.io/release-labelled-at` annotation. The pools are re-pointed only at a
-   reconcile at least 5 minutes (`mutexrunconfig_label_settle_seconds`) later, also when the operator pod restarts in
-   between. After the run the nodes keep the release label until a reconcile at least 5 minutes after the time in the
-   canary's `openshift-optional.skrzypek.io/restored-at` annotation, normally the one 10 minutes after the run (the
-   reconcile right after it keeps the label), and then the annotation goes as well. Check that MCO never
-   moves them into `worker`, also while the kube-apiserver rolls out at the start of the run, and that deleting the
-   MutexRunConfig in the middle of a run moves them through `worker` at most once (the finalizer has a single pass).
-   **Live run:** one canary node of its own with the sample canary. The label, the hold selector and
+   label and the `nodeupgrade.redhat-na-ssa.github.io/release-labelled-at` annotation. The pools are re-pointed only
+   at a reconcile at least 5 minutes (`mutexrunconfig_label_settle_seconds`) later, also when the operator pod
+   restarts in between. After the run the nodes keep the release label until a reconcile at least 5 minutes after the
+   time in the canary's `nodeupgrade.redhat-na-ssa.github.io/restored-at` annotation, normally the one 10 minutes
+   after the run (the reconcile right after it keeps the label), and then the annotation goes as well. Check that MCO
+   never moves them into `worker`, also while the kube-apiserver rolls out at the start of the run, and that deleting
+   the MutexRunConfig in the middle of a run moves them through `worker` at most once (the finalizer has a single
+   pass). **Live run:** one canary node of its own with the sample canary. The label, the hold selector and
    `release-labelled-at` came in the first reconcile, during the kube-apiserver rollout; the operator restarted before
-   the re-point, and the reconcile after the restart waited again; the pools were re-pointed 13 minutes later. The node
-   never left the canary; MCO upgraded it there; its label and `restored-at` went at a reconcile 5 minutes after the
-   restore. **Still open:** the mid-run delete, and the custom-pool variant.
+   the re-point, and the reconcile after the restart waited again; the pools were re-pointed 13 minutes later. The
+   node never left the canary; MCO upgraded it there; its label and `restored-at` went at a reconcile 5 minutes after
+   the restore. **Still open:** the mid-run delete, and the custom-pool variant.
 10. A target node that is already at the new version while another target node is upgraded. On a build before the
     release-label canary such a node moving into the re-pointed canary made the in-flight guard report one spurious
     `NodeUpgradeFailed`. The release-label canary removes the cause (a node that is not behind never gets the release

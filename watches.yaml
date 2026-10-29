@@ -1,13 +1,13 @@
 ---
 - version: v1alpha1
-  group: openshift-optional.skrzypek.io
+  group: nodeupgrade.redhat-na-ssa.github.io
   kind: MutexRule
   role: mutexrule
   reconcilePeriod: 10m
   manageStatus: false
 
 - version: v1alpha1
-  group: openshift-optional.skrzypek.io
+  group: nodeupgrade.redhat-na-ssa.github.io
   kind: MutexTarget
   role: mutextarget
   reconcilePeriod: 10m
@@ -21,13 +21,13 @@
 # therefore lets MCO upgrade the remaining nodes without running their
 # MutexRule jobs.
 - version: v1alpha1
-  group: openshift-optional.skrzypek.io
+  group: nodeupgrade.redhat-na-ssa.github.io
   kind: MutexRunConfig
   role: mutexrunconfig
   reconcilePeriod: 10m
   manageStatus: false
   finalizer:
-    name: openshift-optional.skrzypek.io/finalizer
+    name: nodeupgrade.redhat-na-ssa.github.io/finalizer
     vars:
       state: absent
 #+kubebuilder:scaffold:watch

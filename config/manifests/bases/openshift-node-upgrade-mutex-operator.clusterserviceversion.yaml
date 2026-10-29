@@ -33,7 +33,7 @@ spec:
         each target node before and after the node is upgraded.
       displayName: Mutex Rule
       kind: MutexRule
-      name: mutexrules.openshift-optional.skrzypek.io
+      name: mutexrules.nodeupgrade.redhat-na-ssa.github.io
       resources:
       - kind: Job
         name: ""
@@ -84,7 +84,7 @@ spec:
         MachineConfigPool.
       displayName: Mutex Run Config
       kind: MutexRunConfig
-      name: mutexrunconfigs.openshift-optional.skrzypek.io
+      name: mutexrunconfigs.nodeupgrade.redhat-na-ssa.github.io
       resources:
       - kind: Job
         name: ""
@@ -131,7 +131,7 @@ spec:
         with the MutexRule Jobs run before each node.
       displayName: Mutex Target
       kind: MutexTarget
-      name: mutextargets.openshift-optional.skrzypek.io
+      name: mutextargets.nodeupgrade.redhat-na-ssa.github.io
       resources:
       - kind: MachineConfigPool
         name: machineconfigpools
@@ -270,9 +270,9 @@ spec:
 
     The nodes that are in the canary when a run starts (they match its `matchLabels` and `matchExpressions` and are not
     target nodes) get the release label, so they stay in the canary during the run. Before the operator gives them the
-    label, it records the time in the canary's annotation `openshift-optional.skrzypek.io/release-labelled-at` and, in the
-    same patch, gives the canary its own `matchExpressions` plus `<mutex label> DoesNotExist` for each MutexRule. That
-    selects the canary's own nodes whatever their release label, and none of the nodes the run holds. The canary's
+    label, it records the time in the canary's annotation `nodeupgrade.redhat-na-ssa.github.io/release-labelled-at` and,
+    in the same patch, gives the canary its own `matchExpressions` plus `<mutex label> DoesNotExist` for each MutexRule.
+    That selects the canary's own nodes whatever their release label, and none of the nodes the run holds. The canary's
     selector is changed for the run only at a later reconcile at least 5 minutes after that time, normally the next one,
     10 minutes later. The time is recorded again after the last of these label changes (and the target nodes are labelled
     before it is first recorded), so a reconcile that labels many nodes does not shorten the wait, and MCO has seen the
@@ -281,7 +281,7 @@ spec:
     the operator or any other early reconcile waits as well. The nodes keep the label until a reconcile at least 5 minutes
     after the one that restores the canary's selector, normally the one 10 minutes later (a reconcile right after the run,
     such as one its last Jobs trigger, keeps the label); that restore records its time in the canary's annotation
-    `openshift-optional.skrzypek.io/restored-at`. One case remains: an API outage that begins right after the time is
+    `nodeupgrade.redhat-na-ssa.github.io/restored-at`. One case remains: an API outage that begins right after the time is
     recorded and lasts longer than 5 minutes, followed by MCO's delay in reading the nodes again once the API is back, can
     still move one of the canary's own nodes through the `worker` pool once, which is unpaused when `worker` is not a
     target pool. The finalizer has a similar case (see [Recovery](#recovery)). A node you add to the canary during a run
@@ -298,7 +298,7 @@ spec:
       example when you set `node-role.kubernetes.io/app=canary` on it. Matching no other custom pool, it falls into
       `worker`, which upgrades it at once without its Jobs when `worker` is not a target, possibly at the same time as the
       node the run is upgrading. The run then stops with `ConfigValidated` `False`, naming the node in pool `worker`, until
-      you remove the node's mutex labels and its `openshift-optional.skrzypek.io/labelled-by` annotation. The node then
+      you remove the node's mutex labels and its `nodeupgrade.redhat-na-ssa.github.io/labelled-by` annotation. The node then
       joins the canary as one of its own nodes.
     * With a custom target pool, a held node that keeps that pool's label and only gets the canary's labels added stays a
       target node and is upgraded with its Jobs, but after the run MCO refuses it, because it matches two custom pools.
@@ -362,32 +362,29 @@ spec:
     of the references in a MutexRunConfig. They default to the MutexRunConfig's namespace. A reference to another namespace
     fails validation.
 
-    ### Upgrading from 0.2.x
+    ### Moving from 0.2.x
 
-    0.3.0 is published in the `alpha` channel. The project's own catalog starts afresh on `ghcr.io`
-    (`ghcr.io/<owner>/openshift-node-upgrade-mutex-operator-catalog:latest`, or `:v<version>`) without the 0.2.x bundles,
-    and lists 0.3.0 with `skipRange: <0.3.0`: a 0.2.x install is offered 0.3.0 once its CatalogSource serves that image
-    (step 5 below). In the community catalogs 0.3.0 is the upgrade of 0.2.66, so every 0.2.x Subscription there is offered
-    it. The common install needs no changes: the operator in its own namespace (for example
-    `node-upgrade-mutex-operator`, through the console, which creates an `OwnNamespace` OperatorGroup) with every
-    MutexRule, MutexTarget and MutexRunConfig in that same namespace keeps working, as long as the CRs pass the new
-    schemas (step 3 below) and the canary passes the new checks (step 6). Four changes can break other installs:
+    0.3.0 is a new API. Its group is `nodeupgrade.redhat-na-ssa.github.io` (0.2.x used `openshift-optional.skrzypek.io`),
+    and so are its node labels, pool and node annotations and finalizer. 0.3.0 does not read 0.2.x CRs, labels or
+    annotations, so it cannot take over from 0.2.x in place: an OLM upgrade from 0.2.x would leave the 0.2.x CRs behind
+    and protect nothing until the new CRs exist. The project's own catalog (on `ghcr.io`) therefore starts afresh, without
+    the 0.2.x bundles, and offers 0.3.0 as an upgrade of nothing older than 0.3.0. Move by reinstalling: save the 0.2.x
+    CRs, uninstall 0.2.x, install 0.3.0, and create the CRs again under the new group. A 0.2.x install from a community
+    catalog moves the same way: if that catalog offers 0.3.0 as an upgrade, do not approve it (set the Subscription to
+    `Manual` approval first).
 
-    * **Only CRs in the operator namespace are reconciled.** 0.2.x reconciled CRs in every namespace. 0.3.0 installed
-      `OwnNamespace` no longer watches CRs in other namespaces, and their status keeps its 0.2.x values, so nothing shows
-      that they stopped working. At the next OpenShift upgrade MCO upgrades their pools without pausing them or running
-      their Jobs. References to MutexRules or MutexTargets in another namespace now fail validation.
+    What changes for the CRs you create again:
+
+    * **Only CRs in the operator namespace are reconciled.** 0.2.x reconciled CRs in every namespace. Create the 0.3.0 CRs
+      in the operator namespace, with references that leave out `namespace`: references to MutexRules or MutexTargets in
+      another namespace fail validation, and a CR in another namespace only gets `Reconciled=False NamespaceNotAllowed`.
     * **`SingleNamespace` is no longer supported.** With an OperatorGroup whose `spec.targetNamespaces` names a namespace
-      other than its own, the 0.3.0 CSV fails with reason `UnsupportedOperatorGroup`, and 0.2.x keeps running.
-    * **The CRDs now validate their fields.** Before OLM upgrades a CRD it checks every existing CR against the new schema.
-      If one does not pass, the InstallPlan fails with `error validating existing CRs against new CRD's schema`, names the
-      CR, and 0.2.x keeps running. OLM does not retry a failed InstallPlan. Fix or delete the CR, then delete the
-      Subscription, the 0.3.0 CSV and the 0.2.x CSV, and create the Subscription again: the CRDs and the CRs stay, and OLM
-      installs 0.3.0 (with manual approval, approve the new InstallPlan). Every kind needs `spec`. A MutexRule needs
-      `jobName`, a DNS-1123 label of at most 52 characters, and `jobSpec`; `jobNamespace`, when set, must be a DNS-1123
-      label. A MutexTarget needs at least one pool. A MutexRunConfig needs `canary.name` and at least one rule and one
-      target reference, each with a `name`; rule names (at most 61 characters) and every reference `namespace` must be
-      DNS-1123 labels.
+      other than its own, the 0.3.0 CSV fails with reason `UnsupportedOperatorGroup`. Use `OwnNamespace` (the console's
+      default for a namespace of its own) or `AllNamespaces`.
+    * **The CRDs validate their fields.** Every kind needs `spec`. A MutexRule needs `jobName`, a DNS-1123 label of at most
+      52 characters, and `jobSpec`; `jobNamespace`, when set, must be a DNS-1123 label. A MutexTarget needs at least one
+      pool. A MutexRunConfig needs `canary.name` and at least one rule and one target reference, each with a `name`; rule
+      names (at most 61 characters) and every reference `namespace` must be DNS-1123 labels.
     * **The canary must not reach other nodes.** 0.3.0 refuses a canary whose `matchLabels` and kept `matchExpressions`
       select nodes outside the canary and the target pools, for example the nodes of an `infra` pool. With a custom target
       pool (not `worker`), for example `apps`, and the sample canary, they select the nodes of the `worker` pool, so
@@ -399,18 +396,11 @@ spec:
     wait of the Ansible `k8s` module it used. 0.3.0 waits for each Job up to the rule's `spec.timeoutSeconds`, 3600 by
     default. Set `timeoutSeconds` on every MutexRule that needs another limit. There is no operator-wide setting.
 
-    Before you approve 0.3.0:
+    To move:
 
-    1. Set the Subscription to manual approval, so OLM waits for you. With `Automatic` approval it installs 0.3.0 as soon
-       as the catalog serves it (after step 5 for the project's own catalog, at once in the community catalogs):
-
-       ```sh
-       oc patch subscriptions.operators.coreos.com <name> -n <operator namespace> --type=merge -p '{"spec":{"installPlanApproval":"Manual"}}'
-       ```
-
-    2. Upgrade only when no OpenShift upgrade is in progress and no 0.2.x run is half done. 0.2.x has no finalizer and does
-       not record what it changed, so 0.3.0 can neither finish nor undo a 0.2.x run. No target pool should be paused,
-       except by you, and this must print nothing:
+    1. Choose a time when no OpenShift upgrade is in progress and no 0.2.x run is half done. 0.2.x has no finalizer and
+       does not record what it changed, so nothing can finish or undo a 0.2.x run after it is uninstalled. No target pool
+       should be paused, except by you, and this must print nothing:
 
        ```sh
        oc get nodes,mcp -o yaml | grep 'mutexrule.openshift-optional.skrzypek.io/'
@@ -418,36 +408,34 @@ spec:
 
        If it prints labels or `matchExpressions`, let the run finish, or put the pools' original `matchExpressions` back,
        remove the labels and unpause the pools by hand.
-    3. List the CRs in all namespaces, and check each one against the schema rules above:
+    2. Save the 0.2.x CRs, in every namespace:
 
        ```sh
-       oc get mutexrules,mutextargets,mutexrunconfigs -A
+       oc get mutexrules.openshift-optional.skrzypek.io,mutextargets.openshift-optional.skrzypek.io,mutexrunconfigs.openshift-optional.skrzypek.io -A -o yaml > mutex-0.2.x.yaml
        ```
 
-       Recreate every CR that is outside the operator namespace inside it, with references that leave out `namespace`,
-       then delete the old one.
-    4. If the OperatorGroup targets another namespace (`SingleNamespace`), make it `OwnNamespace`. OLM also retries a
-       0.3.0 CSV that has already failed with `UnsupportedOperatorGroup` once the OperatorGroup changes:
+    3. Uninstall 0.2.x: delete its Subscription and CSV, then its CRDs, which also deletes the 0.2.x CRs (0.2.x has no
+       finalizer, so nothing hangs):
 
        ```sh
-       oc patch operatorgroup <name> -n <operator namespace> --type=merge -p '{"spec":{"targetNamespaces":["<operator namespace>"]}}'
+       oc delete subscriptions.operators.coreos.com <name> -n <operator namespace>
+       oc delete csv <0.2.x CSV name> -n <operator namespace>
+       oc delete crd mutexrules.openshift-optional.skrzypek.io mutextargets.openshift-optional.skrzypek.io mutexrunconfigs.openshift-optional.skrzypek.io
        ```
 
-    5. If the operator comes from the project's own catalog, point its CatalogSource at the new catalog image. OLM keeps
-       0.2.x running and offers 0.3.0 through the `skipRange`:
-
-       ```sh
-       oc patch catalogsource <name> -n <catalog namespace> --type=merge -p '{"spec":{"image":"<new catalog image>"}}'
-       ```
-
-    6. Approve the InstallPlan. Afterwards `oc get mutexrunconfig -n <operator namespace>` must show every
-       MutexRunConfig as `Validated` `True`. Fix any that is not before the next OpenShift upgrade: 0.3.0 checks more
-       than 0.2.x did (see [Reconcile procedure](#reconcile-procedure)), and a MutexRunConfig that fails validation pauses
-       nothing.
+    4. Install 0.3.0 as described in [Installation](#installation), from a CatalogSource that serves
+       `ghcr.io/<owner>/openshift-node-upgrade-mutex-operator-catalog` (`:latest`, or `:v<version>`). If the
+       OperatorGroup targets another namespace (`SingleNamespace`), make it `OwnNamespace` first.
+    5. Create the CRs again from `mutex-0.2.x.yaml`, with `apiVersion: nodeupgrade.redhat-na-ssa.github.io/v1alpha1`,
+       in the operator namespace, without `status` and the server-set `metadata` fields, and checked against the schema
+       rules above. Start from the samples (`config/samples/`).
+    6. Afterwards `oc get mutexrunconfig -n <operator namespace>` must show every MutexRunConfig as `Validated` `True`.
+       Fix any that is not before the next OpenShift upgrade: 0.3.0 checks more than 0.2.x did (see
+       [Reconcile procedure](#reconcile-procedure)), and a MutexRunConfig that fails validation pauses nothing.
 
     ## Custom resources
 
-    All three kinds are `openshift-optional.skrzypek.io/v1alpha1`, namespaced, and in the `numo` category, so
+    All three kinds are `nodeupgrade.redhat-na-ssa.github.io/v1alpha1`, namespaced, and in the `numo` category, so
     `oc get numo` lists them all.
 
     ### MutexRule
@@ -465,11 +453,11 @@ spec:
     | `spec.type` | no | Only `kubernetes`, the default. |
 
     The rule's **name must not contain `.`**, and `<name>.<namespace>` must be at most 63 characters. The node label is
-    `mutexrule.openshift-optional.skrzypek.io/<name>.<namespace>`. A MutexRunConfig that references a rule breaking this
-    fails validation.
+    `mutexrule.nodeupgrade.redhat-na-ssa.github.io/<name>.<namespace>`. A MutexRunConfig that references a rule breaking
+    this fails validation.
 
     ```yaml
-    apiVersion: openshift-optional.skrzypek.io/v1alpha1
+    apiVersion: nodeupgrade.redhat-na-ssa.github.io/v1alpha1
     kind: MutexRule
     metadata:
       name: drain-app
@@ -513,7 +501,7 @@ spec:
     | `status.nodes` | (status) | The nodes MCO assigns to these pools. A node belongs to the custom pool it matches, else to `master` if it matches master, else to `worker`. A worker node that sits in the canary or another custom pool is therefore not a node of a `worker` target. The list stays the same for the whole run. |
 
     ```yaml
-    apiVersion: openshift-optional.skrzypek.io/v1alpha1
+    apiVersion: nodeupgrade.redhat-na-ssa.github.io/v1alpha1
     kind: MutexTarget
     metadata:
       name: workers
@@ -535,7 +523,7 @@ spec:
     | `spec.skipTLSVerify` | no | **Deprecated, no effect.** Kept so existing resources stay valid. The version is read from ClusterVersion and no release image is pulled. |
 
     ```yaml
-    apiVersion: openshift-optional.skrzypek.io/v1alpha1
+    apiVersion: nodeupgrade.redhat-na-ssa.github.io/v1alpha1
     kind: MutexRunConfig
     metadata:
       name: workers
@@ -562,8 +550,8 @@ spec:
     * **Scheduling:** a `kubernetes.io/hostname NotIn [<node>]` expression, added to every required nodeSelectorTerm of the
       pod's node affinity, or as a new term. The pod never runs on the node it prepares, so it must be able to schedule on
       some other node. Pod affinity, pod anti-affinity and preferred terms are kept.
-    * **Metadata:** the label `openshift-optional.skrzypek.io/job-key` (a hash of MutexRunConfig, node, rule, phase and
-      version) and the annotations `openshift-optional.skrzypek.io/mutexrunconfig`, `.../mutexrule`, `.../node`,
+    * **Metadata:** the label `nodeupgrade.redhat-na-ssa.github.io/job-key` (a hash of MutexRunConfig, node, rule, phase and
+      version) and the annotations `nodeupgrade.redhat-na-ssa.github.io/mutexrunconfig`, `.../mutexrule`, `.../node`,
       `.../phase` (`pre` or `cleanup`) and `.../desired-version`.
     * **Name:** `generateName: <jobName>-`, or `cleanup-<jobName>-` for cleanup Jobs, in `spec.jobNamespace`.
 
@@ -585,8 +573,8 @@ spec:
     When a reconcile is interrupted and started again, the operator looks for a Job with the same `job-key` label. If it
     finds one that has not failed, it waits for it or counts it as done, instead of starting another. A failed Job is not
     reused, so the next reconcile starts a new one, and failed Jobs pile up while a failure is retried. A released node
-    carries the annotation `openshift-optional.skrzypek.io/released-by` and the release label until its cleanup Jobs have
-    completed: one patch sets both and one patch removes both. A retry or a restart of the operator therefore resumes
+    carries the annotation `nodeupgrade.redhat-na-ssa.github.io/released-by` and the release label until its cleanup Jobs
+    have completed: one patch sets both and one patch removes both. A retry or a restart of the operator therefore resumes
     that node at the wait and runs its cleanup Jobs (it starts a failed one again and waits for one that still runs)
     before it touches the next node, also when it was the last node. Do not set `ttlSecondsAfterFinished` shorter than a
     run, or a re-entered run will start the Job again; a value of a day or more cleans up the failed ones. Jobs in the
@@ -601,11 +589,11 @@ spec:
 
     | Object | Change | Restored |
     | --- | --- | --- |
-    | Target MachineConfigPools | `spec.paused: true`, annotation `openshift-optional.skrzypek.io/paused-by: <namespace>/<name>`. Pools that are already paused are left as they are and not annotated. | At the end of the run, and by the finalizer, every pool whose `paused-by` names this MutexRunConfig is unpaused and loses the annotation. A pool an administrator paused stays paused. |
-    | Target and canary MachineConfigPools | `spec.nodeSelector.matchExpressions` changed for the run: a target pool gets `mutexrule.openshift-optional.skrzypek.io/release NotIn (<value>)` added to its expressions, and the canary gets its kept expressions plus `mutexrule.openshift-optional.skrzypek.io/release In (<value>)` (before that, from the patch that comes before its own nodes get the release label until it is re-pointed, its own expressions plus one `DoesNotExist` per mutex label). The original list is saved as JSON in the annotation `openshift-optional.skrzypek.io/original-match-expressions`, and the annotation `openshift-optional.skrzypek.io/modified-by: <namespace>/<name>` names the MutexRunConfig that changed it. | At the end of the run, and by the finalizer, the saved list is put back on every pool whose `modified-by` names this MutexRunConfig, also when its MutexTarget is gone or someone else paused the pool, and both annotations are removed. `matchLabels` is never changed. |
-    | Canary MachineConfigPool | Annotation `openshift-optional.skrzypek.io/release-labelled-at: <time>` (UTC, `YYYY-MM-DDTHH:MM:SSZ`): written, with `modified-by`, before the release label of one of the canary's own nodes is added (or this MutexRunConfig's value is taken from a node) at the start of a run. The pools are re-pointed at a later reconcile once it is 5 minutes old; an empty time, one without that format or one later than the operator's clock counts as just written and is written again. Annotation `openshift-optional.skrzypek.io/restored-at: <time> <namespace>/<name>`: written in the patch that restores the canary's selector when a node still carries the release label. | `release-labelled-at` is removed when the canary is re-pointed and whenever its selector is restored. `restored-at` is removed after the release labels, at least 5 minutes after the restore, and by the finalizer. A `restored-at` that names another MutexRunConfig is left alone. |
-    | Target nodes | Label `mutexrule.openshift-optional.skrzypek.io/<rule>.<namespace>: ""` per MutexRule and annotation `openshift-optional.skrzypek.io/labelled-by: <namespace>/<name>`, only on nodes still behind the new version. When the node is released, the same patch sets the annotation `openshift-optional.skrzypek.io/released-by: <namespace>/<name>\|<version>` and the label `mutexrule.openshift-optional.skrzypek.io/release: <value>`. | The mutex labels and `labelled-by` are removed when the node is released. At the end of the run, and by the finalizer, the mutex labels are removed from the nodes whose `labelled-by` names this MutexRunConfig, which also lose that annotation, and from target nodes without any `labelled-by`. A node whose `labelled-by` names another MutexRunConfig keeps its labels. `released-by` and the release label are removed together once the node's cleanup Jobs have completed, and at the end of the run and by the finalizer, which does not run the cleanup Jobs. |
-    | Nodes in the canary before the run | Label `mutexrule.openshift-optional.skrzypek.io/release: <value>` at the start of the run, at least 5 minutes before the canary's selector is changed, so they stay in the canary. | Removed by a reconcile at least 5 minutes after the one that restores the canary's selector, normally the one 10 minutes later (a later one while validation or the upgrade check fails), and by the finalizer right after it restores the canary's selector. A release label with another MutexRunConfig's value is never removed. |
+    | Target MachineConfigPools | `spec.paused: true`, annotation `nodeupgrade.redhat-na-ssa.github.io/paused-by: <namespace>/<name>`. Pools that are already paused are left as they are and not annotated. | At the end of the run, and by the finalizer, every pool whose `paused-by` names this MutexRunConfig is unpaused and loses the annotation. A pool an administrator paused stays paused. |
+    | Target and canary MachineConfigPools | `spec.nodeSelector.matchExpressions` changed for the run: a target pool gets `mutexrule.nodeupgrade.redhat-na-ssa.github.io/release NotIn (<value>)` added to its expressions, and the canary gets its kept expressions plus `mutexrule.nodeupgrade.redhat-na-ssa.github.io/release In (<value>)` (before that, from the patch that comes before its own nodes get the release label until it is re-pointed, its own expressions plus one `DoesNotExist` per mutex label). The original list is saved as JSON in the annotation `nodeupgrade.redhat-na-ssa.github.io/original-match-expressions`, and the annotation `nodeupgrade.redhat-na-ssa.github.io/modified-by: <namespace>/<name>` names the MutexRunConfig that changed it. | At the end of the run, and by the finalizer, the saved list is put back on every pool whose `modified-by` names this MutexRunConfig, also when its MutexTarget is gone or someone else paused the pool, and both annotations are removed. `matchLabels` is never changed. |
+    | Canary MachineConfigPool | Annotation `nodeupgrade.redhat-na-ssa.github.io/release-labelled-at: <time>` (UTC, `YYYY-MM-DDTHH:MM:SSZ`): written, with `modified-by`, before the release label of one of the canary's own nodes is added (or this MutexRunConfig's value is taken from a node) at the start of a run. The pools are re-pointed at a later reconcile once it is 5 minutes old; an empty time, one without that format or one later than the operator's clock counts as just written and is written again. Annotation `nodeupgrade.redhat-na-ssa.github.io/restored-at: <time> <namespace>/<name>`: written in the patch that restores the canary's selector when a node still carries the release label. | `release-labelled-at` is removed when the canary is re-pointed and whenever its selector is restored. `restored-at` is removed after the release labels, at least 5 minutes after the restore, and by the finalizer. A `restored-at` that names another MutexRunConfig is left alone. |
+    | Target nodes | Label `mutexrule.nodeupgrade.redhat-na-ssa.github.io/<rule>.<namespace>: ""` per MutexRule and annotation `nodeupgrade.redhat-na-ssa.github.io/labelled-by: <namespace>/<name>`, only on nodes still behind the new version. When the node is released, the same patch sets the annotation `nodeupgrade.redhat-na-ssa.github.io/released-by: <namespace>/<name>\|<version>` and the label `mutexrule.nodeupgrade.redhat-na-ssa.github.io/release: <value>`. | The mutex labels and `labelled-by` are removed when the node is released. At the end of the run, and by the finalizer, the mutex labels are removed from the nodes whose `labelled-by` names this MutexRunConfig, which also lose that annotation, and from target nodes without any `labelled-by`. A node whose `labelled-by` names another MutexRunConfig keeps its labels. `released-by` and the release label are removed together once the node's cleanup Jobs have completed, and at the end of the run and by the finalizer, which does not run the cleanup Jobs. |
+    | Nodes in the canary before the run | Label `mutexrule.nodeupgrade.redhat-na-ssa.github.io/release: <value>` at the start of the run, at least 5 minutes before the canary's selector is changed, so they stay in the canary. | Removed by a reconcile at least 5 minutes after the one that restores the canary's selector, normally the one 10 minutes later (a later one while validation or the upgrade check fails), and by the finalizer right after it restores the canary's selector. A release label with another MutexRunConfig's value is never removed. |
     | Jobs | Created as described above. | Never deleted by the operator. |
 
     ## Reconcile procedure
@@ -651,13 +639,13 @@ spec:
        one patch of the canary comes before a release label change that canary membership depends on (one of the canary's
        own nodes gets the value, or a node loses it): it records the time in `release-labelled-at`, sets `modified-by` and
        saves the canary's `matchExpressions`, and a canary that still has its own selector gets its own `matchExpressions`
-       plus `mutexrule.openshift-optional.skrzypek.io/<rule>.<namespace> DoesNotExist` for each MutexRule. That selector
-       keeps the nodes the run holds out of the canary and does not depend on the release label. After those release label
-       changes the time is recorded again.
+       plus `mutexrule.nodeupgrade.redhat-na-ssa.github.io/<rule>.<namespace> DoesNotExist` for each MutexRule. That
+       selector keeps the nodes the run holds out of the canary and does not depend on the release label. After those
+       release label changes the time is recorded again.
     6. **Re-point the pools** (`MCPUpdated`). The original `matchExpressions` are saved, and `modified-by` names this
        MutexRunConfig. The canary comes first: it gets its kept expressions plus
-       `mutexrule.openshift-optional.skrzypek.io/release In (<value>)`. Then each target pool gets
-       `mutexrule.openshift-optional.skrzypek.io/release NotIn (<value>)` added to its expressions. MCO resets the
+       `mutexrule.nodeupgrade.redhat-na-ssa.github.io/release In (<value>)`. Then each target pool gets
+       `mutexrule.nodeupgrade.redhat-na-ssa.github.io/release NotIn (<value>)` added to its expressions. MCO resets the
        selector of its built-in `worker` pool at once, so on `worker` the expression does not stay; there MCO's own rule
        keeps a node that matches a custom pool (the canary, once the node carries the release label) out of `worker`.
        Custom target pools keep it. While the canary's `release-labelled-at` annotation (step 5) is less than 5 minutes
@@ -756,7 +744,7 @@ spec:
 
     ## Recovery
 
-    **To abort a run, delete the MutexRunConfig.** Its finalizer (`openshift-optional.skrzypek.io/finalizer`) runs the
+    **To abort a run, delete the MutexRunConfig.** Its finalizer (`nodeupgrade.redhat-na-ssa.github.io/finalizer`) runs the
     restore before the object goes away. It puts back the saved node selectors, the canary last, removes this run's mutex
     labels, its release label and its `labelled-by` and `released-by` node annotations, and unpauses the pools that this
     MutexRunConfig paused. **MCO then upgrades the remaining nodes without running their Jobs.** The finalizer does not
@@ -794,9 +782,9 @@ spec:
 
     ```sh
     labels=$(oc get nodes -o json | jq -c --arg mrc "$mrc" '[.items[].metadata
-      | select((.annotations // {})["openshift-optional.skrzypek.io/labelled-by"] == $mrc)
-      | .labels // {} | keys[] | select(startswith("mutexrule.openshift-optional.skrzypek.io/"))
-      | select(. != "mutexrule.openshift-optional.skrzypek.io/release")] | unique')
+      | select((.annotations // {})["nodeupgrade.redhat-na-ssa.github.io/labelled-by"] == $mrc)
+      | .labels // {} | keys[] | select(startswith("mutexrule.nodeupgrade.redhat-na-ssa.github.io/"))
+      | select(. != "mutexrule.nodeupgrade.redhat-na-ssa.github.io/release")] | unique')
     targets='[]'
     ```
 
@@ -807,14 +795,14 @@ spec:
        ```sh
        for pool in $(oc get mcp -o json | jq -r --arg mrc "$mrc" '.items
            | sort_by([(.spec.nodeSelector.matchExpressions // [])[] | select(.operator == "In"
-                      and .key == "mutexrule.openshift-optional.skrzypek.io/release")] | length > 0) | .[]
-           | select(.metadata.annotations["openshift-optional.skrzypek.io/modified-by"] == $mrc) | .metadata.name'); do
+                      and .key == "mutexrule.nodeupgrade.redhat-na-ssa.github.io/release")] | length > 0) | .[]
+           | select(.metadata.annotations["nodeupgrade.redhat-na-ssa.github.io/modified-by"] == $mrc) | .metadata.name'); do
          oc patch mcp "$pool" --type=merge -p "$(oc get mcp "$pool" -o json | jq -c '{
-           metadata: {annotations: {"openshift-optional.skrzypek.io/original-match-expressions": null,
-                                    "openshift-optional.skrzypek.io/modified-by": null,
-                                    "openshift-optional.skrzypek.io/release-labelled-at": null}},
+           metadata: {annotations: {"nodeupgrade.redhat-na-ssa.github.io/original-match-expressions": null,
+                                    "nodeupgrade.redhat-na-ssa.github.io/modified-by": null,
+                                    "nodeupgrade.redhat-na-ssa.github.io/release-labelled-at": null}},
            spec: {nodeSelector: {matchExpressions:
-             (.metadata.annotations["openshift-optional.skrzypek.io/original-match-expressions"] | fromjson
+             (.metadata.annotations["nodeupgrade.redhat-na-ssa.github.io/original-match-expressions"] | fromjson
               | if length > 0 then . else null end)}}}')"
        done
        ```
@@ -827,23 +815,23 @@ spec:
        ```sh
        # the mutex label of each MutexRule of the MutexRunConfig
        labels=$(oc get mutexrunconfig "$name" -n "$ns" -o json | jq -c --arg ns "$ns" '[.spec.mutexRules[]
-         | "mutexrule.openshift-optional.skrzypek.io/\(.name).\(if (.namespace // "") == "" then $ns else .namespace end)"]')
+         | "mutexrule.nodeupgrade.redhat-na-ssa.github.io/\(.name).\(if (.namespace // "") == "" then $ns else .namespace end)"]')
        # the nodes of its MutexTargets
        targets=$(for t in $(oc get mutexrunconfig "$name" -n "$ns" -o json | jq -r '.spec.mutexTargets[].name'); do
          oc get mutextarget "$t" -n "$ns" --ignore-not-found -o json; done | jq -s -c '[.[].status.nodes[]?]')
        oc get nodes -o json | jq -r --arg mrc "$mrc" --arg rel "$rel" \
            --argjson labels "$labels" --argjson targets "$targets" '
          .items[] | .metadata as $m | ($m.annotations // {}) as $a
-         | ($a["openshift-optional.skrzypek.io/labelled-by"] == $mrc) as $ours
-         | ([($m.labels // {}) | keys[] | select(startswith("mutexrule.openshift-optional.skrzypek.io/"))
-             | select(. != "mutexrule.openshift-optional.skrzypek.io/release")
-             | select($ours or (. as $k | $a["openshift-optional.skrzypek.io/labelled-by"] == null
+         | ($a["nodeupgrade.redhat-na-ssa.github.io/labelled-by"] == $mrc) as $ours
+         | ([($m.labels // {}) | keys[] | select(startswith("mutexrule.nodeupgrade.redhat-na-ssa.github.io/"))
+             | select(. != "mutexrule.nodeupgrade.redhat-na-ssa.github.io/release")
+             | select($ours or (. as $k | $a["nodeupgrade.redhat-na-ssa.github.io/labelled-by"] == null
                                 and any($labels[]; . == $k) and any($targets[]; . == $m.name)))]
-            + (if ($m.labels // {})["mutexrule.openshift-optional.skrzypek.io/release"] == $rel
-               then ["mutexrule.openshift-optional.skrzypek.io/release"] else [] end)) as $drop
-         | [if $ours then "openshift-optional.skrzypek.io/labelled-by" else empty end,
-            if ($a["openshift-optional.skrzypek.io/released-by"] // "" | startswith($mrc + "|"))
-            then "openshift-optional.skrzypek.io/released-by" else empty end] as $unmark
+            + (if ($m.labels // {})["mutexrule.nodeupgrade.redhat-na-ssa.github.io/release"] == $rel
+               then ["mutexrule.nodeupgrade.redhat-na-ssa.github.io/release"] else [] end)) as $drop
+         | [if $ours then "nodeupgrade.redhat-na-ssa.github.io/labelled-by" else empty end,
+            if ($a["nodeupgrade.redhat-na-ssa.github.io/released-by"] // "" | startswith($mrc + "|"))
+            then "nodeupgrade.redhat-na-ssa.github.io/released-by" else empty end] as $unmark
          | select(($drop + $unmark) | length > 0)
          | {metadata: {labels: ($drop | map({(.): null}) | add // {}),
                        annotations: ($unmark | map({(.): null}) | add // {})}} as $patch
@@ -856,14 +844,14 @@ spec:
 
        ```sh
        for pool in $(oc get mcp -o json | jq -r --arg mrc "$mrc" '.items[]
-           | select(.metadata.annotations["openshift-optional.skrzypek.io/paused-by"] == $mrc) | .metadata.name'); do
-         oc patch mcp "$pool" --type=merge -p '{"metadata":{"annotations":{"openshift-optional.skrzypek.io/paused-by":null}},"spec":{"paused":false}}'
+           | select(.metadata.annotations["nodeupgrade.redhat-na-ssa.github.io/paused-by"] == $mrc) | .metadata.name'); do
+         oc patch mcp "$pool" --type=merge -p '{"metadata":{"annotations":{"nodeupgrade.redhat-na-ssa.github.io/paused-by":null}},"spec":{"paused":false}}'
        done
        for pool in $(oc get mcp -o json | jq -r --arg mrc "$mrc" '.items[]
-           | select(.metadata.annotations["openshift-optional.skrzypek.io/restored-at"] // null
+           | select(.metadata.annotations["nodeupgrade.redhat-na-ssa.github.io/restored-at"] // null
                     | . != null and (. == $mrc or endswith(" " + $mrc)))
            | .metadata.name'); do
-         oc patch mcp "$pool" --type=merge -p '{"metadata":{"annotations":{"openshift-optional.skrzypek.io/restored-at":null}}}'
+         oc patch mcp "$pool" --type=merge -p '{"metadata":{"annotations":{"nodeupgrade.redhat-na-ssa.github.io/restored-at":null}}}'
        done
        ```
 
@@ -895,9 +883,9 @@ spec:
     | `machineconfiguration.openshift.io` | `machineconfigpools` | get, list, watch, patch | Reading selectors. Pausing, unpausing, changing `matchExpressions` and the five annotations (`paused-by`, `original-match-expressions`, `modified-by`, `release-labelled-at`, `restored-at`). |
     | `config.openshift.io` | `clusterversions` | get, list, watch | The target version and the control plane's progress. |
     | `apiregistration.k8s.io` | `apiservices` | get, list, watch | The APIService health check. |
-    | `openshift-optional.skrzypek.io` | `mutexrules`, `mutextargets`, `mutexrunconfigs` | get, list, watch, update, patch | Watching and reading the CRs. Adding and removing the finalizer. |
-    | `openshift-optional.skrzypek.io` | `mutexrules/status`, `mutextargets/status`, `mutexrunconfigs/status` | get, update, patch | Writing status. |
-    | `openshift-optional.skrzypek.io` | `mutexrules/finalizers`, `mutexrunconfigs/finalizers` | update | Lets Jobs carry owner references with `blockOwnerDeletion` to these CRs. ansible-operator does not set that flag today; the rule is kept as in the operator-sdk scaffold. |
+    | `nodeupgrade.redhat-na-ssa.github.io` | `mutexrules`, `mutextargets`, `mutexrunconfigs` | get, list, watch, update, patch | Watching and reading the CRs. Adding and removing the finalizer. |
+    | `nodeupgrade.redhat-na-ssa.github.io` | `mutexrules/status`, `mutextargets/status`, `mutexrunconfigs/status` | get, update, patch | Writing status. |
+    | `nodeupgrade.redhat-na-ssa.github.io` | `mutexrules/finalizers`, `mutexrunconfigs/finalizers` | update | Lets Jobs carry owner references with `blockOwnerDeletion` to these CRs. ansible-operator does not set that flag today; the rule is kept as in the operator-sdk scaffold. |
     | `authentication.k8s.io` | `tokenreviews` | create | Authenticating scrapes of the metrics endpoint. |
     | `authorization.k8s.io` | `subjectaccessreviews` | create | Authorizing scrapes of the metrics endpoint. |
 
@@ -961,6 +949,8 @@ spec:
 
     Source, issues and development notes:
     [github.com/shpwrck/openshift-node-upgrade-mutex-operator](https://github.com/shpwrck/openshift-node-upgrade-mutex-operator).
+
+    Licensed under the [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0) (`LICENSE` in the repository).
   displayName: OpenShift Node Upgrade Mutex Operator
   icon:
   - base64data: |

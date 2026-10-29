@@ -12,7 +12,7 @@
 # A cluster without the CRDs passes both checks.
 - name: Name the label that marks the CRDs this scenario created
   ansible.builtin.set_fact:
-    e2e_owner_label: molecule.openshift-optional.skrzypek.io/test-namespace
+    e2e_owner_label: molecule.nodeupgrade.redhat-na-ssa.github.io/test-namespace
 
 - name: Look for the operator's CRDs
   kubernetes.core.k8s_info:

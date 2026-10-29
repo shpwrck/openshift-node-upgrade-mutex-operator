@@ -9,8 +9,8 @@ mutextarget_now: "{{ now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') }}"
 # selector: the pool's original matchExpressions, as JSON. When it is present
 # the target is computed from it, so status.nodes stays the same for the
 # whole run.
-mutextarget_annotation_original_expressions: "openshift-optional.skrzypek.io/original-match-expressions"
-mutextarget_label_prefix: "mutexrule.openshift-optional.skrzypek.io/"
+mutextarget_annotation_original_expressions: "nodeupgrade.redhat-na-ssa.github.io/original-match-expressions"
+mutextarget_label_prefix: "mutexrule.nodeupgrade.redhat-na-ssa.github.io/"
 
 mutextarget_selector_operators:
   - In

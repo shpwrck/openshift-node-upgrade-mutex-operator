@@ -242,10 +242,14 @@ CATALOG_IMG ?= $(IMAGE_TAG_BASE)-catalog:v$(VERSION)
 # Set it to a digest reference (<repo>@sha256:...) of the bundle you pushed to
 # pin it by digest. `make release` cannot: see docs/DEVELOPMENT.md (Releasing).
 BUNDLE_REF ?= $(BUNDLE_IMG)
-# CATALOG_SKIP_RANGE lets clusters on any older version upgrade straight to
-# VERSION instead of walking every replaces edge. Set it empty to only add the
-# replaces edge.
-CATALOG_SKIP_RANGE ?= <$(VERSION)
+# CATALOG_SKIP_RANGE lets clusters on any older version of the current API
+# group upgrade straight to VERSION instead of walking every replaces edge. It
+# starts at CATALOG_SKIP_FROM: 0.3.0 is the first version with the API group
+# nodeupgrade.redhat-na-ssa.github.io, and older versions use another group,
+# which 0.3.0 cannot take over in place (docs/USAGE.md, Moving from 0.2.x).
+# Set CATALOG_SKIP_RANGE empty to only add the replaces edge.
+CATALOG_SKIP_FROM ?= 0.3.0-0
+CATALOG_SKIP_RANGE ?= >=$(CATALOG_SKIP_FROM) <$(VERSION)
 
 .PHONY: catalog-add
 catalog-add: yq ## Add BUNDLE_REF to CATALOG_TEMPLATE as the new head of CATALOG_CHANNEL.
