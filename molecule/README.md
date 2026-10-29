@@ -1,28 +1,32 @@
 # Molecule tests
 
 Two scenarios deploy the operator from `config/testing` and check it end to
-end. `tests/Scenarios.md` lists what each one covers.
+end. [tests/Scenarios.md](../tests/Scenarios.md) is the test matrix: what
+each scenario covers, what was run on a live cluster and what is still open.
 
 | Scenario | Cluster | Use it for |
 | --- | --- | --- |
-| `kind` | a new kind cluster (1 control plane, 2 workers) with fake OpenShift APIs | the full run: simulated upgrade and finalizer; runs in CI (`.github/workflows/e2e.yaml`) |
+| `kind` | a new kind cluster (1 control plane, 2 workers) with fake OpenShift APIs | the full run: simulated upgrade and finalizer; runs in CI ([e2e.yaml](../.github/workflows/e2e.yaml)) |
 | `default` | whatever `KUBECONFIG` points at, e.g. an OpenShift test cluster where the operator and its CRDs are not installed by any method | checks that are safe on a real cluster; never simulates an upgrade |
 
 ## Requirements
 
-- Python 3.11 to 3.13 and `pip install -r molecule/requirements.txt`
-  (molecule 25, ansible-core 2.18, the kubernetes client). The collections
-  in `requirements.yml` are installed by molecule's dependency step.
-- kustomize (`make kustomize` puts it in `bin/`; pass its path as
-  `KUSTOMIZE_PATH`).
+- Python and `pip install -r molecule/requirements.txt`. That file pins
+  molecule, ansible-core (the version of the operator's base image) and the
+  kubernetes client; CI installs it on Python 3.12. The collections in
+  `requirements.yml` are installed by molecule's dependency step.
+- kustomize: `make kustomize` puts it in `bin/kustomize-v5.8.3`; pass its
+  path as `KUSTOMIZE_PATH`.
 - `kind`: kind, and docker or podman. Without docker, kind's podman provider
   is used (`KIND_EXPERIMENTAL_PROVIDER=podman`). Rootless podman needs a
-  cgroup v2 host with the cpu controller delegated to the user
-  (https://kind.sigs.k8s.io/docs/user/rootless/).
+  cgroup v2 host with the cpu controller delegated to the user (see the
+  [kind rootless guide](https://kind.sigs.k8s.io/docs/user/rootless/)). CI
+  uses kind v0.33.0 with docker.
 - `default`: an operator image the cluster can pull (`OPERATOR_IMAGE`), and
-  for the MutexRunConfig checks a `canary` MachineConfigPool (see the README).
-  The cluster must not have the operator or its CRDs installed by any method
-  (OLM, `make install`, `make deploy`, kustomize), see below.
+  for the MutexRunConfig checks a `canary` MachineConfigPool like the one in
+  [The canary pool](../docs/USAGE.md#the-canary-pool). The cluster must not
+  have the operator or its CRDs installed by any method (OLM, `make install`,
+  `make deploy`, kustomize), see below.
 
 No registry login is needed: the image builds from public base images, and
 the cluster pulls the sample Job image from registry.access.redhat.com
@@ -30,8 +34,12 @@ anonymously.
 
 ## Run
 
+From the repository root:
+
 ```sh
-export KUSTOMIZE_PATH=$PWD/bin/kustomize-v5.8.3   # after: make kustomize
+python -m pip install -r molecule/requirements.txt
+make kustomize
+export KUSTOMIZE_PATH=$PWD/bin/kustomize-v5.8.3
 
 # Fake OpenShift on kind (builds the image with CONTAINER_TOOL, default podman)
 molecule test -s kind
@@ -40,6 +48,10 @@ CONTAINER_TOOL=docker molecule test -s kind
 # A real cluster without the operator; destroy deletes only the CRDs converge created
 OPERATOR_IMAGE=ghcr.io/<owner>/openshift-node-upgrade-mutex-operator:<tag> molecule test -s default
 ```
+
+These are the steps of the CI job in `.github/workflows/e2e.yaml`, which
+takes about 15 to 18 minutes on a GitHub-hosted runner. A local run was not
+timed.
 
 The `default` scenario's destroy, which `molecule test` also runs first,
 deletes the operator's CRDs, and deleting a CRD deletes every MutexRule,
@@ -73,27 +85,33 @@ labels, Jobs, pods and the operator log.
 
 `prepare` installs CRDs for `machineconfigpools.machineconfiguration.openshift.io`
 and `clusterversions.config.openshift.io` (status subresource, no schema),
-the `master`, `worker` and README `canary` pools, a ClusterVersion `version`
-at a completed 4.16.4, and labels and annotates the nodes like OpenShift
-does (`default/tasks/fake_reset.yml`): `node-role.kubernetes.io/master` or
-`/worker`, the `machineconfiguration.openshift.io/release-image-version`
-label NFD would publish, and the MCO annotations of a node that is not
-updating (`machineconfiguration.openshift.io/state: Done`, and
-`currentConfig` and `desiredConfig` both `rendered-<master|worker>-<hash>`).
+the `master`, `worker` and `canary` pools (the canary as in the user guide),
+a ClusterVersion `version` at a completed 4.16.4, and labels and annotates
+the nodes like OpenShift does (`default/tasks/fake_reset.yml`):
+`node-role.kubernetes.io/master` or `/worker`, the
+`machineconfiguration.openshift.io/release-image-version` label NFD would
+publish, and the MCO annotations of a node that is not updating
+(`machineconfiguration.openshift.io/state: Done`, and `currentConfig` and
+`desiredConfig` both `rendered-<master|worker>-<hash>`).
+
 There is no MCO: for each released node the verify playbook plays its part
 (`default/tasks/upgrade_node.yml`). It sets `desiredConfig` to the canary's
 rendered config and `state` to `Working`, sets the release-image-version
 label to the new version and, for longer than the operator's 60-second node
 poll, checks that no cleanup Job starts, then sets `state` to `Done` and
-`currentConfig` to the `desiredConfig`. The
-kind nodes report `Ready` themselves. The MutexRunConfigs the verify
-playbook creates carry the annotation
-`ansible.sdk.operatorframework.io/reconcile-period: 15s`, so the operator
-notices the ClusterVersion change quickly (it does not watch ClusterVersion).
+`currentConfig` to the `desiredConfig`. The kind nodes report `Ready`
+themselves. The MutexRunConfigs the verify playbook creates carry the
+annotation `ansible.sdk.operatorframework.io/reconcile-period: 15s`, so the
+operator notices the ClusterVersion change quickly (it does not watch
+ClusterVersion).
+
+Because nothing plays MCO's pool assignment, the scenario cannot show that
+MCO really moves a released node into the canary; the live runs in
+[tests/Scenarios.md](../tests/Scenarios.md) cover that.
 
 molecule never edits tracked files: the image, pull policy and namespace go
 into a throwaway kustomize overlay in `$MOLECULE_EPHEMERAL_DIRECTORY`.
 
 Lint: `yamllint -c hack/yamllint.yaml molecule/` and
 `ansible-lint -c molecule/.ansible-lint --project-dir . molecule/`, from the
-repository root.
+repository root. `make lint` runs both.
