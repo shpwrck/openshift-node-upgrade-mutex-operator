@@ -75,8 +75,8 @@ stateDiagram-v2
   Finished : after the canary's restored-at
 
   state "Finalizing" as Finalizing
-  Finalizing : on delete, from any state, it
-  Finalizing : finishes the current node first
+  Finalizing : on delete, from any state but Ignored,
+  Finalizing : it finishes the current node first
   Finalizing : (its Jobs and up to 2 h), or waits
   Finalizing : for another MutexRunConfig's reconcile,
   Finalizing : then restores the selectors, removes
@@ -88,6 +88,7 @@ stateDiagram-v2
   [*] --> Idle : valid, no target node behind
   Idle --> NotProtecting : failure
   NotProtecting --> Idle : cause fixed
+  NotProtecting --> Holding : cause fixed, a node behind
   Idle --> Holding : desired version above a node's label (noticed within 10 min)
   Processing --> Finished : last node done
   Finished --> Idle : next reconcile
@@ -95,6 +96,8 @@ stateDiagram-v2
   FailedHolding --> Run : cause fixed, the retry resumes where it stopped
   Run --> Finalizing : delete
   FailedHolding --> Finalizing : delete
+  Idle --> Finalizing : delete
+  NotProtecting --> Finalizing : delete
   Finalizing --> [*]
 
 

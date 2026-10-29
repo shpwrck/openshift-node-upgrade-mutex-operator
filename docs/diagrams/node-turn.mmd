@@ -36,7 +36,7 @@ sequenceDiagram
   MCO->>N: N now matches the<br/>canary: desiredConfig<br/>= rendered-canary-*
   MCO->>N: cordon, drain<br/>(PDBs apply), update,<br/>reboot, uncordon
   Note over N,MCO: NFD may change the version<br/>label before MCO is done:<br/>the label alone is not enough
-  Op->>N: poll every 60 s, at most<br/>120 times (2 h), until all hold
+  Op->>N: poll every 60 s, 121 times<br/>at most (2 h), until all hold
   Note over Op,Post: release-image-version = X,<br/>machineconfiguration.openshift.io/state<br/>= Done, currentConfig = desiredConfig,<br/>a rendered-#lt;canary#gt;-* config, Ready=True
   alt not all hold after 2 h
     rect rgb(253, 226, 225)

@@ -52,8 +52,8 @@ two changes after it:
 * The G6 fix ([Known gaps](../docs/HANDOFF.md#known-gaps)): `markUnsafe: true` on the three kinds in `watches.yaml`,
   so every string value of a CR reaches the roles marked unsafe, and the namespace check of the `mutexrunconfig` role
   moved before its first read of the CR. Its finalizer also reads only the MutexTargets in the operator namespace.
-  With it, the offline harness gave the same results in all its scenarios as before. The kind E2E has not run on it
-  yet; its new checks are rows S45 and S46.
+  With it, the offline harness gave the same results in all its scenarios as before, and the kind E2E passed on it,
+  with its new checks in rows S45 and S46.
 
 ### The two designs
 
@@ -133,7 +133,7 @@ tooling, not in the repository.
 | S11 | A custom target pool (for example `apps`) with the sample canary: `ConfigValidated=False` names the `worker` pool nodes that the canary's `matchLabels` select (each node's pool comes from the `rendered-<pool>-<hash>` name in its `currentConfig`), and nothing is paused or patched; with the suggested expression, such as `node-role.kubernetes.io/app Exists`, it validates | no / no (kind has only the `master`, `worker` and `canary` pools) | Checks: the refusal named the real nodes and pools; the suggested expression validated | earlier | 4.21.20 | a full run (S34) | [USAGE, The canary pool](../docs/USAGE.md#the-canary-pool) |
 | S12 | `spec.skipTLSVerify` has no effect | not needed: the roles never read it (`roles/mutexrunconfig/tasks/02-check-for-upgrade.yml:9`) | – | – | – | – | – |
 | S45 | Template expressions in CR values are used as written (`markUnsafe`, [Known gaps](../docs/HANDOFF.md#known-gaps) G6): a MutexRunConfig whose canary name is `{{ 'canary' }}` gets `ConfigValidated=False ValidationFailed` naming that string; a MutexRule Job argument `{{ 7 * 7 }} {{ .Values.name }}` passes the dry run and reaches the Job unchanged | yes / the canary name only, as S7 | – | – | – | – | `mutexrunconfig_test.yml`, `finalizer_test.yml` |
-| S46 | CRs in another namespace stay data (G6): a MutexRunConfig there with template expressions in its canary name and an annotation gets only `Reconciled=False NamespaceNotAllowed`, and its delete runs no cleanup; a MutexRunConfig in the operator namespace that references a MutexTarget in another namespace fails validation, and its finalizer does not restore that MutexTarget's pools | yes / the first part only, when the operator watches all namespaces | – | – | – | – | `namespace_test.yml` |
+| S46 | CRs in another namespace stay data (G6): a MutexRunConfig there with a Go template in its canary name and an annotation gets only `Reconciled=False NamespaceNotAllowed`, and its delete leaves a pool marked as paused by it paused and unchanged; a MutexRunConfig in the operator namespace that uses a MutexTarget in another namespace gets `ConfigValidated=False ValidationFailed` naming that namespace, and its delete does not restore that MutexTarget's pool | yes / only when the operator watches all namespaces, and without the pool checks, which need fake OpenShift | – | – | – | – | `namespace_test.yml` |
 
 ### A run
 

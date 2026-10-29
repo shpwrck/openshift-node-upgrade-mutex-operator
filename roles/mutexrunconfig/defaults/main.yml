@@ -14,7 +14,7 @@ mutexrunconfig_node_upgrade_delay: 60
 # How often a running Job is polled for a Complete or Failed condition.
 mutexrunconfig_job_poll_delay: 10
 
-# APIService availability check: attempts and delay between them, so that a
+# APIService availability check: retries (1 + retries checks) and delay, so a
 # short flap of an aggregated API does not fail the reconcile.
 mutexrunconfig_apiservice_retries: 3
 mutexrunconfig_apiservice_delay: 10

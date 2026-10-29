@@ -262,9 +262,9 @@ Anyone who can create or edit MutexRules, MutexTargets or MutexRunConfigs **in t
 MachineConfigPools, relabel nodes, and run Jobs in any namespace with any ServiceAccount there. Treat write access to
 that namespace as cluster-admin. OLM creates `admin`, `edit` and `view` aggregated roles for these CRDs, so every user
 with `admin` or `edit` in the operator namespace has that access. CRs in other namespaces are not acted on for this
-reason, and no task uses their values ([Templated CR values](#templated-cr-values)); ansible-operator itself still adds
-its finalizer to them and honours their `ansible.sdk.operatorframework.io` annotations (Ansible verbosity, runner
-artifacts) before the role's namespace check. Check who has it:
+reason, and no task uses their values ([Templated CR values](#templated-cr-values)). ansible-operator itself still adds
+its finalizer to MutexRunConfigs there and honours the `ansible.sdk.operatorframework.io` annotations of all three
+kinds (reconcile period, Ansible verbosity, runner artifacts) before the role's namespace check. Check who has it:
 `oc adm policy who-can create mutexrunconfigs -n node-upgrade-mutex-operator`.
 
 ### Job ServiceAccounts

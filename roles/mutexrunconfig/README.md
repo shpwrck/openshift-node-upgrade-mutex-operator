@@ -271,7 +271,7 @@ Deleting the MutexRunConfig is the way to abort.
 | --- | --- | --- |
 | `mutexrunconfig_node_upgrade_retries` / `_delay` | `120` / `60` | How long to wait (1 + retries checks, delay seconds apart: about 2 hours by default) for a released node to finish its upgrade, and for a node MCO was already updating to finish that update. |
 | `mutexrunconfig_job_poll_delay` | `10` | Seconds between Job status polls. |
-| `mutexrunconfig_apiservice_retries` / `_delay` | `3` / `10` | Attempts at the APIService health check, and the delay between them. |
+| `mutexrunconfig_apiservice_retries` / `_delay` | `3` / `10` | Retries of the APIService health check (1 + retries checks), and the delay between them. |
 | `mutexrunconfig_label_settle_seconds` | `300` | How long a selector change that depends on a release label waits after that label changed: the re-point after the canary's own nodes got the label (`release-labelled-at`), and the removal of the label from them after the canary's restore (`restored-at`). See [DESIGN.md](../../docs/DESIGN.md#the-settle-time). |
 
 No CRD field exposes these. To change them for the whole operator, set them under `vars:` of the MutexRunConfig

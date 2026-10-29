@@ -1,7 +1,7 @@
 ---
-# markUnsafe: ansible-operator marks every string of the CR it passes to the
-# role as unsafe, so Ansible never evaluates a template expression ('{{ }}')
-# in a CR value; a Job argument with '{{' reaches the Job as written.
+# markUnsafe: ansible-operator marks every string value of the CR (not map
+# keys or ansible_operator_meta) as unsafe, so Ansible never evaluates a template
+# expression ('{{ }}') in a CR value; a Job argument with '{{' reaches the Job.
 - version: v1alpha1
   group: nodeupgrade.redhat-na-ssa.github.io
   kind: MutexRule

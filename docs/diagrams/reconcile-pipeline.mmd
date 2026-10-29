@@ -15,7 +15,7 @@ flowchart TD
   mode["Determine Reconcile Mode<br/>finalizing = state absent<br/>or deletionTimestamp set"]
   r00["00-resolve-references.yml<br/>rule and target references,<br/>mutex label keys, canary name,<br/>release and hold selector expressions"]
   fin("finalizing?")
-  gather["Gather the MutexTargets<br/>still present"]
+  gather["Gather the MutexTargets<br/>still present in the<br/>operator namespace"]
   restoreF["08-restore.yml: follows<br/>paused-by, modified-by,<br/>labelled-by and the release<br/>label value. Then end_play,<br/>so 09 does not run."]
   v01["01-validate.yml<br/>always<br/>writes ConfigValidated, ClusterStateValidated<br/>mutexrunconfig_apiservice_retries (3), _delay (10)"]
   c02["02-check-for-upgrade.yml<br/>when ConfigValidated<br/>writes UpgradeChecked, NodeVersionsKnown,<br/>UpgradeAvailable, UpgradeReady<br/>gate fact UpgradabilityChecked"]
