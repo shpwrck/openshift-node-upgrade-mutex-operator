@@ -33,15 +33,16 @@ check. What else must hold before `v0.3.0-rc2`, and before the first final relea
    least a z-stream upgrade with two target nodes (S14 to S16) with the rc. Then run the open rows you rely on, for
    example the stuck node (S24), the manual restore (S28), an abort on the shipped design (S25) and a minor upgrade
    (S39).
-8. **Docs after the release.** Until the first release, USAGE says that nothing is released yet. After `v0.3.0-rc2`,
-   and after every release from then on, make the updates in DEVELOPMENT,
-   [After each release](DEVELOPMENT.md#after-each-release). After step 7 they include the tested environments.
+8. **Docs after each release.** After `v0.3.0-rc2`, and after every release from then on, make the updates in
+   DEVELOPMENT, [After each release](DEVELOPMENT.md#after-each-release), in a pull request. They include marking the
+   release gates that now hold as Done, and after step 7 the tested environments.
 9. **Open decisions and known gaps.** Go through [Decisions left to the new owner](#decisions-left-to-the-new-owner)
    and [Known gaps](#known-gaps); [Release gates](#release-gates) says which of them block which release. File issues
    for the ones you keep. This file travels with the repository; issues in the old repository did not move.
 10. **Community catalogs.** Decide what happens to the old listings ([The community catalogs](#the-community-catalogs)).
-11. **Final release.** Once the gates [before v0.3.0](#before-v030) hold, push `v0.3.0`, merge its `release/v0.3.0`
-    pull request, then bump the version with `make increment` in a pull request.
+11. **Final release.** Once the gates [before v0.3.0](#before-v030) hold, the written release notes among them, push
+    `v0.3.0` and merge its `release/v0.3.0` pull request. Then publish the GitHub Release for the tag `v0.3.0` with
+    those notes, make the updates of step 8, and bump the version with `make increment` in a pull request.
 
 ## Release gates
 
@@ -54,6 +55,11 @@ Two releases are planned, and each has gates that must hold before its tag is pu
   reinstall to.
 
 Every other open decision and known gap can follow in a later release; the last table says why.
+
+In the last column of the first two tables, "Done" means that the gate held when this file was last changed. Any
+other text there is what still has to hold. The pull request that meets a gate changes its entry to Done, so check
+the entries that are not Done yourself before you push a tag. The release workflow checks none of them
+(DEVELOPMENT, [Before you tag](DEVELOPMENT.md#before-you-tag)).
 
 ### Before v0.3.0-rc2
 
@@ -76,7 +82,7 @@ Every other open decision and known gap can follow in a later release; the last 
 | G1: `timeoutSeconds` does not stop a Job | Changing what a field means after the final release changes what users' MutexRules do. It does not block the rc: a timeout fails closed (the run stops and the pools stay paused, S22), and USAGE and JOBS describe it, with `activeDeadlineSeconds` as the bound | The fix is merged, or the decision to keep today's meaning is written here; either way USAGE and JOBS describe what ships |
 | G8: nothing checks that the canary renders the same MachineConfigs as the target pools | It is the known way a configuration mistake makes the shipped design reboot nodes without their Jobs, and only a manual `diff` in USAGE guards against it. It does not block the rc: USAGE states the requirement and the check (The canary pool, Before your first upgrade), and the rc is tested by people who run them | At least a warning condition when the canary's rendered `spec.configuration.source` differs from a target pool's |
 | `SECURITY.md` | Production users of a final release need the supported versions and how a report is handled | A `SECURITY.md` that names the supported versions and the private reporting route |
-| Release notes | 0.2.x users must reinstall: there is no upgrade edge to 0.3.0, and the workflow creates no GitHub Release (G15) | A GitHub Release for `v0.3.0` that points to USAGE, [Moving from 0.2.x](USAGE.md#moving-from-02x) |
+| Release notes | 0.2.x users must reinstall: there is no upgrade edge to 0.3.0, and the workflow creates no GitHub Release (G15) | Notes that point to USAGE, [Moving from 0.2.x](USAGE.md#moving-from-02x), are written, to be published as the GitHub Release for `v0.3.0` once the tag exists (checklist step 11) |
 
 ### Not a release gate
 
@@ -110,8 +116,10 @@ release.
 * **Tags.** Limit who can create tags that match `v*`, for example with a tag ruleset, because such a tag publishes a
   release with the workflow's token.
 * **`release/*` branches.** The release workflow creates and force-pushes `release/<tag>` with `GITHUB_TOKEN`. A rule
-  on those branches must still let it push. The workflow does not open the pull request; a maintainer opens it from
-  the link in the run's summary, so Actions need no right to create pull requests.
+  on those branches must still let it push. Its one commit is authored as the person who pushed the tag, with their
+  GitHub no-reply address, and is not signed, so the rule must not require signed commits. The workflow does not open
+  the pull request; a maintainer opens it from the link in the run's summary, so Actions need no right to create pull
+  requests.
 * **Packages.** The first release creates the packages `openshift-node-upgrade-mutex-operator`, `-bundle` and
   `-catalog` under `ghcr.io/redhat-na-ssa`. They take the repository's visibility, public, when the organization's
   package settings allow public packages. Check that after the first release (checklist step 5).
@@ -122,9 +130,11 @@ release.
 
 The repository moved to
 [github.com/redhat-na-ssa/openshift-node-upgrade-mutex-operator](https://github.com/redhat-na-ssa/openshift-node-upgrade-mutex-operator)
-as a new repository, not a GitHub transfer. The old URLs do not redirect, and the old issues and pull requests did not
-move. Everything in the repository points at the new home. After editing `docs/USAGE.md` or `docs/DEVELOPMENT.md`,
-run `make document` to regenerate `README.md` and the CSV description.
+as a new repository, not a GitHub transfer. It starts from one commit, a snapshot of the code at the move. The
+development history up to the move is in the original repository (the first of the old homes below) and was not
+transferred. The old URLs do not redirect, and the old issues and pull requests did not move. Everything in the
+repository points at the new home. After editing `docs/USAGE.md` or `docs/DEVELOPMENT.md`, run `make document` to
+regenerate `README.md` and the CSV description.
 
 | What | Set in | Value |
 | --- | --- | --- |
@@ -134,7 +144,7 @@ run `make document` to regenerate `README.md` and the CSV description.
 | Provider | the CSV `provider` annotation and `spec.provider` | Red Hat NA SSA, `https://github.com/redhat-na-ssa` |
 | Maintainers | the CSV `spec.maintainers` | None. The organization has no public contact address, and the bundle validator needs an e-mail on every entry. OperatorHub shows the provider and the repository, whose issues are the contact. To name maintainers, add `{name, email}` entries; a team alias is better than a person |
 | License | `LICENSE`; `license` in `roles/*/meta/main.yml` | Apache-2.0 |
-| Catalog | `catalog-template.yaml` and `catalog/openshift-node-upgrade-mutex-operator/catalog.yaml` | Only the package entry (`make catalog-reset`). Nothing can be installed from it until the first release from this repository adds its bundle |
+| Catalog | `catalog-template.yaml` and `catalog/openshift-node-upgrade-mutex-operator/catalog.yaml` | Started with only the package entry (`make catalog-reset`). Each release adds its bundle, through its merged `release/<tag>` pull request. Until the first release from this repository, `v0.3.0-rc2`, nothing can be installed from it |
 
 The old homes, for reference. Do not use them:
 
@@ -194,8 +204,8 @@ mutex labels without `labelled-by`). Every build that wrote such state used the 
 a hand-made label or annotation can reach that code (DESIGN, [Compatibility paths](DESIGN.md#compatibility-paths)).
 Changing the group again creates a new API in the same way.
 
-The live tests ran with the old group. In `roles/` the rename changed only names and the license metadata (commit
-b6f0d75), and the kind E2E passed with it (test row S44).
+The live tests ran with the old group. In `roles/` the rename changed only names and the license metadata (build E in
+the test matrix, [The builds](../tests/Scenarios.md#the-builds)), and the kind E2E passed with it (test row S44).
 
 ## Decisions made for the handoff
 
@@ -250,11 +260,12 @@ b6f0d75), and the kind E2E passed with it (test row S44).
 
 ## Known gaps
 
-Code changes found while the docs were reviewed for the handoff. They are not made yet. Priority: **high** means a node
-can be upgraded without its Jobs, a run can hang without a clear signal, or a security question is open; **medium**
-means operations, status or test coverage; **low** means naming and convenience. Paths are relative to the repository
-root. File names without a directory, and `07:` for `07-run-job.yml`, are in `roles/mutexrunconfig/tasks/`. G1, G6
-and G8 are [release gates](#release-gates).
+Code changes found while the docs were reviewed for the handoff. A gap stays in this table until the pull request
+that fixes it removes its row or records the fix in it. Priority: **high** means a node can be upgraded without its
+Jobs, a run can hang without a clear signal, or a security question is open; **medium** means operations, status or
+test coverage; **low** means naming and convenience. Paths are relative to the repository root. File names without a
+directory, and `07:` for `07-run-job.yml`, are in `roles/mutexrunconfig/tasks/`. G1, G6 and G8 are
+[release gates](#release-gates).
 
 | ID | Gap | Evidence | Proposed fix | Priority |
 | --- | --- | --- | --- | --- |
@@ -287,10 +298,10 @@ and G8 are [release gates](#release-gates).
 
 | Versions | Listed in | Images | Can be installed |
 | --- | --- | --- | --- |
-| 0.1.0 to 0.2.68, 124 bundles | The project's old catalog image on `quay.io/jskrzypek`. Its files are in the history of `catalog-template.yaml` and `catalog/`, before the commit that started a fresh catalog (`git log -- catalog-template.yaml`) | `quay.io/jskrzypek` | No: the registry is gone |
+| 0.1.0 to 0.2.68, 124 bundles | The project's old catalog image on `quay.io/jskrzypek`. Its template and rendered catalog were not carried over: this repository's catalog was started afresh ([Where it lives](#where-it-lives)) | `quay.io/jskrzypek` | No: the registry is gone |
 | 0.1.22 to 0.2.66: 9 versions in k8s-operatorhub/community-operators, 10 in redhat-openshift-ecosystem/community-operators-prod (also 0.2.14), channel `alpha` | The community catalogs ([below](#the-community-catalogs)) | The bundles are built by the community pipelines, but their CSVs run the operator image from `quay.io/jskrzypek` (checked for 0.1.22 and 0.2.66) | Listed, but the operator image cannot be pulled |
 | 0.3.0-rc1 | No catalog of this repository. Published from the old repository to `ghcr.io/shpwrck` | old API group | Do not use it |
-| 0.3.0-rc2 | This repository's catalog, after its first release | `ghcr.io/redhat-na-ssa` | After the release |
+| 0.3.0-rc2 and later | This repository's catalog, which each release adds to; 0.3.0-rc2 is the first | `ghcr.io/redhat-na-ssa` | Each version once it is released |
 
 A 0.2.x operator that is still installed keeps running only while its pod can start from an image already on its
 node. If the pod has to pull the image again, for example on another node, it cannot start, and its pools are no

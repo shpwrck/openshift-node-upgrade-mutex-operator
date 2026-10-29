@@ -238,7 +238,7 @@ takes about 15 to 18 minutes.
 
 `.github/workflows/release.yaml` runs only when a `v*` tag is pushed (see Releasing). It is the only workflow that
 pushes anything, and it uses the workflow's own `GITHUB_TOKEN` (`contents: write`, `packages: write`), no other
-secret.
+secret. It neither waits for nor checks the other two workflows ([Before you tag](#before-you-tag)).
 
 Make **Lint** and **Build and validate** required checks in the branch protection of `main`. Do not require
 **Molecule on kind**: it is path-filtered, so a pull request that does not touch those paths never gets the check, and
@@ -255,7 +255,7 @@ In words:
 2. A maintainer merges a pull request that sets the version in `.envrc`, then tags `v<VERSION>` (or
    `v<VERSION>-rcN`) on the default branch and pushes the tag.
 3. `release.yaml` checks the tag: a semver tag, its version without the suffix equal to `.envrc`, a commit of the
-   default branch, and the same `.github/workflows` as the default branch.
+   default branch, and the same `.github/workflows` as the default branch. It does not check CI.
 4. `make release` builds and pushes the operator image, generates the bundle (the operator image pinned by digest, the
    description's links pinned to the tag), pushes the bundle image, adds the bundle to `catalog-template.yaml` as the
    new channel head (it replaces the old head and carries a `skipRange` from `0.3.0-rc2`), renders `catalog/`, and
@@ -269,33 +269,61 @@ In words:
 
 The catalog's source of truth is `catalog-template.yaml`, an opm basic template that lists every released bundle and
 the upgrade edges of the `alpha` channel. `catalog/openshift-node-upgrade-mutex-operator/catalog.yaml` is rendered
-from it. The catalog was started afresh for this repository (`make catalog-reset`) and holds only the package entry,
-so nothing can be installed from it yet. Until the first release `catalog-validate` only checks that the two files
-match, since opm refuses a channel without a bundle, and `catalog-build` builds nothing. The first release from this
-repository is `v0.3.0-rc2`. A `0.3.0-rc1` with the old API group was published only from the old repository; it is
-not in this catalog and should not be installed. Older versions are not in it either: 0.1.x and 0.2.x use the old API
-group, and their images were on a registry that is gone. Every `skipRange` starts at `CATALOG_SKIP_FROM=0.3.0-rc2`,
-the first version released with the current API group, so there is no upgrade edge from 0.2.x or from `0.3.0-rc1`.
-Moving from them is a reinstall ([Moving from 0.2.x](USAGE.md#moving-from-02x)). The range must not start at
-`0.3.0-0`, which sorts before `0.3.0-rc1`. For `v0.3.0-rc2` itself the range is `>=0.3.0-rc2 <0.3.0-rc2`, which
-matches nothing.
+from it. The catalog was started afresh for this repository (`make catalog-reset`) with only the package entry, and
+each release adds its bundle. The first release from this repository is `v0.3.0-rc2`; until it is published, nothing
+can be installed from the catalog. While the template lists no bundle, which on the default branch lasts until the
+`release/v0.3.0-rc2` pull request is merged, `catalog-validate` only checks that the two files match, since opm
+refuses a channel without a bundle, and `catalog-build` builds nothing. A `0.3.0-rc1` with the old API group was
+published only from the old repository; it is not in this catalog and should not be installed. Older versions are not
+in it either: 0.1.x and 0.2.x use the old API group, and their images were on a registry that is gone. Every
+`skipRange` starts at `CATALOG_SKIP_FROM=0.3.0-rc2`, the first version released with the current API group, so there
+is no upgrade edge from 0.2.x or from `0.3.0-rc1`. Moving from them is a reinstall
+([Moving from 0.2.x](USAGE.md#moving-from-02x)). The range must not start at `0.3.0-0`, which sorts before
+`0.3.0-rc1`. For `v0.3.0-rc2` itself the range is `>=0.3.0-rc2 <0.3.0-rc2`, which matches nothing.
 
-**With the release workflow** (`.github/workflows/release.yaml`):
+#### Before you tag
+
+`release.yaml` checks only the tag and the branch. It does not look at CI, so check the commit you are going to tag
+yourself:
+
+- **Release gates.** HANDOFF, [Release gates](HANDOFF.md#release-gates), lists what must hold before `v0.3.0-rc2` and
+  before `v0.3.0`. Check every entry that is not Done.
+- **`Lint` and `Build and validate`** passed on the commit. `ci.yaml` runs on every push to `main`, so the commit has
+  its own run.
+- **`Molecule on kind`** passed on the commit. `e2e.yaml` runs on pull requests that touch its paths and on demand,
+  not on pushes to `main`, so start it by hand on the default branch while the commit is its head: on GitHub,
+  Actions, E2E, Run workflow, or `gh workflow run e2e.yaml --ref main`.
+
+To find the commit and read its runs:
+
+```sh
+git fetch origin
+sha=$(git rev-parse origin/main)
+gh workflow run e2e.yaml --ref main               # tests the head of main, which is $sha until someone pushes
+gh run list --workflow ci.yaml --commit "$sha"    # Lint and Build and validate
+gh run list --workflow e2e.yaml --commit "$sha"   # Molecule on kind, once the run above has finished
+```
+
+Both workflows cancel a run in progress when a newer one starts on the same branch (`concurrency` in each file), so
+a push to `main` while you check shows up as a cancelled run. Tag only a commit whose runs completed and passed.
+
+#### With the release workflow
 
 1. Set `MAJOR`, `MINOR` and `PATCH` in `.envrc` in a pull request and merge it. The version must not be in
-   `catalog-template.yaml` yet. For `v0.3.0-rc2`, `.envrc` already says `0.3.0`.
-2. Tag a commit of the default branch and push the tag, for example
-   `git fetch origin && git tag v0.3.0-rc2 origin/main && git push origin v0.3.0-rc2`. A pre-release suffix must be a
-   valid semver pre-release, the version without it must match `.envrc` and must not be released yet, and the `:latest`
-   tags are not moved. The workflow refuses, before it publishes anything, a tag on a commit that is not on the
-   default branch or whose `.github/workflows` differ from it: `GITHUB_TOKEN` could not push the catalog branch then.
+   `catalog-template.yaml` yet. For a pre-release, `.envrc` holds the version without its suffix, for example `0.3.0`
+   for `v0.3.0-rc2`.
+2. Check the commit as in [Before you tag](#before-you-tag), then tag it and push the tag, for example
+   `git tag v0.3.0-rc2 "$sha" && git push origin v0.3.0-rc2`. A pre-release suffix must be a valid semver
+   pre-release, the version without it must match `.envrc` and must not be released yet, and the `:latest` tags are
+   not moved. The workflow refuses, before it publishes anything, a tag on a commit that is not on the default branch
+   or whose `.github/workflows` differ from it: `GITHUB_TOKEN` could not push the catalog branch then.
 3. The workflow runs `make release` with
    `IMAGE_TAG_BASE=ghcr.io/<repository owner>/openshift-node-upgrade-mutex-operator`, `IMAGE_SOURCE` and `REPO_URL`
    set to the repository, and `USE_IMAGE_DIGESTS=true`, logged in to `ghcr.io` with its `GITHUB_TOKEN`. The run takes
    about a minute.
-4. It pushes the updated `catalog-template.yaml` and `catalog/` to the branch `release/<tag>`, and the run's summary
-   links a new pull request from that branch into the default branch. Open it and merge it before you push the next
-   tag.
+4. It pushes the updated `catalog-template.yaml` and `catalog/` to the branch `release/<tag>`, in one commit authored
+   by the person who pushed the tag (`GITHUB_ACTOR`, with their GitHub no-reply address), and the run's summary links
+   a new pull request from that branch into the default branch. Open it and merge it before you push the next tag.
 5. Update the docs for the new version, as in [After each release](#after-each-release).
 6. After a final release (not after a pre-release), run `make increment` and merge that change in a pull request.
 7. On the first release, check that clusters can pull the images without a pull secret, for example
@@ -304,7 +332,9 @@ matches nothing.
    repository owner by the first push, linked to the repository by the image label, and take the repository's
    visibility. If a package is private, make it public once (package settings, Danger Zone, Change visibility; this
    cannot be undone).
-8. Write the release notes by hand. The workflow creates no GitHub Release and the repository has no changelog.
+8. Write the release notes by hand and publish them as a GitHub Release for the tag (Releases, Draft a new release,
+   then choose the existing tag). The workflow creates no GitHub Release and the repository has no changelog. For
+   `v0.3.0` the notes are a release gate.
 
 Rules that follow from how the workflow and the catalog work:
 
@@ -326,10 +356,12 @@ Rules that follow from how the workflow and the catalog work:
   For the community catalogs, regenerate the bundle at the tag with `make bundle`, or extract it from the pushed bundle
   image. Neither way is scripted or tested here.
 
-**By hand:**
+#### By hand
 
 1. Set `IMAGE_TAG_BASE` (in `.envrc`) and log in to that registry. Check the version in `.envrc`. It must not be in
-   `catalog-template.yaml` yet.
+   `catalog-template.yaml` yet. For a pre-release, pass the full version to every `make` command, for example
+   `make release VERSION=0.3.0-rc2`: the `VERSION` that `.envrc` and the Makefile build from `MAJOR`, `MINOR` and
+   `PATCH` has no suffix, and a `VERSION` on the command line overrides it.
 2. Run `make release`. It runs `release-check`, then:
    - builds and pushes the operator image;
    - generates the bundle, which pins the operator image by digest when `USE_IMAGE_DIGESTS=true`, then builds and
@@ -347,7 +379,8 @@ Rules that follow from how the workflow and the catalog work:
 `make release` records the bundle in the catalog by tag (`BUNDLE_IMG`) and refuses any other `BUNDLE_REF`. The
 bundle's digest is only known once it is pushed, because every `make bundle` writes a new `createdAt`. To record the
 bundle by digest instead, run the steps of `make release` one at a time and read the digest of the pushed bundle in
-between, for example with skopeo, which uses the podman or docker login:
+between, for example with skopeo, which uses the podman or docker login. For a pre-release, add `VERSION=<version>` to
+each `make` command and leave out `make latest`:
 
 ```sh
 make release-check
@@ -358,13 +391,15 @@ digest=$(skopeo inspect --format '{{.Digest}}' docker://<IMAGE_TAG_BASE>-bundle:
 make catalog-add BUNDLE_REF=<IMAGE_TAG_BASE>-bundle@$digest
 make catalog-render
 make catalog-build catalog-push
-make latest
+make latest                    # final releases only
 ```
 
 `skopeo` prints the full digest, `sha256:...`, so `BUNDLE_REF` gets no second `sha256:` prefix. `catalog-add` does
 not check the format of the reference, and running it again for the same version is refused. To undo a wrong
 `catalog-add`, run `git checkout catalog-template.yaml` (and `git checkout catalog/` if `catalog-render` already ran),
 then run it again. Then continue with steps 3 to 5.
+
+#### Publishing in the community catalogs
 
 To publish in the community catalogs, copy the bundle (`manifests/`, `metadata/` and `tests/`) into
 `operators/openshift-node-upgrade-mutex-operator/<VERSION>/` of a fork of
@@ -377,24 +412,36 @@ owner.
 
 #### After each release
 
-Once the `release/<tag>` pull request is merged, update the docs for the new version in a pull request:
+Once the `release/<tag>` pull request is merged, update every text that depends on the latest release, in one pull
+request:
 
-1. `sample-manifests/catalogsource.yaml`: the tag in `spec.image` and the comment that names it. Use the newest final
+1. `sample-manifests/catalogsource.yaml`: the tag in `spec.image` and the comments that name it. Use the newest final
    release, or the newest pre-release while there is no final release.
 2. `docs/USAGE.md`:
    - the `Releases` row of the table at the top;
    - [Catalog and versions](USAGE.md#catalog-and-versions): what the project's catalog offers, the tag the sample
      CatalogSource uses and, after the first final release, that `:latest` exists;
-   - [Tested environments](USAGE.md#tested-environments), if the release ran on a live cluster, together with
-     [tests/Scenarios.md](../tests/Scenarios.md).
-3. Any other text that names the previous release's tag or says that nothing is released yet. While the docs name
-   `0.3.0-rc2`, this finds both; change the version in it once they name another:
-   `git grep -n -e '0\.3\.0-rc2' -e 'first release' -e 'no release yet' -- docs/USAGE.md sample-manifests/`
-4. `make document`, then commit `README.md` and the CSV base with the change.
+   - [Tested environments](USAGE.md#tested-environments), if the release ran on a live cluster.
+3. [tests/Scenarios.md](../tests/Scenarios.md), if the release ran on a live cluster: the live runs, the rows they
+   covered, and row S44.
+4. [HANDOFF.md](HANDOFF.md): Done for each [release gate](HANDOFF.md#release-gates) and
+   [takeover step](HANDOFF.md#takeover-checklist) that the release completed.
+5. Any other text that names the release before this one as the newest, or says that nothing is released yet. The
+   command below lists the candidates. From the second release on, put the release before this one in the first
+   pattern instead of `0\.3\.0-rc2`:
+
+   ```sh
+   git grep -n -i -e '0\.3\.0-rc2' -e 'first release' -e 'no release yet' -e 'catalog is empty' \
+     -- docs/ sample-manifests/ tests/ CONTRIBUTING.md ':!docs/diagrams/'
+   ```
+
+   Most hits are examples, the start of the `skipRange` or the plan for the first two releases, and stay as they are.
+6. `make document`, then commit `README.md` and the CSV base with the change.
 
 A release's CSV description is `docs/USAGE.md` at its tag, so the console shows these updates from the next release
-on. Word the release state in USAGE so that it also reads correctly at the tag, as the `Releases` row and Catalog and
-versions do now: "The first release there is 0.3.0-rc2; until it is published, the catalog is empty".
+on. Word the release state in every file so that it reads correctly at the tag and stays correct after the next
+release: say what holds until a release and what holds from then on, as the `Releases` row and Catalog and versions
+in USAGE do: "The first release there is 0.3.0-rc2; until it is published, the catalog is empty".
 
 ### Making a change
 

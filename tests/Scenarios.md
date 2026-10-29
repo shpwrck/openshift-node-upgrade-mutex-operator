@@ -20,17 +20,33 @@ None of the automated layers has a Machine Config Operator (MCO). In the kind sc
 ## Live runs
 
 All live runs used one small OpenShift 4.21 cluster: one control-plane node that also runs workloads, and two workers.
-The operator was installed through OLM from test builds of the refresh branch. Those builds still had the old API
-group and were pushed to the old image registry. No live run used the new API group or an image from
-`ghcr.io/redhat-na-ssa` (row S44).
+The operator was installed through OLM from test builds made during the refresh for the handoff (below). Those builds
+still had the old API group and were pushed to the old image registry. No live run used the new API group or an image
+from `ghcr.io/redhat-na-ssa` (row S44).
 
 | Run | Date | Build | Design | OpenShift | What it covered |
 | --- | --- | --- | --- | --- | --- |
-| Checks | 2026-10-28 | 23e6702 | earlier | 4.21.20 | installs and install modes, the OLM upgrade from 0.2.68, scorecard, metrics, the custom-pool refusal, missing version labels; no upgrade |
-| Rehearsals | 2026-10-28 | 23e6702; the last two with the node-wait fix that went into 40f85b5 | earlier | 4.21.20 | full runs without a real upgrade (below) |
-| Upgrade 1 | 2026-10-28 | 40f85b5 | earlier | 4.21.20 → 4.21.21 | two target nodes |
-| Upgrade 2 | 2026-10-29 | 1970a68 | release-label | 4.21.21 → 4.21.22 | two target nodes; an admin MachineConfig applied and the operator pod deleted during the first node's update |
-| Upgrade 3 | 2026-10-29 | 4ae3083 | release-label | 4.21.22 → 4.21.23 | one target node and one canary node of its own; an admin MachineConfig deleted and the operator pod deleted during the target node's update |
+| Checks | 2026-10-28 | A | earlier | 4.21.20 | installs and install modes, the OLM upgrade from 0.2.68, scorecard, metrics, the custom-pool refusal, missing version labels; no upgrade |
+| Rehearsals | 2026-10-28 | A; the last two with the node-wait fix of B | earlier | 4.21.20 | full runs without a real upgrade (below) |
+| Upgrade 1 | 2026-10-28 | B | earlier | 4.21.20 → 4.21.21 | two target nodes |
+| Upgrade 2 | 2026-10-29 | C | release-label | 4.21.21 → 4.21.22 | two target nodes; an admin MachineConfig applied and the operator pod deleted during the first node's update |
+| Upgrade 3 | 2026-10-29 | D | release-label | 4.21.22 → 4.21.23 | one target node and one canary node of its own; an admin MachineConfig deleted and the operator pod deleted during the target node's update |
+
+### The builds
+
+Each build is the one before it plus the change in its row.
+
+| Build | What it contained | Design |
+| --- | --- | --- |
+| A | The refreshed operator before the live runs, with the earlier canary design | earlier |
+| B | The node-wait fix: a released node counts as upgraded only once its `currentConfig` is a rendered config of the canary, `rendered-<canary>-<hash>`, with the canary's name matched exactly (`roles/mutexrunconfig/vars/main.yml:160-163`) | earlier |
+| C | The release-label build: the canary selects only the released node, by the release label. A canary with nodes of its own gets the hold selector while they get the release label, and the pools are re-pointed one reconcile later | release-label |
+| D | The settle-time build: the pools are re-pointed only once `mutexrunconfig_label_settle_seconds` (300) have passed since the last release label change of the canary's own nodes (`release-labelled-at`), and those nodes lose the label only that long after the canary's `restored-at` | release-label |
+| E | The rename build: D with the new API group and the license metadata, and no other change in `roles/` or `watches.yaml` | release-label |
+
+No live run used build E; the kind E2E passed on it (row S44). Today's `roles/` and `watches.yaml` are build E plus
+the documentation sweep after it, which changed comments, the role READMEs and the wording of two condition messages
+(`JobRunFailed` and `NodeUpgradeFailed` in `06-execute-jobs.yml`).
 
 ### The two designs
 
@@ -39,19 +55,17 @@ group and were pushed to the old image registry. No live run used the new API gr
   before the mutex labels. It took a held node into the re-pointed canary, and that node rebooted into the canary's
   config without its Jobs. Later in the same run both nodes were upgraded one at a time, with their Jobs.
 * **Release-label design (shipped).** The canary selects only the released node, by the release label (`In`), and the
-  target pools leave it out (`NotIn`). It came in 1970a68. c5acdec and 4ae3083 added the settle time for the canary's
-  own nodes. Upgrades 2 and 3 ran it.
+  target pools leave it out (`NotIn`). It came in build C, and build D added the settle time for the canary's own
+  nodes. Upgrades 2 and 3 ran it.
 
 What the design column means for each row:
 
-* Since 23e6702, `07-run-job.yml` (Jobs, timeouts, re-use), `03-pause-machine-config-pools.yml`, `09-report.yml` and
-  the `mutexrule` and `mutextarget` roles changed only in the API group rename (b6f0d75). So the Job and validation
-  rows that ran on the earlier design ran today's logic in those files. The node handling around the Jobs
-  (`06-execute-jobs.yml`), the labels (`04`), the canary re-point (`05`) and the restore (`08`) changed with the
-  redesign.
-* After 4ae3083, `roles/` and `watches.yaml` changed only by the API group rename and the license metadata (b6f0d75),
-  and in the documentation sweep after it by comments, the role READMEs and the wording of two condition messages
-  (`JobRunFailed` and `NodeUpgradeFailed` in `06-execute-jobs.yml`). The kind E2E passed on b6f0d75.
+* From build A to today, `07-run-job.yml` (Jobs, timeouts, re-use), `03-pause-machine-config-pools.yml`,
+  `09-report.yml` and the `mutexrule` and `mutextarget` roles changed only by the API group rename (build E) and, after
+  it, in comments and the role READMEs. So the Job and validation rows that ran on the earlier design ran today's logic
+  in those files. The node handling around the Jobs (`06-execute-jobs.yml`), the labels (`04`), the canary re-point
+  (`05`) and the restore (`08`) changed with the redesign.
+* From build D to today, `roles/` and `watches.yaml` changed only as described for build E above.
 
 ### Rehearsals
 
@@ -136,7 +150,7 @@ tooling, not in the repository.
 | S26 | Deleting a MutexRunConfig that waits for another one's run: the deletion also waits until that run ends | no / no | Not run | – | – | yes | two MutexRunConfigs (S19); delete the waiting one |
 | S27 | The finalizer after a finished run changes nothing | yes / no | – | – | – | – | `finalizer_test.yml` |
 | S28 | The manual restore in [USAGE, The operator is gone in the middle of a run](../docs/USAGE.md#the-operator-is-gone-in-the-middle-of-a-run), as written now | no / no | Rehearsal of an earlier version of the steps, without the release-label and canary-annotation steps, after a MutexRunConfig was lost (finalizer removed, then deleted): it restored every selector, label and mark and unpaused the pool | earlier | 4.21.20 | the current steps ([Known gaps](../docs/HANDOFF.md#known-gaps) G11) | remove the finalizer and delete the MutexRunConfig in the middle of a run, then follow the steps |
-| S29 | A target pool that an administrator paused before the run ([USAGE, Pausing the pools yourself](../docs/USAGE.md#pausing-the-pools-yourself)): the operator sets no `paused-by` and leaves the pool paused at the end; `TargetPoolsPaused=True` says it is paused by someone else | no / no | One rehearsal, with `worker` paused by hand before the run: no `paused-by` was set, `worker` was still paused at the end, `TargetPoolsPaused=True` said it was paused by someone else, and the invariant checker passed. Whether a node went through the canary in that rehearsal is not recorded. It was not a real upgrade (see [Rehearsals](#rehearsals)) | earlier | 4.21.20 | a real upgrade on the release-label design, with each node released through the canary. Since that build the pause and the report (`03`, `09`) changed only in the rename; the restore (`08`) changed with the redesign | pause the pool (`spec.paused: true`) before the run |
+| S29 | A target pool that an administrator paused before the run ([USAGE, Pausing the pools yourself](../docs/USAGE.md#pausing-the-pools-yourself)): the operator sets no `paused-by` and leaves the pool paused at the end; `TargetPoolsPaused=True` says it is paused by someone else | no / no | One rehearsal, with `worker` paused by hand before the run: no `paused-by` was set, `worker` was still paused at the end, `TargetPoolsPaused=True` said it was paused by someone else, and the invariant checker passed. Whether a node went through the canary in that rehearsal is not recorded. It was not a real upgrade (see [Rehearsals](#rehearsals)) | earlier | 4.21.20 | a real upgrade on the release-label design, with each node released through the canary. Since build A, the pause and the report (`03`, `09`) changed only in the rename; the restore (`08`) changed with the redesign | pause the pool (`spec.paused: true`) before the run |
 
 ### The canary pool
 
