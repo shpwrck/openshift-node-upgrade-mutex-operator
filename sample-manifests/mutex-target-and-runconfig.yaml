@@ -1,0 +1,42 @@
+# The MutexTarget and the MutexRunConfig of the Quick start in
+# docs/USAGE.md: the nodes of pool worker are upgraded one at a time through
+# the canary pool canary (canary-mcp.yaml), each after the Job of MutexRule
+# label-node (job-example.yaml). Apply those two files first.
+#
+# The MutexRunConfig is the resource that changes the cluster. From the next
+# OpenShift upgrade on, it pauses pool worker and releases its nodes one at a
+# time. Until then it only checks its configuration and waits:
+#   oc get numo -n node-upgrade-mutex-operator
+# lists the MutexTarget with its nodes, and the MutexRunConfig with Validated
+# True, Upgrade False, Paused False and Degraded False.
+#
+# All three kinds must be in the operator's namespace, and the references
+# leave out 'namespace'. For a custom target pool, list that pool in
+# spec.machineConfigPools and name its canary (canary-mcp-custom-pool.yaml)
+# in spec.canary.name, in a MutexRunConfig of its own.
+#
+# Deleting the MutexRunConfig during a run aborts the run: MCO then upgrades
+# the remaining nodes without their Jobs.
+#
+# Not applied on a cluster.
+apiVersion: nodeupgrade.redhat-na-ssa.github.io/v1alpha1
+kind: MutexTarget
+metadata:
+  name: workers
+  namespace: node-upgrade-mutex-operator
+spec:
+  machineConfigPools:
+    - worker
+---
+apiVersion: nodeupgrade.redhat-na-ssa.github.io/v1alpha1
+kind: MutexRunConfig
+metadata:
+  name: workers
+  namespace: node-upgrade-mutex-operator
+spec:
+  canary:
+    name: canary
+  mutexRules:
+    - name: label-node
+  mutexTargets:
+    - name: workers

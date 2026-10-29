@@ -12,6 +12,11 @@
 # local feature source, which NFD enables by default, and no hooks: the
 # MachineConfig's timer writes the file, nothing is run from nfd-worker.
 #
+# This is step 1 of sample-manifests/README.md. It reboots nothing: the NFD
+# operator only starts its pods. machineconfig.yaml, the next step, reboots
+# the workers. Check that the nfd-worker pods run on the target nodes:
+#   oc get pods -n openshift-nfd -o wide
+#
 # operand.image is left out on purpose, so the NFD operator deploys the
 # operand that matches its own version (pinning one digest would keep the
 # same operand across OpenShift upgrades). To pin it anyway, use the tag of

@@ -1,0 +1,53 @@
+# Installs the operator with OLM, as the Quick start in docs/USAGE.md does:
+# the namespace node-upgrade-mutex-operator, an OperatorGroup that targets
+# only that namespace (install mode OwnNamespace), and a Subscription to the
+# alpha channel with Manual approval.
+#
+# Apply catalogsource.yaml (or a CatalogSource of your own) first: the
+# Subscription names it in spec.source and spec.sourceNamespace. Until the
+# project has published a release there is nothing to install from it.
+#
+# Manual approval holds the first install too. Approve its InstallPlan:
+#   oc get installplan -n node-upgrade-mutex-operator
+#   oc patch installplan <name> -n node-upgrade-mutex-operator --type merge -p '{"spec":{"approved":true}}'
+#   oc get csv -n node-upgrade-mutex-operator    # PHASE Succeeded
+# Approve later operator upgrades the same way, but never while an OpenShift
+# upgrade is running: a new version restarts the operator in the middle of a
+# run.
+#
+# To install a given version instead of the newest one in the channel, set
+# spec.startingCSV, for example openshift-node-upgrade-mutex-operator.v0.3.0.
+#
+# The operator pod runs only on a control-plane node. The empty
+# openshift.io/node-selector annotation keeps a cluster-wide default node
+# selector (for example one that sends every pod to the workers) from being
+# applied to the pods of this namespace.
+#
+# Not applied on a cluster.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: node-upgrade-mutex-operator
+  annotations:
+    openshift.io/node-selector: ""
+---
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: node-upgrade-mutex-operator
+  namespace: node-upgrade-mutex-operator
+spec:
+  targetNamespaces:
+    - node-upgrade-mutex-operator
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: openshift-node-upgrade-mutex-operator
+  namespace: node-upgrade-mutex-operator
+spec:
+  channel: alpha
+  name: openshift-node-upgrade-mutex-operator
+  source: node-upgrade-mutex-operator-catalog
+  sourceNamespace: openshift-marketplace
+  installPlanApproval: Manual

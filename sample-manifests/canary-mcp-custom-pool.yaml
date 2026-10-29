@@ -1,0 +1,46 @@
+# A canary MachineConfigPool for a custom target pool, here 'app': a pool
+# whose machineConfigSelector is machineconfiguration.openshift.io/role In
+# [worker, app] and whose nodes carry node-role.kubernetes.io/app: "". The
+# app nodes must also keep node-role.kubernetes.io/worker, as nodes of custom
+# pools normally do, because the canary's matchLabels must select every
+# target node. Replace app with the role of your pool, and name the canary in
+# spec.canary.name of that pool's MutexRunConfig.
+#
+# machineConfigSelector is the same as the app pool's, so the canary renders
+# the same MachineConfigs. Check that both pools list the same ones:
+#   oc get mcp app canary-app -o jsonpath='{range .items[*]}{.metadata.name}{": "}{.spec.configuration.source[*].name}{"\n"}{end}'
+#
+# The expression node-role.kubernetes.io/app Exists limits the canary to app
+# nodes. Every app node satisfies it, so the canary keeps it during a run
+# (isCanary Exists is left out until the run ends). Without it, the
+# canary's matchLabels would select every worker node during a run, and the
+# MutexRunConfig would report ConfigValidated False.
+#
+# Leave it empty. To give it a node of its own anyway, label that node
+# isCanary and node-role.kubernetes.io/app=canary, not app="": the app pool
+# selects the empty value too, and MCO refuses a node that matches two custom
+# pools. For the same reason, do not label a node isCanary when it would
+# match both this pool and canary-mcp.yaml.
+#
+# Not applied on a cluster.
+apiVersion: machineconfiguration.openshift.io/v1
+kind: MachineConfigPool
+metadata:
+  name: canary-app
+spec:
+  machineConfigSelector:
+    matchExpressions:
+      - key: machineconfiguration.openshift.io/role
+        operator: In
+        values:
+          - worker
+          - app
+  nodeSelector:
+    matchLabels:
+      node-role.kubernetes.io/worker: ""
+    matchExpressions:
+      - key: isCanary
+        operator: Exists
+      - key: node-role.kubernetes.io/app
+        operator: Exists
+  paused: false

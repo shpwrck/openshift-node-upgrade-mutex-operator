@@ -1,0 +1,44 @@
+# The canary MachineConfigPool for the target pool worker, as in the Quick
+# start in docs/USAGE.md. Each target node passes through this pool while MCO
+# upgrades it: during a run the operator changes the node selectors of this
+# pool and of the target pool, and puts them back afterwards.
+#
+# Leave it empty: give no node the isCanary label. A canary with nodes of its
+# own works but makes each run wait longer (USAGE, "Advanced: a canary with
+# nodes of its own"). After applying, `oc get mcp canary` shows MACHINECOUNT 0.
+#
+# The canary must render the same MachineConfigs as the target pool, so a
+# node gets the same configuration in either pool and is not rebooted again
+# when it goes back. Like the worker pool, it selects the MachineConfigs with
+# role worker. Check that both pools list the same MachineConfigs:
+#   oc get mcp worker canary -o jsonpath='{range .items[*]}{.metadata.name}{": "}{.spec.configuration.source[*].name}{"\n"}{end}'
+#
+# During a run the canary keeps only the matchExpressions that every target
+# node already satisfies; isCanary Exists is left out until the run ends. If
+# your infra nodes (or the nodes of another custom pool) keep the
+# node-role.kubernetes.io/worker label, uncomment the infra expression below
+# (use your pool's role label): without it the canary's matchLabels select
+# those nodes too, and the MutexRunConfig reports ConfigValidated False and
+# names them.
+#
+# For a custom target pool (not worker), use canary-mcp-custom-pool.yaml.
+#
+# Not applied on a cluster in this form. The same pool spec, without the
+# commented lines, was the sample canary of the live runs (tests/Scenarios.md).
+apiVersion: machineconfiguration.openshift.io/v1
+kind: MachineConfigPool
+metadata:
+  name: canary
+spec:
+  machineConfigSelector:
+    matchLabels:
+      machineconfiguration.openshift.io/role: worker
+  nodeSelector:
+    matchLabels:
+      node-role.kubernetes.io/worker: ""
+    matchExpressions:
+      - key: isCanary
+        operator: Exists
+      # - key: node-role.kubernetes.io/infra
+      #   operator: DoesNotExist
+  paused: false

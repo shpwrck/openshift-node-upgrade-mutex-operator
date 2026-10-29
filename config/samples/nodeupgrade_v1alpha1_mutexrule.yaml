@@ -1,14 +1,26 @@
 # A MutexRule must be created in the operator's namespace. Its Jobs run in
 # spec.jobNamespace, which defaults to the MutexRule's own namespace.
 #
-# Job contract: for every target node the operator creates one Job from
-# jobSpec before it releases the node to the canary pool, and one from
-# cleanUpJobSpec after the node has finished its upgrade. It appends
-# NODE_NAME (the node being upgraded) and MUTEX_RULE (this MutexRule's name)
-# to the env of every container, and keeps the pod off that node with a
-# 'kubernetes.io/hostname NotIn [<node>]' node affinity. Use $(NODE_NAME) in
-# command/args to act on the node. Each Job must complete within
-# timeoutSeconds; a failed Job stops the run and leaves the pools paused.
+# This sample is used by the kind e2e test (molecule) and becomes the
+# console's example (alm-examples), which drops these comments. It uses the
+# public UBI image because the kind cluster cannot pull registry.redhat.io,
+# and it sets no serviceAccountName. sample-manifests/job-example.yaml is a
+# complete example for OpenShift; docs/JOBS.md explains the fields.
+#
+# For each target node that is behind the new version, the operator creates
+# a Job from jobSpec before it releases the node to the canary pool, and one
+# from cleanUpJobSpec after the node has finished its upgrade. It appends
+# NODE_NAME (the node being upgraded, never the node the pod runs on) and
+# MUTEX_RULE (this MutexRule's name) to the env of every container and
+# initContainer, replacing entries with those names, and keeps the pod off
+# that node with a 'kubernetes.io/hostname NotIn [<node>]' node affinity.
+# Use $(NODE_NAME) in command and args, or $NODE_NAME in a shell script; a
+# $(NODE_NAME) inside your own env values is not expanded.
+#
+# timeoutSeconds is how long the operator waits for each Job in one attempt;
+# the Job keeps running after it. activeDeadlineSeconds, below
+# timeoutSeconds, makes the Job itself fail first, so the next retry starts a
+# new Job. A failed Job stops the run and leaves the pools paused.
 apiVersion: nodeupgrade.redhat-na-ssa.github.io/v1alpha1
 kind: MutexRule
 metadata:
@@ -24,7 +36,14 @@ spec:
   jobName: pre-upgrade
   timeoutSeconds: 600
   jobSpec:
-    backoffLimit: 0
+    backoffLimit: 2
+    activeDeadlineSeconds: 540
+    ttlSecondsAfterFinished: 86400
+    podFailurePolicy:
+      rules:
+        - action: Ignore
+          onPodConditions:
+            - type: DisruptionTarget
     template:
       spec:
         restartPolicy: Never
@@ -48,7 +67,14 @@ spec:
               seccompProfile:
                 type: RuntimeDefault
   cleanUpJobSpec:
-    backoffLimit: 0
+    backoffLimit: 2
+    activeDeadlineSeconds: 540
+    ttlSecondsAfterFinished: 86400
+    podFailurePolicy:
+      rules:
+        - action: Ignore
+          onPodConditions:
+            - type: DisruptionTarget
     template:
       spec:
         restartPolicy: Never

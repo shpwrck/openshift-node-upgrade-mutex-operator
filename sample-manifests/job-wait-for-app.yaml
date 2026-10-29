@@ -1,0 +1,142 @@
+# MutexRule wait-for-app: its Jobs wait until an application is complete
+# again, every replica of its Deployment updated and available. The
+# pre-upgrade Job runs before each node is released, so MCO drains the node
+# only once the application has recovered from the previous node. The
+# cleanup Job runs after the node has finished its upgrade, which also covers
+# the last node. A PodDisruptionBudget of the application still applies to
+# MCO's drain; this Job makes sure the drain starts with every replica
+# available. docs/JOBS.md explains the fields.
+#
+# Edit before applying: replace the namespace my-app and the Deployment
+# my-app with yours, and add wait-for-app to spec.mutexRules of your
+# MutexRunConfig. The namespace must exist before the MutexRule, or its
+# ValidConfig is False.
+#
+# The Jobs run in the application's namespace (spec.jobNamespace), with a
+# ServiceAccount and a Role that the application team owns there. The
+# MutexRule itself lives in the operator's namespace, which only cluster
+# administrators should be able to write, so a cluster administrator applies
+# that part.
+#
+# Jobs outside the operator's namespace are not garbage-collected with the
+# MutexRunConfig, so ttlSecondsAfterFinished deletes them a day after they
+# finish. The operator appends NODE_NAME and MUTEX_RULE to the env (see
+# job-example.yaml), but does not tell the pod whether it runs before or
+# after the upgrade, so each JobSpec sets PHASE itself.
+#
+# No --timeout on 'oc rollout status': activeDeadlineSeconds ends the Job
+# before the operator's timeoutSeconds, so the next retry starts a new Job.
+#
+# Not applied on a cluster.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mutex-wait-for-app
+  namespace: my-app
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: mutex-wait-for-app
+  namespace: my-app
+rules:
+  # 'oc rollout status' reads and watches the Deployment.
+  - apiGroups:
+      - apps
+    resources:
+      - deployments
+    verbs:
+      - get
+      - list
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: mutex-wait-for-app
+  namespace: my-app
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: mutex-wait-for-app
+subjects:
+  - kind: ServiceAccount
+    name: mutex-wait-for-app
+    namespace: my-app
+---
+apiVersion: nodeupgrade.redhat-na-ssa.github.io/v1alpha1
+kind: MutexRule
+metadata:
+  name: wait-for-app
+  namespace: node-upgrade-mutex-operator
+spec:
+  type: kubernetes
+  jobName: wait-for-app
+  jobNamespace: my-app
+  timeoutSeconds: 1200
+  jobSpec:
+    backoffLimit: 2
+    activeDeadlineSeconds: 1140
+    ttlSecondsAfterFinished: 86400
+    podFailurePolicy:
+      rules:
+        - action: Ignore
+          onPodConditions:
+            - type: DisruptionTarget
+    template:
+      spec:
+        serviceAccountName: mutex-wait-for-app
+        restartPolicy: Never
+        containers:
+          - name: wait
+            image: registry.redhat.io/openshift4/ose-cli-rhel9:latest
+            env:
+              - name: PHASE
+                value: pre
+            command:
+              - /bin/sh
+              - -c
+            args:
+              - >-
+                echo "$PHASE: waiting for deployment/my-app before $NODE_NAME is upgraded (rule $MUTEX_RULE)";
+                oc rollout status deployment/my-app -n my-app
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                  - ALL
+              seccompProfile:
+                type: RuntimeDefault
+  cleanUpJobSpec:
+    backoffLimit: 2
+    activeDeadlineSeconds: 1140
+    ttlSecondsAfterFinished: 86400
+    podFailurePolicy:
+      rules:
+        - action: Ignore
+          onPodConditions:
+            - type: DisruptionTarget
+    template:
+      spec:
+        serviceAccountName: mutex-wait-for-app
+        restartPolicy: Never
+        containers:
+          - name: wait
+            image: registry.redhat.io/openshift4/ose-cli-rhel9:latest
+            env:
+              - name: PHASE
+                value: cleanup
+            command:
+              - /bin/sh
+              - -c
+            args:
+              - >-
+                echo "$PHASE: waiting for deployment/my-app after $NODE_NAME was upgraded (rule $MUTEX_RULE)";
+                oc rollout status deployment/my-app -n my-app
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                  - ALL
+              seccompProfile:
+                type: RuntimeDefault

@@ -2,7 +2,9 @@
 # the MutexRules and MutexTargets it references: leave out 'namespace' on the
 # references and they resolve in this MutexRunConfig's namespace. 'canary' is
 # an existing, unpaused MachineConfigPool whose nodeSelector.matchLabels
-# select the target nodes (see the canary example in the README).
+# select the target nodes (see sample-manifests/canary-mcp.yaml). This is the
+# resource that changes the cluster: during an OpenShift upgrade it pauses
+# the target pools and releases their nodes one at a time.
 apiVersion: nodeupgrade.redhat-na-ssa.github.io/v1alpha1
 kind: MutexRunConfig
 metadata:
