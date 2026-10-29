@@ -37,6 +37,17 @@ if [ "$released" != 0 ]; then
   echo "error: $NAME is already in $template; bump the version (make increment) instead of re-releasing it" >&2
   exit 1
 fi
+# A pre-release sorts before its version, so after that version it would be a downgrade.
+case $version in
+  *-*)
+    export BASE_NAME="${package}.v${version%%-*}"
+    base_released=$("$yq" '[.entries[] | select(.schema == "olm.channel") | .entries[] | select(.name == strenv(BASE_NAME))] | length' "$template")
+    if [ "$base_released" != 0 ]; then
+      echo "error: $BASE_NAME is already in $template, so the pre-release $version would replace it; bump the version" >&2
+      exit 1
+    fi
+    ;;
+esac
 listed=$("$yq" '[.entries[] | select(.schema == "olm.bundle" and .image == strenv(BUNDLE_REF))] | length' "$template")
 if [ "$listed" != 0 ]; then
   echo "error: $BUNDLE_REF is already listed in $template" >&2

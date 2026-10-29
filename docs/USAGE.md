@@ -207,13 +207,14 @@ fails validation.
 
 ### Upgrading from 0.2.x
 
-0.3.0 is published in the `alpha` channel with `skipRange: <0.3.0`. The project's own catalog starts afresh with
-0.3.0 on a new registry (`ghcr.io`), without the 0.2.x bundles: point the CatalogSource of a 0.2.x install at the new
-catalog image and its Subscription (channel `alpha`) is offered 0.3.0 through that `skipRange`. In the community
-catalogs 0.3.0 is the upgrade of 0.2.66, so every 0.2.x Subscription there is offered it. The common install needs no changes: the operator in its own namespace (for example
+0.3.0 is published in the `alpha` channel. The project's own catalog starts afresh on `ghcr.io`
+(`ghcr.io/<owner>/openshift-node-upgrade-mutex-operator-catalog:latest`, or `:v<version>`) without the 0.2.x bundles,
+and lists 0.3.0 with `skipRange: <0.3.0`: a 0.2.x install is offered 0.3.0 once its CatalogSource serves that image
+(step 5 below). In the community catalogs 0.3.0 is the upgrade of 0.2.66, so every 0.2.x Subscription there is offered
+it. The common install needs no changes: the operator in its own namespace (for example
 `node-upgrade-mutex-operator`, through the console, which creates an `OwnNamespace` OperatorGroup) with every
 MutexRule, MutexTarget and MutexRunConfig in that same namespace keeps working, as long as the CRs pass the new
-schemas (step 3 below) and the canary passes the new checks (step 5). Four changes can break other installs:
+schemas (step 3 below) and the canary passes the new checks (step 6). Four changes can break other installs:
 
 * **Only CRs in the operator namespace are reconciled.** 0.2.x reconciled CRs in every namespace. 0.3.0 installed
   `OwnNamespace` no longer watches CRs in other namespaces, and their status keeps its 0.2.x values, so nothing shows
@@ -244,7 +245,7 @@ default. Set `timeoutSeconds` on every MutexRule that needs another limit. There
 Before you approve 0.3.0:
 
 1. Set the Subscription to manual approval, so OLM waits for you. With `Automatic` approval it installs 0.3.0 as soon
-   as the catalog serves it:
+   as the catalog serves it (after step 5 for the project's own catalog, at once in the community catalogs):
 
    ```sh
    oc patch subscriptions.operators.coreos.com <name> -n <operator namespace> --type=merge -p '{"spec":{"installPlanApproval":"Manual"}}'
@@ -275,7 +276,14 @@ Before you approve 0.3.0:
    oc patch operatorgroup <name> -n <operator namespace> --type=merge -p '{"spec":{"targetNamespaces":["<operator namespace>"]}}'
    ```
 
-5. Approve the InstallPlan. Afterwards `oc get mutexrunconfig -n <operator namespace>` must show every
+5. If the operator comes from the project's own catalog, point its CatalogSource at the new catalog image. OLM keeps
+   0.2.x running and offers 0.3.0 through the `skipRange`:
+
+   ```sh
+   oc patch catalogsource <name> -n <catalog namespace> --type=merge -p '{"spec":{"image":"<new catalog image>"}}'
+   ```
+
+6. Approve the InstallPlan. Afterwards `oc get mutexrunconfig -n <operator namespace>` must show every
    MutexRunConfig as `Validated` `True`. Fix any that is not before the next OpenShift upgrade: 0.3.0 checks more
    than 0.2.x did (see [Reconcile procedure](#reconcile-procedure)), and a MutexRunConfig that fails validation pauses
    nothing.

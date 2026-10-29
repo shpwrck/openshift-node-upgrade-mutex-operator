@@ -207,13 +207,14 @@ fails validation.
 
 ### Upgrading from 0.2.x
 
-0.3.0 is published in the `alpha` channel with `skipRange: <0.3.0`. The project's own catalog starts afresh with
-0.3.0 on a new registry (`ghcr.io`), without the 0.2.x bundles: point the CatalogSource of a 0.2.x install at the new
-catalog image and its Subscription (channel `alpha`) is offered 0.3.0 through that `skipRange`. In the community
-catalogs 0.3.0 is the upgrade of 0.2.66, so every 0.2.x Subscription there is offered it. The common install needs no changes: the operator in its own namespace (for example
+0.3.0 is published in the `alpha` channel. The project's own catalog starts afresh on `ghcr.io`
+(`ghcr.io/<owner>/openshift-node-upgrade-mutex-operator-catalog:latest`, or `:v<version>`) without the 0.2.x bundles,
+and lists 0.3.0 with `skipRange: <0.3.0`: a 0.2.x install is offered 0.3.0 once its CatalogSource serves that image
+(step 5 below). In the community catalogs 0.3.0 is the upgrade of 0.2.66, so every 0.2.x Subscription there is offered
+it. The common install needs no changes: the operator in its own namespace (for example
 `node-upgrade-mutex-operator`, through the console, which creates an `OwnNamespace` OperatorGroup) with every
 MutexRule, MutexTarget and MutexRunConfig in that same namespace keeps working, as long as the CRs pass the new
-schemas (step 3 below) and the canary passes the new checks (step 5). Four changes can break other installs:
+schemas (step 3 below) and the canary passes the new checks (step 6). Four changes can break other installs:
 
 * **Only CRs in the operator namespace are reconciled.** 0.2.x reconciled CRs in every namespace. 0.3.0 installed
   `OwnNamespace` no longer watches CRs in other namespaces, and their status keeps its 0.2.x values, so nothing shows
@@ -244,7 +245,7 @@ default. Set `timeoutSeconds` on every MutexRule that needs another limit. There
 Before you approve 0.3.0:
 
 1. Set the Subscription to manual approval, so OLM waits for you. With `Automatic` approval it installs 0.3.0 as soon
-   as the catalog serves it:
+   as the catalog serves it (after step 5 for the project's own catalog, at once in the community catalogs):
 
    ```sh
    oc patch subscriptions.operators.coreos.com <name> -n <operator namespace> --type=merge -p '{"spec":{"installPlanApproval":"Manual"}}'
@@ -275,7 +276,14 @@ Before you approve 0.3.0:
    oc patch operatorgroup <name> -n <operator namespace> --type=merge -p '{"spec":{"targetNamespaces":["<operator namespace>"]}}'
    ```
 
-5. Approve the InstallPlan. Afterwards `oc get mutexrunconfig -n <operator namespace>` must show every
+5. If the operator comes from the project's own catalog, point its CatalogSource at the new catalog image. OLM keeps
+   0.2.x running and offers 0.3.0 through the `skipRange`:
+
+   ```sh
+   oc patch catalogsource <name> -n <catalog namespace> --type=merge -p '{"spec":{"image":"<new catalog image>"}}'
+   ```
+
+6. Approve the InstallPlan. Afterwards `oc get mutexrunconfig -n <operator namespace>` must show every
    MutexRunConfig as `Validated` `True`. Fix any that is not before the next OpenShift upgrade: 0.3.0 checks more
    than 0.2.x did (see [Reconcile procedure](#reconcile-procedure)), and a MutexRunConfig that fails validation pauses
    nothing.
@@ -924,17 +932,23 @@ The catalog was started afresh for the move to `ghcr.io` (`make catalog-reset` k
 **With the release workflow** (`.github/workflows/release.yaml`):
 
 1. Check the version in `.envrc`. It must not be in `catalog-template.yaml` yet.
-2. Push a tag `v<VERSION>` on the commit to release, for example `git tag v0.3.0 && git push origin v0.3.0`. For a
-   pre-release add a suffix, for example `v0.3.0-rc1`: the version without the suffix must still match `.envrc`, and
-   the `:latest` tags are not moved.
+2. Push a tag `v<VERSION>` on a commit of the default branch, for example `git tag v0.3.0 origin/main && git push
+   origin v0.3.0`. For a pre-release add a suffix, for example `v0.3.0-rc1`: the version without the suffix must still
+   match `.envrc`, it must be a valid semver pre-release, its version without the suffix must not be released yet, and
+   the `:latest` tags are not moved. The workflow refuses, before it publishes anything, a tag on a commit that is not
+   on the default branch or whose `.github/workflows` differ from it: `GITHUB_TOKEN` could not push the catalog
+   branch then.
 3. The workflow runs `make release` (below) with
    `IMAGE_TAG_BASE=ghcr.io/<repository owner>/openshift-node-upgrade-mutex-operator`, `IMAGE_SOURCE` set to the
-   repository and `USE_IMAGE_DIGESTS=true`, logged in to `ghcr.io` with its `GITHUB_TOKEN`. It then pushes the updated `catalog-template.yaml` and `catalog/` to the branch `release/<tag>`,
-   and the run's summary links the comparison. Open a pull request from that branch and merge it, then run
-   `make increment` for the next version (after a final release, not after a pre-release).
+   repository and `USE_IMAGE_DIGESTS=true`, logged in to `ghcr.io` with its `GITHUB_TOKEN`. It then pushes the
+   updated `catalog-template.yaml` and `catalog/` to the branch `release/<tag>`, and the run's summary links a new
+   pull request from that branch into the default branch. Merge it, then, after a final release (not after a
+   pre-release), run `make increment` for the next version. Re-running the job publishes the version again (the
+   bundle gets a new digest) and replaces `release/<tag>`.
 4. The first push creates the three packages (`openshift-node-upgrade-mutex-operator`, `-bundle`, `-catalog`) under
    the repository owner, linked to the repository by the image label. They start private: make each one public once
-   (package settings, Danger Zone, Change visibility) so that clusters can pull them without a pull secret.
+   (package settings, Danger Zone, Change visibility; this cannot be undone) so that clusters can pull them without a
+   pull secret. In an organization, its package creation setting must allow public packages.
 
 **By hand:**
 

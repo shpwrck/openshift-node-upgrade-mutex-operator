@@ -13,11 +13,19 @@ template=${1:?usage: hack/verify-catalog.sh TEMPLATE CATALOG_FILE}
 catalog=${2:?usage: hack/verify-catalog.sh TEMPLATE CATALOG_FILE}
 yq=${YQ:-yq}
 
+# A template without a bundle (a fresh catalog) cannot be rendered: opm refuses
+# a channel without a bundle.
+if [ "$("$yq" '[.entries[] | select(.schema == "olm.bundle")] | length' "$template")" = 0 ]; then
+  fix="make catalog-reset"
+else
+  fix="make catalog-render"
+fi
+
 status=0
 compare() {
   local what=$1 from_template=$2 from_catalog=$3
   if [ "$from_template" != "$from_catalog" ]; then
-    echo "error: $what in $catalog differ from $template; run 'make catalog-render'" >&2
+    echo "error: $what in $catalog differ from $template; run '$fix'" >&2
     diff <(printf '%s\n' "$from_template") <(printf '%s\n' "$from_catalog") >&2 || true
     status=1
   fi

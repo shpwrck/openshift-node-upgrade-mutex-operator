@@ -16,11 +16,11 @@ description.
 | CSV `repository` annotation and `spec.links` | `config/manifests/bases/openshift-node-upgrade-mutex-operator.clusterserviceversion.yaml` | same URL | The new repository URL |
 | CSV `spec.maintainers` | CSV base | the original author's name and e-mail | The new maintainers (a team alias is better than a person) |
 | CSV `provider` annotation and `spec.provider` | CSV base | the original author's name, `https://github.com/shpwrck` | The new organization |
-| Image registry and image label | `.envrc` `IMAGE_TAG_BASE` and `IMAGE_SOURCE` | `ghcr.io/shpwrck/openshift-node-upgrade-mutex-operator` and `https://github.com/shpwrck/openshift-node-upgrade-mutex-operator` | The new owner's `ghcr.io` package and repository URL, for releases by hand. The release workflow (`.github/workflows/release.yaml`) needs no change: it takes both from the repository it runs in. The Makefile default is the placeholder `example.com/...`, which `make release` refuses. |
+| Image registry and image label | `.envrc` `IMAGE_TAG_BASE` and `IMAGE_SOURCE` | `ghcr.io/shpwrck/openshift-node-upgrade-mutex-operator` and `https://github.com/shpwrck/openshift-node-upgrade-mutex-operator` | The new owner's `ghcr.io` package and repository URL, for releases by hand. The release workflow (`.github/workflows/release.yaml`) needs no change: it takes both from the repository it runs in. After the move its first release creates new, private packages under `ghcr.io/<new owner>`: make them public (`docs/DEVELOPMENT.md`, Releasing), and check that the organization's package creation setting allows public packages. The `ghcr.io/shpwrck` packages stay with that account and lose their repository link. The Makefile default is the placeholder `example.com/...`, which `make release` refuses. |
 | CSV `containerImage` annotation | CSV base | `ghcr.io/shpwrck/openshift-node-upgrade-mutex-operator` (no tag) | The new registry. Only the base needs it: `make bundle` sets the annotation in the bundle to the operator image it deploys. |
 | Manager image | `config/manager/kustomization.yaml` `images[controller]` | `ghcr.io/shpwrck/openshift-node-upgrade-mutex-operator:0.3.0` | The new registry. `make bundle` and `make deploy` rewrite it on every run, so it only matters for a plain `kustomize build`. |
 | Catalog | `catalog-template.yaml` and `catalog/openshift-node-upgrade-mutex-operator/catalog.yaml` | Started afresh for the move to `ghcr.io` (`make catalog-reset`): only the package entry until the release workflow adds the first bundle. A pre-release published while the workflow was tested in the old repository (`ghcr.io/shpwrck/...-bundle:v0.3.0-rc<n>`) may be listed. | Nothing, unless such pre-release entries are listed: then run `make catalog-reset`, commit, and release from the new repository. |
-| 0.1.x and 0.2.x images | `quay.io/jskrzypek/openshift-node-upgrade-mutex-operator`, `-bundle` and `-catalog` (the old catalog files are in the git history up to commit 731ad35) | 124 released bundles, referenced by tag (`...-bundle:v<version>`) in the old catalog. That catalog's rendered file also has 248 references to the operator image (each CSV's `containerImage` annotation and its `relatedImages` entry), 620 `github.com/shpwrck` URLs, 372 copies of the original author's name and 124 of the author's e-mail, all read from inside the bundle images. | They go away with the old registry. To keep them installable, mirror them before then (for example `skopeo copy --all docker://quay.io/jskrzypek/...-bundle:vX docker://<new registry>/...-bundle:vX`, which keeps the tags and digests) together with the operator images; the URLs, the name and the e-mail inside them stay unless those bundles are rebuilt. Every one of them also lists `gcr.io/kubebuilder/kube-rbac-proxy` in its `relatedImages` (70 by the `v0.15.0` tag, 54 by digest), which may stop being pullable. 0.3.0 is the first version without it. |
+| 0.1.x and 0.2.x images | `quay.io/jskrzypek/openshift-node-upgrade-mutex-operator`, `-bundle` and `-catalog` (the old catalog files are in the history of `catalog-template.yaml` and `catalog/`, before the commit that ran `make catalog-reset`: `git log -- catalog-template.yaml`) | 124 released bundles, referenced by tag (`...-bundle:v<version>`) in the old catalog. That catalog's rendered file also has 248 references to the operator image (each CSV's `containerImage` annotation and its `relatedImages` entry), 620 `github.com/shpwrck` URLs, 372 copies of the original author's name and 124 of the author's e-mail, all read from inside the bundle images. | They go away with the old registry. To keep them installable, mirror them before then (for example `skopeo copy --all docker://quay.io/jskrzypek/...-bundle:vX docker://<new registry>/...-bundle:vX`, which keeps the tags and digests) together with the operator images; the URLs, the name and the e-mail inside them stay unless those bundles are rebuilt. Every one of them also lists `gcr.io/kubebuilder/kube-rbac-proxy` in its `relatedImages` (70 by the `v0.15.0` tag, 54 by digest), which may stop being pullable. 0.3.0 is the first version without it. |
 | Community catalogs | `operators/openshift-node-upgrade-mutex-operator/` in [k8s-operatorhub/community-operators](https://github.com/k8s-operatorhub/community-operators) and [redhat-openshift-ecosystem/community-operators-prod](https://github.com/redhat-openshift-ecosystem/community-operators-prod) | The package is published there with the original author as reviewer | Update the package's `ci.yaml` reviewers in both repositories. |
 | Role metadata | `roles/*/meta/main.yml` | `license: NOASSERTION` | The license you choose (see below). |
 
@@ -59,13 +59,14 @@ release. The longer the group is published, the more users it breaks.
   bundles by digest in the catalog. `make release` records them by tag; pinning by digest takes the step-by-step
   sequence under "Releasing" in `docs/DEVELOPMENT.md`, which passes the pushed bundle's digest to `make catalog-add`.
 * **Version.** `.envrc` is at 0.3.0, because 0.2.67 and 0.2.68 are already published.
-* **The 0.2.x to 0.3.0 upgrade.** `make release` publishes 0.3.0 in `alpha` as the upgrade of 0.2.68, so 0.2.x
-  installs with `Automatic` approval take it unattended. 0.3.0 drops `SingleNamespace`, reconciles only CRs in the
-  operator namespace, and its CRDs validate fields that 0.2.x accepted freely. Publishing `bundles/0.3.0` to the
-  community catalogs has the same effect there: their `updateGraph: semver-mode` makes 0.3.0 the upgrade of 0.2.66.
-  The release notes for 0.3.0 should point to [Upgrading from 0.2.x](USAGE.md#upgrading-from-02x) in
-  `docs/USAGE.md`, which is also in the CSV description. Publishing 0.3.0 in a new channel instead, so that 0.2.x
-  users opt in, is the alternative.
+* **The 0.2.x to 0.3.0 upgrade.** In the project's own catalog 0.3.0 is the first entry of a new catalog image
+  (`skipRange: <0.3.0`, no `replaces`). 0.2.x installs get it only after they point their CatalogSource at that image
+  (USAGE, "Upgrading from 0.2.x"), and with `Automatic` approval then take it at once. 0.3.0 drops `SingleNamespace`,
+  reconciles only CRs in the operator namespace, and its CRDs validate fields that 0.2.x accepted freely. Publishing
+  `bundles/0.3.0` to the community catalogs makes it the upgrade of 0.2.66 there (their `updateGraph: semver-mode`),
+  which `Automatic` 0.2.x installs take unattended; publishing it there in a new channel instead, so that 0.2.x users
+  opt in, is the alternative. The release notes for 0.3.0 should point to
+  [Upgrading from 0.2.x](USAGE.md#upgrading-from-02x) in `docs/USAGE.md`, which is also in the CSV description.
 * **Job namespaces.** `MutexRule.spec.jobNamespace` accepts any namespace, and the Jobs can use any ServiceAccount
   there. Only users who can write in the operator namespace can use it. An allow-list, or a namespaced Role for Jobs,
   would narrow it.
@@ -135,8 +136,10 @@ cluster before relying on it:
    **Live run:** scorecard 6/6 passed; the metrics endpoint answered 403 without the binding and 200 with it.
 8. An OLM upgrade from 0.2.68 to 0.3.0 with CRs in the operator namespace, following "Upgrading from 0.2.x" in
    `docs/USAGE.md`.
-   **Live run:** including a failed InstallPlan and the recovery now documented there; the CRs survived and were
-   reconciled.
+   **Live run** (with the old catalog, where 0.3.0 replaced 0.2.68 in the same catalog image): including a failed
+   InstallPlan and the recovery now documented there; the CRs survived and were reconciled. **Still open:** the
+   upgrade by pointing an existing 0.2.x CatalogSource at the fresh `ghcr.io` catalog (no 0.2.x bundles, 0.3.0 offered
+   through its `skipRange`).
 9. A run whose canary has nodes of its own (with the sample canary, a worker node with `isCanary`; with a custom
    target pool such as `apps`, also `node-role.kubernetes.io/app=canary`). The molecule tests have no such node. Check
    that they stay in the canary at the start and at the end of the run: the first reconcile reports `MCPUpdated=False`

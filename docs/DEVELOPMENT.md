@@ -125,17 +125,23 @@ The catalog was started afresh for the move to `ghcr.io` (`make catalog-reset` k
 **With the release workflow** (`.github/workflows/release.yaml`):
 
 1. Check the version in `.envrc`. It must not be in `catalog-template.yaml` yet.
-2. Push a tag `v<VERSION>` on the commit to release, for example `git tag v0.3.0 && git push origin v0.3.0`. For a
-   pre-release add a suffix, for example `v0.3.0-rc1`: the version without the suffix must still match `.envrc`, and
-   the `:latest` tags are not moved.
+2. Push a tag `v<VERSION>` on a commit of the default branch, for example `git tag v0.3.0 origin/main && git push
+   origin v0.3.0`. For a pre-release add a suffix, for example `v0.3.0-rc1`: the version without the suffix must still
+   match `.envrc`, it must be a valid semver pre-release, its version without the suffix must not be released yet, and
+   the `:latest` tags are not moved. The workflow refuses, before it publishes anything, a tag on a commit that is not
+   on the default branch or whose `.github/workflows` differ from it: `GITHUB_TOKEN` could not push the catalog
+   branch then.
 3. The workflow runs `make release` (below) with
    `IMAGE_TAG_BASE=ghcr.io/<repository owner>/openshift-node-upgrade-mutex-operator`, `IMAGE_SOURCE` set to the
-   repository and `USE_IMAGE_DIGESTS=true`, logged in to `ghcr.io` with its `GITHUB_TOKEN`. It then pushes the updated `catalog-template.yaml` and `catalog/` to the branch `release/<tag>`,
-   and the run's summary links the comparison. Open a pull request from that branch and merge it, then run
-   `make increment` for the next version (after a final release, not after a pre-release).
+   repository and `USE_IMAGE_DIGESTS=true`, logged in to `ghcr.io` with its `GITHUB_TOKEN`. It then pushes the
+   updated `catalog-template.yaml` and `catalog/` to the branch `release/<tag>`, and the run's summary links a new
+   pull request from that branch into the default branch. Merge it, then, after a final release (not after a
+   pre-release), run `make increment` for the next version. Re-running the job publishes the version again (the
+   bundle gets a new digest) and replaces `release/<tag>`.
 4. The first push creates the three packages (`openshift-node-upgrade-mutex-operator`, `-bundle`, `-catalog`) under
    the repository owner, linked to the repository by the image label. They start private: make each one public once
-   (package settings, Danger Zone, Change visibility) so that clusters can pull them without a pull secret.
+   (package settings, Danger Zone, Change visibility; this cannot be undone) so that clusters can pull them without a
+   pull secret. In an organization, its package creation setting must allow public packages.
 
 **By hand:**
 

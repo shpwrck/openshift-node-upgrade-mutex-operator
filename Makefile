@@ -198,7 +198,7 @@ bundle: kustomize operator-sdk yq ## Generate the bundle for VERSION into BUNDLE
 	rm -rf $(BUNDLE_DIR)/manifests $(BUNDLE_DIR)/metadata
 	$(KUSTOMIZE) build config/manifests | $(OPERATOR_SDK) generate bundle $(BUNDLE_GEN_FLAGS) --output-dir $(BUNDLE_DIR)
 	@# The CSV's containerImage annotation names the operator image the bundle deploys.
-	$(YQ) -i '.metadata.annotations.containerImage = (.spec.install.spec.deployments[0].spec.template.spec.containers[] | select(.name == "manager") | .image)' \
+	$(YQ) -i '.metadata.annotations.containerImage = ((.spec.install.spec.deployments[0].spec.template.spec.containers[] | select(.name == "manager") | .image) // error("no manager container in the CSV"))' \
 		$(BUNDLE_DIR)/manifests/$(PACKAGE_NAME).clusterserviceversion.yaml
 	@# generate bundle writes ./bundle.Dockerfile with paths relative to the repo root;
 	@# keep it inside the bundle directory so each version builds on its own.
@@ -292,28 +292,33 @@ release-check: yq ## Refuse to release to the placeholder registry or a VERSION 
 		echo "error: set IMAGE_TAG_BASE to a registry you can push to (see .envrc)"; exit 1;; esac
 	@YQ=$(YQ) hack/catalog-add.sh --check $(CATALOG_TEMPLATE) $(PACKAGE_NAME) $(CATALOG_CHANNEL) $(VERSION) $(BUNDLE_REF)
 
-# The steps run one after another (also under make -j). The operator image is
-# pushed before `bundle` so USE_IMAGE_DIGESTS=true can resolve it. A
+# Each step is its own sub-make, so they run one after another also under
+# make -j (a sub-make runs its command-line goals in parallel). The operator
+# image is pushed before `bundle` so USE_IMAGE_DIGESTS=true can resolve it. A
 # pre-release VERSION (with a '-', for example 0.3.0-rc1) leaves the :latest
-# tags alone. The bundle
-# is recorded in the catalog by tag: every `make bundle` writes a new createdAt,
-# so its digest is only known after this target pushes it. A BUNDLE_REF other
-# than BUNDLE_IMG would record a different bundle, so it is refused before
-# anything is pushed.
+# tags alone. The bundle is recorded in the catalog by tag: every `make bundle`
+# writes a new createdAt, so its digest is only known after this target pushes
+# it. A BUNDLE_REF other than BUNDLE_IMG would record a different bundle, so it
+# is refused before anything is pushed.
 .PHONY: release
 release: release-check ## Build and push operator, bundle and catalog images for VERSION and update the catalog.
 	@[ "$(BUNDLE_REF)" = "$(BUNDLE_IMG)" ] || { \
 		echo "error: make release records the bundle it pushes, $(BUNDLE_IMG), and cannot use BUNDLE_REF=$(BUNDLE_REF)."; \
 		echo "To record the bundle by digest, follow 'Releasing' in docs/DEVELOPMENT.md."; exit 1; }
-	$(MAKE) docker-build docker-push
+	$(MAKE) docker-build
+	$(MAKE) docker-push
 	$(MAKE) bundle
-	$(MAKE) bundle-build bundle-push
+	$(MAKE) bundle-build
+	$(MAKE) bundle-push
 	$(MAKE) catalog-add
 	$(MAKE) catalog-render
-	$(MAKE) catalog-build catalog-push
-	@case "$(VERSION)" in *-*) echo "$(VERSION) is a pre-release: the :latest tags stay where they are.";; \
-	*) $(MAKE) latest;; esac
-	@echo "Released $(VERSION). Commit $(CATALOG_TEMPLATE) and $(CATALOG_DIR)/, then run 'make increment'."
+	$(MAKE) catalog-build
+	$(MAKE) catalog-push
+	@case "$(VERSION)" in \
+	*-*) echo "Released the pre-release $(VERSION): the :latest tags stay where they are."; \
+	     echo "Commit $(CATALOG_TEMPLATE) and $(CATALOG_DIR)/; do not run 'make increment'.";; \
+	*) $(MAKE) latest && \
+	   echo "Released $(VERSION). Commit $(CATALOG_TEMPLATE) and $(CATALOG_DIR)/, then run 'make increment'.";; esac
 
 .PHONY: latest
 latest: ## Tag and push the VERSION operator, bundle and catalog images as :latest.
