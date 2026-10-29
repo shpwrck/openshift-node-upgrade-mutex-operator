@@ -38,7 +38,7 @@ molecule test -s kind
 CONTAINER_TOOL=docker molecule test -s kind
 
 # A real cluster without the operator; destroy deletes only the CRDs converge created
-OPERATOR_IMAGE=quay.io/<org>/openshift-node-upgrade-mutex-operator:<tag> molecule test -s default
+OPERATOR_IMAGE=ghcr.io/<owner>/openshift-node-upgrade-mutex-operator:<tag> molecule test -s default
 ```
 
 The `default` scenario's destroy, which `molecule test` also runs first,

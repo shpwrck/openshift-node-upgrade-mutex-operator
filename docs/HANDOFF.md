@@ -1,30 +1,43 @@
 # Handing the repository over
 
-This file is for the organization that takes over the repository. It lists every owner-specific string that has to
-change after the transfer, the decisions this refresh left to the new owner, and what still needs a live cluster.
-It is not part of `README.md` or the OperatorHub description.
+This file is for the organization that takes over the repository: where everything lives now, the decisions made
+for the handoff and the ones left open, and what still needs a live cluster. It is not part of `README.md` or the
+OperatorHub description.
 
-## Strings to change after the transfer
+## Where it lives
 
-GitHub redirects the old repository URLs after a transfer, so nothing breaks on the day of the move. Change these
-when convenient. After editing anything under `docs/`, run `make document` to regenerate `README.md` and the CSV
-description.
+The repository moved to
+[github.com/redhat-na-ssa/openshift-node-upgrade-mutex-operator](https://github.com/redhat-na-ssa/openshift-node-upgrade-mutex-operator)
+as a new repository, not a GitHub transfer, so the old URLs (`github.com/shpwrck/...`) do not redirect. Everything
+points at the new home. After editing anything under `docs/`, run `make document` to regenerate `README.md` and the
+CSV description.
 
-| What | Where | Today | Change to |
-| --- | --- | --- | --- |
-| Repository links | `docs/USAGE.md`: links to `sample-manifests/` and "More information". `README.md` and the CSV `spec.description` are generated from it. | `https://github.com/shpwrck/openshift-node-upgrade-mutex-operator` | The new repository URL |
-| CSV `repository` annotation and `spec.links` | `config/manifests/bases/openshift-node-upgrade-mutex-operator.clusterserviceversion.yaml` | same URL | The new repository URL |
-| CSV `spec.maintainers` | CSV base | the original author's name and e-mail | The new maintainers (a team alias is better than a person) |
-| CSV `provider` annotation and `spec.provider` | CSV base | the original author's name, `https://github.com/shpwrck` | The new organization |
-| Image registry and image label | `.envrc` `IMAGE_TAG_BASE` and `IMAGE_SOURCE` | `ghcr.io/shpwrck/openshift-node-upgrade-mutex-operator` and `https://github.com/shpwrck/openshift-node-upgrade-mutex-operator` | The new owner's `ghcr.io` package and repository URL, for releases by hand. The release workflow (`.github/workflows/release.yaml`) needs no change: it takes both from the repository it runs in. After the move its first release creates new, private packages under `ghcr.io/<new owner>`: make them public (`docs/DEVELOPMENT.md`, Releasing), and check that the organization's package creation setting allows public packages. The `ghcr.io/shpwrck` packages stay with that account and lose their repository link. The Makefile default is the placeholder `example.com/...`, which `make release` refuses. |
-| CSV `containerImage` annotation | CSV base | `ghcr.io/shpwrck/openshift-node-upgrade-mutex-operator` (no tag) | The new registry. Only the base needs it: `make bundle` sets the annotation in the bundle to the operator image it deploys. |
-| Manager image | `config/manager/kustomization.yaml` `images[controller]` | `ghcr.io/shpwrck/openshift-node-upgrade-mutex-operator:0.3.0` | The new registry. `make bundle` and `make deploy` rewrite it on every run, so it only matters for a plain `kustomize build`. |
-| Catalog | `catalog-template.yaml` and `catalog/openshift-node-upgrade-mutex-operator/catalog.yaml` | Started afresh for the move to `ghcr.io` (`make catalog-reset`): only the package entry until the release workflow adds the first bundle. A pre-release published while the workflow was tested in the old repository (`ghcr.io/shpwrck/...-bundle:v0.3.0-rc<n>`) may be listed. | Nothing, unless such pre-release entries are listed: then run `make catalog-reset`, commit, and release from the new repository. |
-| 0.1.x and 0.2.x images | `quay.io/jskrzypek/openshift-node-upgrade-mutex-operator`, `-bundle` and `-catalog` (the old catalog files are in the history of `catalog-template.yaml` and `catalog/`, before the commit that ran `make catalog-reset`: `git log -- catalog-template.yaml`) | 124 released bundles, referenced by tag (`...-bundle:v<version>`) in the old catalog. That catalog's rendered file also has 248 references to the operator image (each CSV's `containerImage` annotation and its `relatedImages` entry), 620 `github.com/shpwrck` URLs, 372 copies of the original author's name and 124 of the author's e-mail, all read from inside the bundle images. | They go away with the old registry. To keep them installable, mirror them before then (for example `skopeo copy --all docker://quay.io/jskrzypek/...-bundle:vX docker://<new registry>/...-bundle:vX`, which keeps the tags and digests) together with the operator images; the URLs, the name and the e-mail inside them stay unless those bundles are rebuilt. Every one of them also lists `gcr.io/kubebuilder/kube-rbac-proxy` in its `relatedImages` (70 by the `v0.15.0` tag, 54 by digest), which may stop being pullable. 0.3.0 is the first version without it. |
-| Community catalogs | `operators/openshift-node-upgrade-mutex-operator/` in [k8s-operatorhub/community-operators](https://github.com/k8s-operatorhub/community-operators) and [redhat-openshift-ecosystem/community-operators-prod](https://github.com/redhat-openshift-ecosystem/community-operators-prod) | The package is published there with the original author as reviewer | Update the package's `ci.yaml` reviewers in both repositories. |
+| What | Where | Value |
+| --- | --- | --- |
+| Repository links | `docs/USAGE.md` (`README.md` and the CSV `spec.description` are generated from it), the CSV `repository` annotation and `spec.links` | `https://github.com/redhat-na-ssa/openshift-node-upgrade-mutex-operator` |
+| Provider | the CSV `provider` annotation and `spec.provider` | Red Hat NA SSA, `https://github.com/redhat-na-ssa` |
+| Maintainers | the CSV `spec.maintainers` | None: the organization has no public contact address, and the bundle validator needs an e-mail on every entry. OperatorHub shows the provider and the repository, whose issues are the contact. To name maintainers, add `{name, email}` entries (a team alias is better than a person). |
+| Images | `.envrc` `IMAGE_TAG_BASE` and `IMAGE_SOURCE`, the CSV base `containerImage` annotation, the `config/manager` image, the sample CatalogSource | `ghcr.io/redhat-na-ssa/openshift-node-upgrade-mutex-operator`, `-bundle` and `-catalog`, published by the release workflow (`.github/workflows/release.yaml`), which takes the registry from the repository it runs in. `make bundle` sets the bundle's `containerImage` to the image it deploys. The Makefile default is the placeholder `example.com/...`, which `make release` refuses. |
+| Catalog | `catalog-template.yaml` and `catalog/openshift-node-upgrade-mutex-operator/catalog.yaml` | Fresh (`make catalog-reset`): only the package entry until the first release from this repository adds its bundle. |
 
-Apart from the API group (below), nothing in `sample-manifests/` (the sample CatalogSource included) or in the
-Makefile defaults has to change: they already use neutral names and `example.com/...` placeholders.
+The old images on `quay.io/jskrzypek` (the 0.1.x and 0.2.x operator, bundle and catalog images) are gone, so those
+versions can no longer be installed. Their catalog files are in the history of `catalog-template.yaml` and `catalog/`
+(`git log -- catalog-template.yaml`). While the release workflow was being tested in the old repository, a
+pre-release `0.3.0-rc1` with the old API group was published to `ghcr.io/shpwrck`; it is not in this catalog and
+should not be used.
+
+Left for the new owner:
+
+* **Community catalogs.** `operators/openshift-node-upgrade-mutex-operator/` in
+  [k8s-operatorhub/community-operators](https://github.com/k8s-operatorhub/community-operators) and
+  [redhat-openshift-ecosystem/community-operators-prod](https://github.com/redhat-openshift-ecosystem/community-operators-prod)
+  lists the original author as reviewer in its `ci.yaml`: update the reviewers in both, and read "The move from
+  0.2.x" (below) before publishing 0.3.0 there.
+* **The `ghcr.io` packages.** The first release from this repository creates them under `ghcr.io/redhat-na-ssa`. They
+  take the repository's visibility (public) when the organization allows public packages; check that after the first
+  release (`docs/DEVELOPMENT.md`, Releasing).
+
+Nothing in `sample-manifests/` or in the Makefile defaults is owner-specific.
 
 ### The API group
 
@@ -61,9 +74,8 @@ way.
 * **License.** Apache License 2.0 (`LICENSE`), chosen by the original author for the handoff; the role metadata says
   `Apache-2.0`. Nothing to decide unless the organization requires another license or a `NOTICE` file.
 * **API group.** Done: `nodeupgrade.redhat-na-ssa.github.io` (see above).
-* **Registry and digests.** Releases go to `ghcr.io/<repository owner>` through the release workflow. Decide
-  whether to mirror the 0.1.x and 0.2.x images (on `quay.io/jskrzypek`, which goes away), and whether releases record
-  bundles by digest in the catalog. `make release` records them by tag; pinning by digest takes the step-by-step
+* **Digests in the catalog.** Releases go to `ghcr.io/redhat-na-ssa` through the release workflow. Decide whether
+  releases record bundles by digest in the catalog. `make release` records them by tag; pinning by digest takes the step-by-step
   sequence under "Releasing" in `docs/DEVELOPMENT.md`, which passes the pushed bundle's digest to `make catalog-add`.
 * **Version.** `.envrc` is at 0.3.0, because 0.2.67 and 0.2.68 are already published.
 * **The move from 0.2.x.** 0.3.0 has a new API group, so 0.2.x installs move by reinstalling (USAGE,
