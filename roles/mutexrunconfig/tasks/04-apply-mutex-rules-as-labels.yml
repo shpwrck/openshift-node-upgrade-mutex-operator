@@ -25,17 +25,20 @@
 # this run holds, whatever their release label. 05 re-points the pools only
 # once the stamp is mutexrunconfig_label_settle_seconds old, so MCO has seen
 # the labels against the canary's own selector first, and never in the
-# reconcile that wrote the stamp. The nodes whose release label does not
-# change are labelled before the stamp (no pool selects on mutex labels yet),
-# so the time between the stamp and the last release label change is only
-# that of the few release label patches, however many target nodes are
-# behind. The stamp is in the cluster, so a failed task, a cut reconcile or an
-# operator restart after it still leaves the time to wait for, and a cut
-# before it leaves no release label changed. A canary that already holds (the
-# hold, or an earlier build's '<mutex label> DoesNotExist' selector) keeps its
-# selector and only gets the annotations. A stamp that is empty, does not have
-# the format of mutexrunconfig_now or is later than now counts as just written
-# and is written again.
+# reconcile that wrote the stamp. The nodes without this run's release value
+# are labelled before the stamp: their patch cannot move a node into the
+# canary or into an unpaused pool (the mutex labels only keep nodes out of a
+# holding canary, and no selector of this run depends on another
+# MutexRunConfig's value). After the release label patches the stamp is
+# written again, so the wait counts from the last of them, however many nodes
+# are labelled. The stamp is in the cluster, so a failed task, a cut reconcile
+# or an operator restart after it still leaves the time to wait for (the first
+# stamp, when the cut comes before it is written again), and a cut before it
+# leaves no change that canary membership depends on. A canary that already
+# holds (the hold, or an earlier build's '<mutex label> DoesNotExist'
+# selector) keeps its selector and only gets the annotations. A stamp that is
+# empty, does not have the format of mutexrunconfig_now or is later than now
+# counts as just written and is written again.
 - name: Node Label Block
   block:
     - name: Create Node List
@@ -129,7 +132,7 @@
                       and (mutexrunconfig_canary_live_stamp is not match(mutexrunconfig_time_regex)
                            or mutexrunconfig_canary_live_stamp > mutexrunconfig_now))) }}
 
-    - name: Label Nodes Whose Release Label Does Not Change
+    - name: Label Nodes Without This Run's Release Value
       kubernetes.core.k8s: &mutexrunconfig_label_node
         state: patched
         api_version: "v1"
@@ -139,7 +142,7 @@
           metadata:
             labels: "{{ mutexrunconfig_mutex_labels | combine({mutexrunconfig_release_label: none}) }}"
             annotations: "{{ {mutexrunconfig_annotation_labelled_by: mutexrunconfig_owner} }}"
-      loop: "{{ mutexrunconfig_nodes_to_patch | difference(mutexrunconfig_release_unset_nodes) }}"
+      loop: "{{ mutexrunconfig_nodes_to_patch | reject('in', mutexrunconfig_release_unset_nodes) | list }}"
 
     # 05 reads the time: the one written here, else the canary's.
     - name: Record The Release Label Time
@@ -189,6 +192,19 @@
           metadata:
             labels: "{{ {mutexrunconfig_release_label: none} }}"
       loop: "{{ mutexrunconfig_release_remove_nodes }}"
+
+    - name: Stamp The Canary Again After The Release Labels Changed
+      kubernetes.core.k8s:
+        state: patched
+        merge_type: merge
+        api_version: "machineconfiguration.openshift.io/v1"
+        kind: "MachineConfigPool"
+        name: "{{ mutexrunconfig_canary_name }}"
+        definition:
+          metadata:
+            annotations:
+              openshift-optional.skrzypek.io/release-labelled-at: "{{ mutexrunconfig_now }}"
+      when: mutexrunconfig_canary_stamp | bool and mutexrunconfig_release_changed_nodes | length > 0
 
     - name: Report Applied
       operator_sdk.util.k8s_status:

@@ -105,6 +105,10 @@
         mutexrunconfig_deferral_cause: >-
           {{ ('The release label of node(s) ' ~ (mutexrunconfig_release_changed_nodes | join(', ')) ~ ' changed in this reconcile')
              if mutexrunconfig_release_changed_nodes | length > 0
+             else ("The canary's annotation " ~ mutexrunconfig_annotation_release_labelled_at
+                   ~ " was empty, not a time or later than the operator's clock and was written again at "
+                   ~ mutexrunconfig_release_labelled_at)
+             if mutexrunconfig_canary_stamp | bool
              else ('The release labels of this run changed at ' ~ mutexrunconfig_release_labelled_at
                    ~ ' (annotation ' ~ mutexrunconfig_annotation_release_labelled_at ~ ' of the canary)') }}
 

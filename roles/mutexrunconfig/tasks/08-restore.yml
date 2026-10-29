@@ -41,9 +41,11 @@
 #      value, the patch that restores the canary writes the restored-at
 #      annotation ('<time> <owner>') on it. A later pass that finds no
 #      selector to restore removes the label once that time is
-#      mutexrunconfig_label_settle_seconds old (a time that is missing, does
-#      not have the format of mutexrunconfig_now or is later than now counts as
-#      just written and is written again), and then restored-at: normally the
+#      mutexrunconfig_label_settle_seconds old (a value of this
+#      MutexRunConfig without a time, just the owner or empty on its canary, or
+#      with a time that does not have the format of mutexrunconfig_now or is
+#      later than now counts as just written and is written again), and then
+#      restored-at: normally the
 #      reconcile a reconcile period (10 minutes) after the restore, because
 #      Finish Run also runs when no target node is behind. A pass before that
 #      (a retry after a failed task, a restart, a Job event: the last Jobs of a
@@ -240,9 +242,10 @@
   loop_control:
     label: "{{ item.name }}"
 
-# A restore time of this MutexRunConfig that is missing, does not have the
-# format of mutexrunconfig_now or is later than now counts as just written: it
-# is written again, so the labels are removed once that time is settled.
+# A restored-at of this MutexRunConfig without a time (just the owner, or
+# empty on its canary), or with a time that does not have the format of
+# mutexrunconfig_now or is later than now, counts as just written: it is
+# written again, so the labels are removed once that time is settled.
 - name: Write An Unreadable Restore Time Again
   kubernetes.core.k8s:
     state: patched

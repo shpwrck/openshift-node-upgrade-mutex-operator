@@ -42,9 +42,11 @@ mutexrunconfig_release_value: "{{ mutexrunconfig_owner | hash('sha1') }}"
 # release-labelled-at (canary only): the time (mutexrunconfig_now) of the
 #   latest release label change at the start of a run, written by 04 before
 #   that change while the canary does not yet select on this run's release
-#   value, in a patch that also writes modified-by. 05 re-points the pools
-#   only once it is mutexrunconfig_label_settle_seconds old. The re-point of
-#   the canary and every restore of a pool that carries it remove it.
+#   value, in a patch that also writes modified-by, and again after those
+#   changes. 05 re-points the pools only once it is
+#   mutexrunconfig_label_settle_seconds old, and never in the reconcile that
+#   wrote it. The re-point of the canary and every restore of a pool that
+#   carries it remove it.
 # restored-at (canary only): '<time> <owner>', written by 08 in the patch that
 #   restores the canary when a node then carries this run's release value.
 #   The release label is removed from the nodes once it is
@@ -58,8 +60,8 @@ mutexrunconfig_annotation_restored_at: "openshift-optional.skrzypek.io/restored-
 # Times in these annotations have the format of mutexrunconfig_now, so they
 # compare as strings. A time is settled when it is at or before
 # mutexrunconfig_settled_before, now minus mutexrunconfig_label_settle_seconds.
-# A value that does not have that format counts as just written, and the role
-# writes the time again (04, 08). now() is local time without a zone, which
+# A value that is empty, does not have that format or is later than now counts
+# as just written, and the role writes the time again (04, 08). now() is local time without a zone, which
 # timestamp() reads as local time, so the epoch value is right whatever the
 # time zone of the operator pod.
 mutexrunconfig_time_regex: '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$'
