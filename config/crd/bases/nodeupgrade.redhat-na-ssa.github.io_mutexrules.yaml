@@ -35,10 +35,11 @@ spec:
       openAPIV3Schema:
         description: |-
           MutexRule is one operation that must run before each target node is upgraded, given
-          as a batch/v1 JobSpec. The operator validates the JobSpec with a server-side dry-run
-          create (nothing is created) and reports the result in the ValidConfig condition. A
-          MutexRunConfig that references the rule runs one Job per target node during an
-          upgrade.
+          as a batch/v1 JobSpec, with an optional cleanup JobSpec for after the upgrade. The
+          operator validates both with a server-side dry-run create of a Job (nothing is
+          created) and reports the result in the ValidConfig condition. A MutexRunConfig that
+          references the rule creates a Job from it for each target node during an upgrade,
+          and a new one on the next retry when that Job failed.
           The name of a MutexRule must not contain '.', and '<name>.<namespace>' must be at
           most 63 characters, because the rule is tracked with the node label
           mutexrule.nodeupgrade.redhat-na-ssa.github.io/<name>.<namespace>. MutexRules are only
@@ -70,7 +71,12 @@ spec:
                 description: |-
                   Prefix of the Jobs generated from this rule. Pre-upgrade Jobs are created with
                   generateName '<jobName>-' (for example "testjob-e7va7") and cleanup Jobs with
-                  'cleanup-<jobName>-'. A DNS-1123 label of at most 52 characters.
+                  'cleanup-<jobName>-'. A DNS-1123 label of at most 52 characters. Keep it to 49
+                  characters or fewer: Kubernetes cuts a generateName prefix to 58 characters, so
+                  with a longer jobName the prefix 'cleanup-<jobName>-' of the cleanup Jobs is cut.
+                  To tell the node and the phase of a Job, read its annotations
+                  nodeupgrade.redhat-na-ssa.github.io/node and nodeupgrade.redhat-na-ssa.github.io/phase
+                  (pre or cleanup), not its name.
                 type: string
                 minLength: 1
                 maxLength: 52
@@ -87,26 +93,38 @@ spec:
               jobSpec:
                 description: |-
                   A batch/v1 JobSpec (https://kubernetes.io/docs/reference/kubernetes-api/workload-resources/job-v1/#JobSpec)
-                  that runs once for each target node, before the node is released for its
-                  upgrade. The Jobs of a node run one after another, in the order of
-                  spec.mutexRules of the MutexRunConfig. To the Job it creates the operator adds:
-                  the env vars NODE_NAME (the node about to be upgraded) and MUTEX_RULE (the name
-                  of this rule) to every container and initContainer, replacing entries with the
-                  same names; a 'kubernetes.io/hostname NotIn [<node>]' matchExpression to every
+                  for the Jobs that run before a target node is released for its upgrade. The
+                  Jobs of a node run one after another, in the order of spec.mutexRules of the
+                  MutexRunConfig. Each must reach Complete: a Failed Job, or one that is not
+                  Complete within timeoutSeconds, stops the run. On every attempt at a node the
+                  operator first looks for a Job with the same MutexRunConfig, node, rule, phase
+                  and desired version (the job-key label). It reuses one that is running or
+                  Complete, even if this MutexRule was edited since, because the key does not
+                  include the JobSpec. Only when there is none, or all of them failed, does it
+                  create a new Job, so one node can get several Jobs of a rule, one after each
+                  failure. Once the node is released, its pre-upgrade Jobs are not run again.
+                  To the Job it creates the operator adds: the env vars NODE_NAME (the node about
+                  to be upgraded) and MUTEX_RULE (the name of this rule), appended to the env of
+                  every container and initContainer and replacing entries with the same names,
+                  so $(NODE_NAME) is expanded in command and args but not in the value of another
+                  env entry; a 'kubernetes.io/hostname NotIn [<node>]' matchExpression to every
                   required nodeSelectorTerm (or one new term), so the pod never runs on that
                   node; the label nodeupgrade.redhat-na-ssa.github.io/job-key; and the annotations
                   nodeupgrade.redhat-na-ssa.github.io/mutexrunconfig, nodeupgrade.redhat-na-ssa.github.io/mutexrule,
                   nodeupgrade.redhat-na-ssa.github.io/node, nodeupgrade.redhat-na-ssa.github.io/phase and
-                  nodeupgrade.redhat-na-ssa.github.io/desired-version. The Job must reach Complete
-                  within timeoutSeconds; a Failed Job stops the run.
+                  nodeupgrade.redhat-na-ssa.github.io/desired-version.
                 type: object
                 x-kubernetes-preserve-unknown-fields: true
               cleanUpJobSpec:
                 description: |-
-                  Optional batch/v1 JobSpec that runs once for each target node after the node
-                  has finished its upgrade (release-image-version label, MCO state Done,
-                  currentConfig equal to desiredConfig, Ready). The operator makes the same
-                  additions as for jobSpec.
+                  Optional batch/v1 JobSpec for the Jobs that run after a released target node
+                  has finished its upgrade (its release-image-version label is the desired
+                  version, MCO state Done, currentConfig equal to desiredConfig and a rendered
+                  config of the canary, Ready) and before the next node is released. It runs for
+                  every node the run released, whether or not that node ran the pre-upgrade Job
+                  of this rule. A failure, timeoutSeconds and the reuse of Jobs work as for
+                  jobSpec, and the operator makes the same additions. Deleting the MutexRunConfig
+                  runs no Jobs, so a released node whose cleanup Jobs have not run never gets them.
                 type: object
                 x-kubernetes-preserve-unknown-fields: true
               type:
@@ -117,17 +135,25 @@ spec:
                 - kubernetes
               timeoutSeconds:
                 description: |-
-                  Maximum number of seconds each pre-upgrade or cleanup Job of this rule may run
-                  before the run stops with JobRun=False. Defaults to 3600.
+                  How long the operator waits for each pre-upgrade or cleanup Job of this rule
+                  in one attempt, checking every 10 seconds. Defaults to 3600. When it runs out,
+                  the run stops with JobRun=False and Degraded=True. The operator does not stop
+                  the Job: it keeps running, and the next retry waits for the same Job again.
+                  To bound the Job itself, set activeDeadlineSeconds in jobSpec (and
+                  cleanUpJobSpec) below timeoutSeconds.
                 type: integer
                 minimum: 1
                 default: 3600
           status:
             description: |-
               Status defines the observed state of MutexRule. Written by the operator. Conditions:
-              ValidConfig (True/ValidConfig, or False/InvalidConfig with the error of the API
-              server) and Reconciled (False/NamespaceNotAllowed outside the namespace of the
-              operator).
+              ValidConfig (True/ValidConfig, or False/InvalidConfig with the error, usually the
+              one of the API server) and Reconciled (False/NamespaceNotAllowed outside the
+              namespace of the operator). ValidConfig comes from a dry-run create of a Job from
+              each JobSpec, as the operator's ServiceAccount. It checks the Job schema, that the Job namespace exists
+              and that the operator may create Jobs there. No Pod is created, so it does not
+              check the Job's ServiceAccount, security context constraints, Pod Security
+              admission, image pulls, pod quota or scheduling.
             type: object
             x-kubernetes-preserve-unknown-fields: true
             properties:

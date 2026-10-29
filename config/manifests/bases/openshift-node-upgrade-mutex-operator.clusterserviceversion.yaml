@@ -7,8 +7,8 @@ metadata:
     categories: OpenShift Optional
     certified: "false"
     containerImage: ghcr.io/redhat-na-ssa/openshift-node-upgrade-mutex-operator
-    description: Runs required Jobs before each worker node is upgraded, one node
-      at a time, by gating MachineConfigPool rollouts during an OpenShift upgrade.
+    description: Runs your Jobs before and after each worker node is upgraded, one
+      node at a time, by gating MachineConfigPool rollouts during an OpenShift upgrade.
     features.operators.openshift.io/cnf: "false"
     features.operators.openshift.io/cni: "false"
     features.operators.openshift.io/csi: "false"
@@ -39,24 +39,31 @@ spec:
         name: ""
         version: v1
       specDescriptors:
-      - description: Prefix of the generated Jobs (DNS-1123 label, at most 52 characters).
+      - description: Prefix of the generated Jobs, '<jobName>-' and 'cleanup-<jobName>-'.
+          A DNS-1123 label of at most 52 characters; keep it to 49 or fewer, or the
+          names of the cleanup Jobs are cut.
         displayName: Job Name
         path: jobName
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:text
       - description: Namespace the Jobs run in. Defaults to the namespace of the MutexRule.
+          The operator creates no namespace, ServiceAccount or RBAC for the Jobs.
         displayName: Job Namespace
         path: jobNamespace
         x-descriptors:
         - urn:alm:descriptor:io.kubernetes:Namespace
-      - description: batch/v1 JobSpec run for each target node before it is upgraded.
-          NODE_NAME and MUTEX_RULE are added to every container.
+      - description: batch/v1 JobSpec for the Jobs run before each target node is
+          released for its upgrade. After a Failed Job the next retry creates a new
+          one; a running or Complete Job is reused, even after this MutexRule was
+          edited. NODE_NAME and MUTEX_RULE are appended to the env of every container
+          and initContainer.
         displayName: Job Spec
         path: jobSpec
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:advanced
-      - description: Optional batch/v1 JobSpec run for each target node after it has
-          finished its upgrade.
+      - description: Optional batch/v1 JobSpec for the Jobs run after each released
+          node has finished its upgrade, whether or not that node ran the pre-upgrade
+          Job of this rule. Deleting the MutexRunConfig runs no cleanup Jobs.
         displayName: Cleanup Job Spec
         path: cleanUpJobSpec
         x-descriptors:
@@ -66,14 +73,20 @@ spec:
         path: type
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:select:kubernetes
-      - description: Maximum run time of each Job of this rule. Defaults to 3600.
-        displayName: Job Timeout (seconds)
+      - description: How long the operator waits for each Job in one attempt (checked
+          every 10 s). On expiry the run stops with JobRun=False and Degraded=True;
+          the Job keeps running and is waited for again on the next retry. To bound
+          the Job, set activeDeadlineSeconds in the JobSpec below timeoutSeconds.
+          Defaults to 3600.
+        displayName: Job Wait Timeout (seconds)
         path: timeoutSeconds
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:number
       statusDescriptors:
       - description: ValidConfig reports whether the Job specs passed a server-side
-          dry-run create.
+          dry-run create of a Job (schema, namespace, the operator's right to create
+          Jobs there). No Pod is created, so the Job's ServiceAccount, SCCs, image
+          pulls and scheduling are not checked.
         displayName: Conditions
         path: conditions
         x-descriptors:
@@ -1255,7 +1268,7 @@ spec:
   - Upgrade
   - Mutex
   links:
-  - name: Openshift Node Upgrade Mutex Operator
+  - name: Source Code
     url: https://github.com/redhat-na-ssa/openshift-node-upgrade-mutex-operator
   maturity: alpha
   minKubeVersion: 1.29.0

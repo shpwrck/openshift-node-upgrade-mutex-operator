@@ -59,7 +59,9 @@ spec:
           target pool node selectors, and then, one node at a time, runs the MutexRule Jobs,
           releases the node into the canary pool, waits until the node has finished its upgrade
           and runs the cleanup Jobs. At the end it restores the selectors and unpauses the pools it
-          paused. Deleting the MutexRunConfig runs the same restore through its finalizer.
+          paused. Deleting the MutexRunConfig runs the same restore through its finalizer and
+          runs no Jobs, so if it is deleted during a run, MCO upgrades the remaining nodes
+          without their Jobs.
           MutexRunConfigs are only reconciled in the namespace of the operator, and all
           referenced MutexRules and MutexTargets must be in that namespace too.
         type: object
