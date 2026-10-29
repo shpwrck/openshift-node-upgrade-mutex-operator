@@ -36,7 +36,7 @@
     mutexrunconfig_operator_namespace: "{{ lookup('ansible.builtin.env', 'POD_NAMESPACE', default='') }}"
     mutexrunconfig_finalizing: >-
       {{ (state | default('present')) == 'absent'
-         or (_openshift_optional_skrzypek_io_mutexrunconfig.metadata.deletionTimestamp | default('', true)) | length > 0 }}
+         or (_nodeupgrade_redhat_na_ssa_github_io_mutexrunconfig.metadata.deletionTimestamp | default('', true)) | length > 0 }}
 
 # Trust boundary: only MutexRunConfigs in the operator's own namespace
 # (POD_NAMESPACE) are acted on. Without POD_NAMESPACE (e.g. 'make run') every
@@ -49,7 +49,7 @@
 
 - name: Report Namespace Not Allowed
   operator_sdk.util.k8s_status:
-    api_version: "openshift-optional.skrzypek.io/v1alpha1"
+    api_version: "nodeupgrade.redhat-na-ssa.github.io/v1alpha1"
     kind: MutexRunConfig
     name: "{{ ansible_operator_meta.name }}"
     namespace: "{{ ansible_operator_meta.namespace }}"
@@ -95,7 +95,7 @@
   block:
     - name: Gather MutexTargets Still Present
       kubernetes.core.k8s_info:
-        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        api_version: "nodeupgrade.redhat-na-ssa.github.io/v1alpha1"
         kind: MutexTarget
         name: "{{ item.name }}"
         namespace: "{{ item.namespace }}"
@@ -206,7 +206,7 @@
 
     - name: Report MCP Restored
       operator_sdk.util.k8s_status:
-        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        api_version: "nodeupgrade.redhat-na-ssa.github.io/v1alpha1"
         kind: MutexRunConfig
         name: "{{ ansible_operator_meta.name }}"
         namespace: "{{ ansible_operator_meta.namespace }}"
@@ -221,7 +221,7 @@
 
     - name: Report Upgrade Finished
       operator_sdk.util.k8s_status:
-        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        api_version: "nodeupgrade.redhat-na-ssa.github.io/v1alpha1"
         kind: MutexRunConfig
         name: "{{ ansible_operator_meta.name }}"
         namespace: "{{ ansible_operator_meta.namespace }}"

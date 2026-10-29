@@ -45,7 +45,7 @@ The `default` scenario's destroy, which `molecule test` also runs first,
 deletes the operator's CRDs, and deleting a CRD deletes every MutexRule,
 MutexTarget and MutexRunConfig in the cluster. converge therefore labels the
 CRDs it creates with
-`molecule.openshift-optional.skrzypek.io/test-namespace=<TEST_OPERATOR_NAMESPACE>`,
+`molecule.nodeupgrade.redhat-na-ssa.github.io/test-namespace=<TEST_OPERATOR_NAMESPACE>`,
 and prepare, converge and destroy refuse to run when an operator CRD exists
 without that label (the operator is installed some other way, or by a run
 with another `TEST_OPERATOR_NAMESPACE`) or when a MutexRule, MutexTarget or

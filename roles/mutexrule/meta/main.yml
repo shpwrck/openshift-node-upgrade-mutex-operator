@@ -9,9 +9,8 @@ galaxy_info:
     Reconciles MutexRule resources for the OpenShift Node Upgrade Mutex Operator:
     validates the Job specs with a server-side dry-run create and reports the
     ValidConfig condition.
-  # The repository has no LICENSE file yet; the receiving organization chooses
-  # one (see docs/HANDOFF.md). Update this field when it does.
-  license: NOASSERTION
+  # The repository's license (LICENSE).
+  license: Apache-2.0
   min_ansible_version: "2.18"
   galaxy_tags:
     - openshift

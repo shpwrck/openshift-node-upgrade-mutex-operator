@@ -5,7 +5,7 @@
   kubernetes.core.k8s:
     state: present
     namespace: "{{ e2e_namespace }}"
-    definition: "{{ lookup('ansible.builtin.file', samples_dir ~ '/openshift-optional_v1alpha1_mutextarget.yaml') | from_yaml }}"
+    definition: "{{ lookup('ansible.builtin.file', samples_dir ~ '/nodeupgrade_v1alpha1_mutextarget.yaml') | from_yaml }}"
 
 - name: Wait for the sample MutexTarget to gather its nodes
   ansible.builtin.include_tasks: conditions.yml

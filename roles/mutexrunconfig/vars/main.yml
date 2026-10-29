@@ -10,8 +10,8 @@ mutexrunconfig_now: "{{ now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') }}"
 # Jobs it creates.
 mutexrunconfig_owner: "{{ ansible_operator_meta.namespace }}/{{ ansible_operator_meta.name }}"
 
-# Node label keys are mutexrule.openshift-optional.skrzypek.io/<rule>.<namespace>.
-mutexrunconfig_label_prefix: "mutexrule.openshift-optional.skrzypek.io/"
+# Node label keys are mutexrule.nodeupgrade.redhat-na-ssa.github.io/<rule>.<namespace>.
+mutexrunconfig_label_prefix: "mutexrule.nodeupgrade.redhat-na-ssa.github.io/"
 # The "<rule>.<namespace>" part must be a valid label name: at most 63
 # characters, alphanumeric at both ends, [-A-Za-z0-9_.] in between.
 mutexrunconfig_label_name_regex: '^(?=.{1,63}$)[A-Za-z0-9]([-A-Za-z0-9_.]*[A-Za-z0-9])?$'
@@ -51,11 +51,11 @@ mutexrunconfig_release_value: "{{ mutexrunconfig_owner | hash('sha1') }}"
 #   restores the canary when a node then carries this run's release value.
 #   The release label is removed from the nodes once it is
 #   mutexrunconfig_label_settle_seconds old, and then restored-at too.
-mutexrunconfig_annotation_original_expressions: "openshift-optional.skrzypek.io/original-match-expressions"
-mutexrunconfig_annotation_modified_by: "openshift-optional.skrzypek.io/modified-by"
-mutexrunconfig_annotation_paused_by: "openshift-optional.skrzypek.io/paused-by"
-mutexrunconfig_annotation_release_labelled_at: "openshift-optional.skrzypek.io/release-labelled-at"
-mutexrunconfig_annotation_restored_at: "openshift-optional.skrzypek.io/restored-at"
+mutexrunconfig_annotation_original_expressions: "nodeupgrade.redhat-na-ssa.github.io/original-match-expressions"
+mutexrunconfig_annotation_modified_by: "nodeupgrade.redhat-na-ssa.github.io/modified-by"
+mutexrunconfig_annotation_paused_by: "nodeupgrade.redhat-na-ssa.github.io/paused-by"
+mutexrunconfig_annotation_release_labelled_at: "nodeupgrade.redhat-na-ssa.github.io/release-labelled-at"
+mutexrunconfig_annotation_restored_at: "nodeupgrade.redhat-na-ssa.github.io/restored-at"
 
 # Times in these annotations have the format of mutexrunconfig_now, so they
 # compare as strings. A time is settled when it is at or before
@@ -80,14 +80,14 @@ mutexrunconfig_settled_before: >-
 #   A node carrying it with this owner (for any version) was released by this
 #   run and still needs its cleanup Jobs, also after a failure, an operator
 #   restart or a move of the cluster to a newer version.
-mutexrunconfig_annotation_labelled_by: "openshift-optional.skrzypek.io/labelled-by"
-mutexrunconfig_annotation_released_by: "openshift-optional.skrzypek.io/released-by"
+mutexrunconfig_annotation_labelled_by: "nodeupgrade.redhat-na-ssa.github.io/labelled-by"
+mutexrunconfig_annotation_released_by: "nodeupgrade.redhat-na-ssa.github.io/released-by"
 mutexrunconfig_released_marker: "{{ mutexrunconfig_owner }}|{{ desired_version | default('') }}"
 
 # Label put on every Job the role creates. Its value is a hash of the
 # MutexRunConfig, node, rule, phase and desired version, so a re-entered run
 # finds and reuses a Job it already started instead of starting another one.
-mutexrunconfig_job_key_label: "openshift-optional.skrzypek.io/job-key"
+mutexrunconfig_job_key_label: "nodeupgrade.redhat-na-ssa.github.io/job-key"
 
 mutexrunconfig_version_label: "machineconfiguration.openshift.io/release-image-version"
 

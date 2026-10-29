@@ -3,7 +3,7 @@
 # references and they resolve in this MutexRunConfig's namespace. 'canary' is
 # an existing, unpaused MachineConfigPool whose nodeSelector.matchLabels
 # select the target nodes (see the canary example in the README).
-apiVersion: openshift-optional.skrzypek.io/v1alpha1
+apiVersion: nodeupgrade.redhat-na-ssa.github.io/v1alpha1
 kind: MutexRunConfig
 metadata:
   labels:

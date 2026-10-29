@@ -14,7 +14,7 @@ metadata:
   name: mutexrule-viewer-role
 rules:
 - apiGroups:
-  - openshift-optional.skrzypek.io
+  - nodeupgrade.redhat-na-ssa.github.io
   resources:
   - mutexrules
   verbs:
@@ -22,7 +22,7 @@ rules:
   - list
   - watch
 - apiGroups:
-  - openshift-optional.skrzypek.io
+  - nodeupgrade.redhat-na-ssa.github.io
   resources:
   - mutexrules/status
   verbs:

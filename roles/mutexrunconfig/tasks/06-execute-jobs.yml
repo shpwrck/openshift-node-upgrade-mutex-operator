@@ -40,7 +40,7 @@
 # nodes are skipped and the finalizer takes over.
 - name: Read The MutexRunConfig Again
   kubernetes.core.k8s_info:
-    api_version: "openshift-optional.skrzypek.io/v1alpha1"
+    api_version: "nodeupgrade.redhat-na-ssa.github.io/v1alpha1"
     kind: MutexRunConfig
     name: "{{ ansible_operator_meta.name }}"
     namespace: "{{ ansible_operator_meta.namespace }}"
@@ -209,7 +209,7 @@
 
     - name: Report Node Already Upgraded
       operator_sdk.util.k8s_status:
-        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        api_version: "nodeupgrade.redhat-na-ssa.github.io/v1alpha1"
         kind: MutexRunConfig
         name: "{{ ansible_operator_meta.name }}"
         namespace: "{{ ansible_operator_meta.namespace }}"
@@ -237,7 +237,7 @@
 
         - name: Report Job Run Finish
           operator_sdk.util.k8s_status:
-            api_version: "openshift-optional.skrzypek.io/v1alpha1"
+            api_version: "nodeupgrade.redhat-na-ssa.github.io/v1alpha1"
             kind: MutexRunConfig
             name: "{{ ansible_operator_meta.name }}"
             namespace: "{{ ansible_operator_meta.namespace }}"
@@ -328,7 +328,7 @@
 
         - name: Report Cleanup Of A Resumed Node
           operator_sdk.util.k8s_status:
-            api_version: "openshift-optional.skrzypek.io/v1alpha1"
+            api_version: "nodeupgrade.redhat-na-ssa.github.io/v1alpha1"
             kind: MutexRunConfig
             name: "{{ ansible_operator_meta.name }}"
             namespace: "{{ ansible_operator_meta.namespace }}"
@@ -344,7 +344,7 @@
 
         - name: Report Upgrade Finish
           operator_sdk.util.k8s_status:
-            api_version: "openshift-optional.skrzypek.io/v1alpha1"
+            api_version: "nodeupgrade.redhat-na-ssa.github.io/v1alpha1"
             kind: MutexRunConfig
             name: "{{ ansible_operator_meta.name }}"
             namespace: "{{ ansible_operator_meta.namespace }}"
@@ -365,7 +365,7 @@
 
     - name: Report Job Run Failure
       operator_sdk.util.k8s_status:
-        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        api_version: "nodeupgrade.redhat-na-ssa.github.io/v1alpha1"
         kind: MutexRunConfig
         name: "{{ ansible_operator_meta.name }}"
         namespace: "{{ ansible_operator_meta.namespace }}"
@@ -381,7 +381,7 @@
 
     - name: Report Upgrade Failure
       operator_sdk.util.k8s_status:
-        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        api_version: "nodeupgrade.redhat-na-ssa.github.io/v1alpha1"
         kind: MutexRunConfig
         name: "{{ ansible_operator_meta.name }}"
         namespace: "{{ ansible_operator_meta.namespace }}"

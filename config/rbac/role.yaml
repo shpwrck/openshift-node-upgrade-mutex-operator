@@ -34,10 +34,10 @@ rules:
       - watch
   # Nodes: read versions, pool membership, mutex labels, the MCO state,
   # currentConfig and desiredConfig annotations and the Ready condition;
-  # patch adds and removes the mutexrule.openshift-optional.skrzypek.io/*
+  # patch adds and removes the mutexrule.nodeupgrade.redhat-na-ssa.github.io/*
   # labels (the mutex labels and the .../release label) and the
-  # openshift-optional.skrzypek.io/labelled-by and
-  # openshift-optional.skrzypek.io/released-by annotations.
+  # nodeupgrade.redhat-na-ssa.github.io/labelled-by and
+  # nodeupgrade.redhat-na-ssa.github.io/released-by annotations.
   - apiGroups:
       - ""
     resources:
@@ -49,11 +49,11 @@ rules:
       - patch
   # MachineConfigPools: read selectors, pause state and annotations; patch
   # sets spec.paused, spec.nodeSelector.matchExpressions and the
-  # openshift-optional.skrzypek.io/paused-by,
-  # openshift-optional.skrzypek.io/original-match-expressions,
-  # openshift-optional.skrzypek.io/modified-by,
-  # openshift-optional.skrzypek.io/release-labelled-at and
-  # openshift-optional.skrzypek.io/restored-at annotations.
+  # nodeupgrade.redhat-na-ssa.github.io/paused-by,
+  # nodeupgrade.redhat-na-ssa.github.io/original-match-expressions,
+  # nodeupgrade.redhat-na-ssa.github.io/modified-by,
+  # nodeupgrade.redhat-na-ssa.github.io/release-labelled-at and
+  # nodeupgrade.redhat-na-ssa.github.io/restored-at annotations.
   - apiGroups:
       - machineconfiguration.openshift.io
     resources:
@@ -89,7 +89,7 @@ rules:
   # and removes the MutexRunConfig finalizer. The operator never creates or
   # deletes its CRs.
   - apiGroups:
-      - openshift-optional.skrzypek.io
+      - nodeupgrade.redhat-na-ssa.github.io
     resources:
       - mutexrules
       - mutextargets
@@ -104,7 +104,7 @@ rules:
   # or a PUT with replace: true), and ansible-operator writes an error status
   # (PUT) when a reconcile cannot start.
   - apiGroups:
-      - openshift-optional.skrzypek.io
+      - nodeupgrade.redhat-na-ssa.github.io
     resources:
       - mutexrules/status
       - mutextargets/status
@@ -121,7 +121,7 @@ rules:
   # today; it is kept, as in the operator-sdk scaffold, so such references
   # stay admissible. It grants nothing else.
   - apiGroups:
-      - openshift-optional.skrzypek.io
+      - nodeupgrade.redhat-na-ssa.github.io
     resources:
       - mutexrules/finalizers
       - mutexrunconfigs/finalizers

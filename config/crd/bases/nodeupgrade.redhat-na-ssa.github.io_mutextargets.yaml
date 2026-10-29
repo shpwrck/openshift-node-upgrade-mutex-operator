@@ -2,9 +2,9 @@
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
-  name: mutextargets.openshift-optional.skrzypek.io
+  name: mutextargets.nodeupgrade.redhat-na-ssa.github.io
 spec:
-  group: openshift-optional.skrzypek.io
+  group: nodeupgrade.redhat-na-ssa.github.io
   names:
     kind: MutexTarget
     listKind: MutexTargetList
@@ -90,7 +90,7 @@ spec:
                   custom pool is not a node of the 'worker' target. Both matchLabels and
                   matchExpressions of each pool are used. While a MutexRunConfig run has changed
                   the selector of a pool, the original matchExpressions saved in its
-                  openshift-optional.skrzypek.io/original-match-expressions annotation are used,
+                  nodeupgrade.redhat-na-ssa.github.io/original-match-expressions annotation are used,
                   so the list stays the same for the whole run.
                 type: array
                 items:

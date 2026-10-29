@@ -7,7 +7,7 @@
 #     release-image-version label NFD would publish, and no mutex label;
 #   - the MCO annotations of a node that is not updating: currentConfig and
 #     desiredConfig rendered-<master|worker>-<hash> and state Done, and no
-#     openshift-optional.skrzypek.io/ annotation;
+#     nodeupgrade.redhat-na-ssa.github.io/ annotation;
 #   - MachineConfigPools 'master', 'worker' and the README's 'canary',
 #     recreated so no annotation or selector change survives;
 #   - ClusterVersion 'version' at a completed e2e_from_version.

@@ -9,7 +9,7 @@
 # 'kubernetes.io/hostname NotIn [<node>]' node affinity. Use $(NODE_NAME) in
 # command/args to act on the node. Each Job must complete within
 # timeoutSeconds; a failed Job stops the run and leaves the pools paused.
-apiVersion: openshift-optional.skrzypek.io/v1alpha1
+apiVersion: nodeupgrade.redhat-na-ssa.github.io/v1alpha1
 kind: MutexRule
 metadata:
   labels:

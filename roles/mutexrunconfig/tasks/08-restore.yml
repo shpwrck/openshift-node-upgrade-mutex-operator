@@ -256,7 +256,7 @@
     definition:
       metadata:
         annotations:
-          openshift-optional.skrzypek.io/restored-at: "{{ mutexrunconfig_now ~ ' ' ~ mutexrunconfig_owner }}"
+          nodeupgrade.redhat-na-ssa.github.io/restored-at: "{{ mutexrunconfig_now ~ ' ' ~ mutexrunconfig_owner }}"
   loop: >-
     {{ mutexrunconfig_restored_at_unparsed
        | reject('in', (mutexrunconfig_selector_pools_last | map(attribute='metadata.name') | list)
@@ -273,7 +273,7 @@
     definition:
       metadata:
         annotations:
-          openshift-optional.skrzypek.io/restored-at: null
+          nodeupgrade.redhat-na-ssa.github.io/restored-at: null
   loop: "{{ mutexrunconfig_restored_at_pools }}"
   when: not mutexrunconfig_keep_release_labels | bool
 
@@ -287,7 +287,7 @@
     definition:
       metadata:
         annotations:
-          openshift-optional.skrzypek.io/paused-by: null
+          nodeupgrade.redhat-na-ssa.github.io/paused-by: null
       spec:
         paused: false
   loop: "{{ mutexrunconfig_unpause_pools }}"

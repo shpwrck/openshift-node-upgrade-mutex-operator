@@ -1,9 +1,9 @@
 ---
 # Asserts that no MutexRunConfig has left anything behind: the canary and
 # target pools match the snapshot in e2e_pools_before (paused, matchLabels,
-# matchExpressions) and carry no openshift-optional.skrzypek.io/ annotation,
-# no node carries a mutexrule.openshift-optional.skrzypek.io/ label, and no
-# node keeps the openshift-optional.skrzypek.io/labelled-by or released-by
+# matchExpressions) and carry no nodeupgrade.redhat-na-ssa.github.io/ annotation,
+# no node carries a mutexrule.nodeupgrade.redhat-na-ssa.github.io/ label, and no
+# node keeps the nodeupgrade.redhat-na-ssa.github.io/labelled-by or released-by
 # annotation the operator sets during a run (the node list is the
 # e2e_node_info that pools.yml reads).
 # With e2e_expect_version set, every target node must also report it.

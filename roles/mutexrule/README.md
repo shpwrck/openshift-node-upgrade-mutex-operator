@@ -1,6 +1,6 @@
 # mutexrule
 
-Reconciles `MutexRule` resources (`openshift-optional.skrzypek.io/v1alpha1`). ansible-operator runs it for every
+Reconciles `MutexRule` resources (`nodeupgrade.redhat-na-ssa.github.io/v1alpha1`). ansible-operator runs it for every
 MutexRule event and every 10 minutes (`watches.yaml`). It is not meant to be used outside the operator.
 
 ## What it does
@@ -24,7 +24,7 @@ The `mutexrunconfig` role only uses MutexRules that report `ValidConfig=True`.
 
 | Variable | Source |
 | --- | --- |
-| `_openshift_optional_skrzypek_io_mutexrule_spec` | The MutexRule `spec`, passed by ansible-operator. |
+| `_nodeupgrade_redhat_na_ssa_github_io_mutexrule_spec` | The MutexRule `spec`, passed by ansible-operator. |
 | `ansible_operator_meta.name`, `.namespace` | The MutexRule's name and namespace, passed by ansible-operator. |
 | `POD_NAMESPACE` (environment) | The operator's namespace (downward API in `config/manager/manager.yaml`). Unset means every namespace is allowed, as with `make run`. |
 

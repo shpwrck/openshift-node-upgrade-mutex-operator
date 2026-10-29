@@ -1,6 +1,6 @@
 # mutextarget
 
-Reconciles `MutexTarget` resources (`openshift-optional.skrzypek.io/v1alpha1`). ansible-operator runs it for every
+Reconciles `MutexTarget` resources (`nodeupgrade.redhat-na-ssa.github.io/v1alpha1`). ansible-operator runs it for every
 MutexTarget event and every 10 minutes (`watches.yaml`). It is not meant to be used outside the operator. It
 reads MachineConfigPools and Nodes and never changes them.
 
@@ -16,7 +16,7 @@ reads MachineConfigPools and Nodes and never changes them.
    - Every pool's `nodeSelector` is turned into a label selector, using both `matchLabels` and `matchExpressions`
      (`In`, `NotIn`, `Exists`, `DoesNotExist`).
    - While a MutexRunConfig run has changed a pool's selector, the role uses the original `matchExpressions`, read
-     from the pool's `openshift-optional.skrzypek.io/original-match-expressions` annotation. The list therefore
+     from the pool's `nodeupgrade.redhat-na-ssa.github.io/original-match-expressions` annotation. The list therefore
      stays the same for the whole run.
    - A node is assigned to a pool the way MCO assigns it: the custom pool it matches first, then `master`, then
      `worker`. A worker-labelled node that sits in the canary, infra or another custom pool is not a node of the
@@ -33,7 +33,7 @@ a non-empty `status.nodes`.
 
 | Variable | Source |
 | --- | --- |
-| `_openshift_optional_skrzypek_io_mutextarget_spec` | The MutexTarget `spec`, passed by ansible-operator. |
+| `_nodeupgrade_redhat_na_ssa_github_io_mutextarget_spec` | The MutexTarget `spec`, passed by ansible-operator. |
 | `ansible_operator_meta.name`, `.namespace` | The MutexTarget's name and namespace, passed by ansible-operator. |
 | `POD_NAMESPACE` (environment) | The operator's namespace. Unset means every namespace is allowed. |
 

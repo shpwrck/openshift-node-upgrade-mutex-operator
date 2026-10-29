@@ -2,9 +2,9 @@
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
-  name: mutexrunconfigs.openshift-optional.skrzypek.io
+  name: mutexrunconfigs.nodeupgrade.redhat-na-ssa.github.io
 spec:
-  group: openshift-optional.skrzypek.io
+  group: nodeupgrade.redhat-na-ssa.github.io
   names:
     kind: MutexRunConfig
     listKind: MutexRunConfigList
@@ -104,7 +104,7 @@ spec:
                       and whose nodeSelector.matchLabels select every target node (for example
                       node-role.kubernetes.io/worker: ""). During a run the operator keeps those
                       of its matchExpressions that every target node satisfies and adds
-                      'mutexrule.openshift-optional.skrzypek.io/release In (<SHA-1 of
+                      'mutexrule.nodeupgrade.redhat-na-ssa.github.io/release In (<SHA-1 of
                       namespace/name>)', so it selects only the nodes the run has released and
                       the nodes that were in it before the run; the original expressions are
                       restored afterwards. Its matchLabels and kept expressions must not select a node
@@ -130,7 +130,7 @@ spec:
                       description: |-
                         Name of an existing MutexRule. Must not contain '.', because the rule
                         is tracked with the node label
-                        mutexrule.openshift-optional.skrzypek.io/<name>.<namespace>.
+                        mutexrule.nodeupgrade.redhat-na-ssa.github.io/<name>.<namespace>.
                       type: string
                       minLength: 1
                       maxLength: 61
@@ -148,7 +148,7 @@ spec:
                   - rule: '!has(self.__namespace__) || size(self.name) + size(self.__namespace__) <= 62'
                     message: >-
                       '<name>.<namespace>' must be at most 63 characters: it is the name part
-                      of the node label mutexrule.openshift-optional.skrzypek.io/<name>.<namespace>
+                      of the node label mutexrule.nodeupgrade.redhat-na-ssa.github.io/<name>.<namespace>
               mutexTargets:
                 description: |-
                   MutexTargets whose nodes are upgraded one at a time. Each needs

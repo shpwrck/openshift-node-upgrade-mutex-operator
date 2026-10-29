@@ -2,9 +2,9 @@
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
-  name: mutexrules.openshift-optional.skrzypek.io
+  name: mutexrules.nodeupgrade.redhat-na-ssa.github.io
 spec:
-  group: openshift-optional.skrzypek.io
+  group: nodeupgrade.redhat-na-ssa.github.io
   names:
     kind: MutexRule
     listKind: MutexRuleList
@@ -41,7 +41,7 @@ spec:
           upgrade.
           The name of a MutexRule must not contain '.', and '<name>.<namespace>' must be at
           most 63 characters, because the rule is tracked with the node label
-          mutexrule.openshift-optional.skrzypek.io/<name>.<namespace>. MutexRules are only
+          mutexrule.nodeupgrade.redhat-na-ssa.github.io/<name>.<namespace>. MutexRules are only
           reconciled in the namespace of the operator.
         type: object
         required:
@@ -94,10 +94,10 @@ spec:
                   of this rule) to every container and initContainer, replacing entries with the
                   same names; a 'kubernetes.io/hostname NotIn [<node>]' matchExpression to every
                   required nodeSelectorTerm (or one new term), so the pod never runs on that
-                  node; the label openshift-optional.skrzypek.io/job-key; and the annotations
-                  openshift-optional.skrzypek.io/mutexrunconfig, openshift-optional.skrzypek.io/mutexrule,
-                  openshift-optional.skrzypek.io/node, openshift-optional.skrzypek.io/phase and
-                  openshift-optional.skrzypek.io/desired-version. The Job must reach Complete
+                  node; the label nodeupgrade.redhat-na-ssa.github.io/job-key; and the annotations
+                  nodeupgrade.redhat-na-ssa.github.io/mutexrunconfig, nodeupgrade.redhat-na-ssa.github.io/mutexrule,
+                  nodeupgrade.redhat-na-ssa.github.io/node, nodeupgrade.redhat-na-ssa.github.io/phase and
+                  nodeupgrade.redhat-na-ssa.github.io/desired-version. The Job must reach Complete
                   within timeoutSeconds; a Failed Job stops the run.
                 type: object
                 x-kubernetes-preserve-unknown-fields: true

@@ -151,7 +151,8 @@ The catalog was started afresh for the move to `ghcr.io` (`make catalog-reset` k
    * builds and pushes the operator image;
    * generates the bundle, which pins the operator image by digest when `USE_IMAGE_DIGESTS=true`, then builds and
      pushes the bundle image;
-   * `catalog-add` makes the bundle the new channel head, with `replaces` set to the old head and `skipRange: <VERSION`;
+   * `catalog-add` makes the bundle the new channel head, with `replaces` set to the old head and
+     `skipRange: >=0.3.0-0 <VERSION` (0.3.0 is the first version with the current API group, see `CATALOG_SKIP_FROM`);
    * `catalog-render` pulls every bundle image and takes a few minutes;
    * builds and pushes the catalog image, and tags all three images as `:latest` (not for a pre-release, a `VERSION`
      with a `-` such as `0.3.0-rc1`).
@@ -182,7 +183,8 @@ then run it again.
 
 Then continue with steps 3 and 4.
 
-To publish in the community catalogs, copy `bundles/<VERSION>/` (`manifests/`, `metadata/` and `tests/`) into
+To publish in the community catalogs (in a new channel, not `alpha`: see "The move from 0.2.x" in
+`docs/HANDOFF.md`), copy `bundles/<VERSION>/` (`manifests/`, `metadata/` and `tests/`) into
 `operators/openshift-node-upgrade-mutex-operator/<VERSION>/` of a fork of
 [k8s-operatorhub/community-operators](https://github.com/k8s-operatorhub/community-operators) or
 [redhat-openshift-ecosystem/community-operators-prod](https://github.com/redhat-openshift-ecosystem/community-operators-prod),
