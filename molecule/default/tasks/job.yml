@@ -1,0 +1,142 @@
+---
+# Finds the Job the operator created for one node and phase, checks the job
+# contract and waits for the Job to finish.
+# Inputs:
+#   e2e_node              the node being upgraded
+#   e2e_phase             pre or cleanup
+#   e2e_owner             <namespace>/<MutexRunConfig name>
+#   e2e_job_rule          MutexRule name (expected MUTEX_RULE)
+#   e2e_job_outcome       Complete or Failed (default Complete)
+# Sets e2e_job (the Job) and e2e_job_pods (its pods).
+- name: "Wait for the Job of {{ e2e_owner ~ ' for ' ~ e2e_node ~ ' (' ~ e2e_phase ~ ')' }}"
+  kubernetes.core.k8s_info:
+    api_version: batch/v1
+    kind: Job
+    namespace: "{{ e2e_namespace }}"
+  register: e2e_jobs
+  until: e2e_matching | length > 0
+  retries: "{{ ((e2e_timeout | int) / 2) | int }}"
+  delay: 2
+  vars:
+    e2e_matching: &e2e_matching >-
+      {%- set ns = namespace(names=[]) -%}
+      {%- for job in e2e_jobs.resources | default([]) -%}
+      {%- set a = job.metadata.annotations | default({}, true) -%}
+      {%- if a[e2e_annotation_prefix ~ 'node'] | default('') == e2e_node
+            and a[e2e_annotation_prefix ~ 'phase'] | default('') == e2e_phase
+            and a[e2e_annotation_prefix ~ 'mutexrunconfig'] | default('') == e2e_owner -%}
+      {%- set ns.names = ns.names + [job.metadata.name] -%}
+      {%- endif -%}
+      {%- endfor -%}
+      {{ ns.names | sort | join(',') }}
+  failed_when: false
+
+- name: "Pick the Job for {{ e2e_node ~ ' (' ~ e2e_phase ~ ')' }}"
+  ansible.builtin.set_fact:
+    e2e_job: >-
+      {{ e2e_jobs.resources | selectattr('metadata.name', 'equalto', e2e_matching.split(',') | first) | first | default({}) }}
+  vars:
+    e2e_matching: *e2e_matching
+
+- name: "Check the job contract of the Job for {{ e2e_node ~ ' (' ~ e2e_phase ~ ')' }}"
+  ansible.builtin.assert:
+    that:
+      - e2e_job | length > 0
+      - e2e_problems | length == 0
+    fail_msg: >-
+      {{ 'No ' ~ e2e_phase ~ ' Job of ' ~ e2e_owner ~ ' for ' ~ e2e_node ~ ' appeared'
+         if e2e_job | length == 0 else ('Job ' ~ e2e_job.metadata.name ~ ': ' ~ e2e_problems) }}
+    success_msg: >-
+      {{ e2e_job.metadata.name | default('') }}: NODE_NAME/MUTEX_RULE injected, kept off {{ e2e_node }}, labelled and annotated
+  vars:
+    e2e_annotations: "{{ e2e_job.metadata.annotations | default({}, true) }}"
+    e2e_problems: >-
+      {%- set ns = namespace(p=[]) -%}
+      {%- set pod = e2e_job.spec.template.spec -%}
+      {%- for c in (pod.containers | default([])) + (pod.initContainers | default([])) -%}
+      {%- set env = c.env | default([], true) -%}
+      {%- if env | selectattr('name', 'equalto', 'NODE_NAME') | map(attribute='value') | list != [e2e_node] -%}
+      {%- set ns.p = ns.p + [c.name ~ ' has NODE_NAME ' ~ (env | selectattr('name', 'equalto', 'NODE_NAME') | list | to_json)] -%}
+      {%- endif -%}
+      {%- if env | selectattr('name', 'equalto', 'MUTEX_RULE') | map(attribute='value') | list != [e2e_job_rule] -%}
+      {%- set ns.p = ns.p + [c.name ~ ' has MUTEX_RULE ' ~ (env | selectattr('name', 'equalto', 'MUTEX_RULE') | list | to_json)] -%}
+      {%- endif -%}
+      {%- endfor -%}
+      {%- set terms = pod.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms | default([], true) -%}
+      {%- if terms | length == 0 -%}
+      {%- set ns.p = ns.p + ['no required nodeSelectorTerms'] -%}
+      {%- endif -%}
+      {%- for term in terms -%}
+      {%- if {'key': 'kubernetes.io/hostname', 'operator': 'NotIn', 'values': [e2e_node]} not in (term.matchExpressions | default([], true)) -%}
+      {%- set ns.p = ns.p + ['a nodeSelectorTerm lacks kubernetes.io/hostname NotIn [' ~ e2e_node ~ ']'] -%}
+      {%- endif -%}
+      {%- endfor -%}
+      {%- if (e2e_job.metadata.labels | default({}, true))[e2e_annotation_prefix ~ 'job-key'] | default('') | length == 0 -%}
+      {%- set ns.p = ns.p + ['no job-key label'] -%}
+      {%- endif -%}
+      {%- if e2e_annotations[e2e_annotation_prefix ~ 'mutexrule'] | default('') != e2e_namespace ~ '/' ~ e2e_job_rule -%}
+      {%- set ns.p = ns.p + ['mutexrule annotation ' ~ e2e_annotations[e2e_annotation_prefix ~ 'mutexrule'] | default('')] -%}
+      {%- endif -%}
+      {{ ns.p | join('; ') }}
+
+- name: "Wait for the Job to finish: {{ e2e_job.metadata.name }}"
+  kubernetes.core.k8s_info:
+    api_version: batch/v1
+    kind: Job
+    name: "{{ e2e_job.metadata.name }}"
+    namespace: "{{ e2e_namespace }}"
+  register: e2e_job_info
+  until: e2e_job_state != 'Running'
+  retries: "{{ ((e2e_timeout | int) / 3) | int }}"
+  delay: 3
+  failed_when: false
+  vars:
+    e2e_job_conditions: &e2e_job_conditions >-
+      {{ (e2e_job_info.resources | default([]) | first | default({})).status.conditions | default([], true) }}
+    e2e_job_state: &e2e_job_state >-
+      {{ 'Failed' if (e2e_job_conditions | selectattr('type', 'equalto', 'Failed') | selectattr('status', 'equalto', 'True') | list | length > 0)
+         else ('Complete' if (e2e_job_conditions | selectattr('type', 'equalto', 'Complete') | selectattr('status', 'equalto', 'True') | list | length > 0)
+               else 'Running') }}
+
+- name: "Check that the Job ended {{ e2e_job_outcome | default('Complete') }}"
+  ansible.builtin.assert:
+    that:
+      - e2e_job_state == (e2e_job_outcome | default('Complete'))
+    fail_msg: "{{ e2e_job.metadata.name }} is {{ e2e_job_state }}: {{ (e2e_job_info.resources | first).status | default({}) | to_json }}"
+  vars:
+    e2e_job_conditions: *e2e_job_conditions
+    e2e_job_state: *e2e_job_state
+
+- name: "Read the pods of the Job {{ e2e_job.metadata.name }}"
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Pod
+    namespace: "{{ e2e_namespace }}"
+    label_selectors:
+      - job-name={{ e2e_job.metadata.name }}
+  register: e2e_job_pods
+
+- name: "Check that the Job ran on another node than {{ e2e_node }}"
+  ansible.builtin.assert:
+    that:
+      - e2e_job_pods.resources | length > 0
+      - e2e_job_pods.resources | map(attribute='spec.nodeName', default='') | select('equalto', '') | list | length == 0
+      - e2e_node not in (e2e_job_pods.resources | map(attribute='spec.nodeName') | list)
+    fail_msg: "pods of {{ e2e_job.metadata.name }} ran on {{ e2e_job_pods.resources | map(attribute='spec.nodeName', default='') | list }}"
+    success_msg: "{{ e2e_job.metadata.name }} ran on {{ e2e_job_pods.resources | map(attribute='spec.nodeName') | unique | join(', ') }}"
+
+- name: "Read the log of the Job {{ e2e_job.metadata.name }}"
+  kubernetes.core.k8s_log:
+    name: "{{ e2e_job_pods.resources[0].metadata.name }}"
+    namespace: "{{ e2e_namespace }}"
+  register: e2e_job_log
+  when: e2e_check_job_logs | bool
+
+- name: "Check that $(NODE_NAME) expanded in the log to {{ e2e_node }}"
+  ansible.builtin.assert:
+    that:
+      - e2e_job_log.log is search('node ' ~ e2e_node ~ ' ')
+    fail_msg: "log of {{ e2e_job_pods.resources[0].metadata.name }}: {{ e2e_job_log.log }}"
+  when:
+    - e2e_check_job_logs | bool
+    - e2e_job_log_pattern | default(true) | bool

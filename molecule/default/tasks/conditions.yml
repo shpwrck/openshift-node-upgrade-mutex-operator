@@ -1,0 +1,52 @@
+---
+# Waits until a CR of this operator reports the expected conditions, then
+# asserts them and the RFC 3339 format of every lastTransitionTime.
+# Inputs:
+#   e2e_kind, e2e_name          the CR (kind and name)
+#   e2e_cr_namespace            optional, default: namespace
+#   e2e_expected                list of {type, status, reason} or
+#                               {type, status, reasons: [...]}
+#   e2e_wait / e2e_delay        optional, seconds (default e2e_timeout / 5)
+# Sets e2e_cr (the k8s_info result).
+- name: "Check the conditions of {{ e2e_kind ~ ' ' ~ e2e_name }}"
+  vars:
+    e2e_conditions: "{{ (e2e_cr.resources | default([]) | first | default({})).status.conditions | default([]) }}"
+    e2e_unmet: >-
+      {%- set ns = namespace(unmet=[]) -%}
+      {%- for want in e2e_expected -%}
+      {%- set got = e2e_conditions | selectattr('type', 'equalto', want.type) | list -%}
+      {%- set reasons = want.reasons | default([want.reason] if want.reason is defined else []) -%}
+      {%- if got | length == 0 or got[0].status != want.status
+             or (reasons | length > 0 and got[0].reason | default('') not in reasons) -%}
+      {%- set ns.unmet = ns.unmet + [want.type ~ '=' ~ want.status ~ ((' (' ~ (reasons | join('|')) ~ ')') if reasons | length > 0 else '')] -%}
+      {%- endif -%}
+      {%- endfor -%}
+      {{ ns.unmet | join(', ') }}
+    e2e_bad_times: >-
+      {{ e2e_conditions | rejectattr('lastTransitionTime', 'defined') | map(attribute='type') | list
+         + (e2e_conditions | selectattr('lastTransitionTime', 'defined')
+            | rejectattr('lastTransitionTime', 'match', e2e_time_regex) | map(attribute='type') | list) }}
+  block:
+    - name: "Wait for the conditions of {{ e2e_kind ~ ' ' ~ e2e_name ~ ': ' ~ (e2e_expected | map(attribute='type') | join(', ')) }}"
+      kubernetes.core.k8s_info:
+        api_version: "{{ e2e_api_version }}"
+        kind: "{{ e2e_kind }}"
+        name: "{{ e2e_name }}"
+        namespace: "{{ e2e_cr_namespace | default(e2e_namespace) }}"
+      register: e2e_cr
+      until: e2e_unmet | length == 0
+      retries: "{{ ((e2e_wait | default(e2e_timeout) | int) / (e2e_delay | default(5) | int)) | round(0, 'ceil') | int }}"
+      delay: "{{ e2e_delay | default(5) | int }}"
+      failed_when: false
+
+    - name: "Assert the conditions of {{ e2e_kind ~ ' ' ~ e2e_name }}"
+      ansible.builtin.assert:
+        that:
+          - e2e_cr.resources | default([]) | length == 1
+          - e2e_unmet | length == 0
+          - e2e_bad_times | length == 0
+        fail_msg: >-
+          {{ e2e_kind }} {{ e2e_name }}: missing or different conditions [{{ e2e_unmet }}];
+          lastTransitionTime not RFC 3339 for {{ e2e_bad_times }}; current conditions:
+          {{ e2e_conditions | to_json }}
+        success_msg: "{{ e2e_kind }} {{ e2e_name }} reports {{ e2e_expected | map(attribute='type') | join(', ') }} as expected"

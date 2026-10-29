@@ -3,22 +3,34 @@
   hosts: localhost
   connection: local
   gather_facts: false
-  collections:
-    - kubernetes.core
+  vars_files:
+    - vars/e2e.yml
 
   tasks:
-    - import_tasks: kustomize.yml
-      vars:
-        state: absent
+    - name: Refuse to run where the operator is installed
+      ansible.builtin.include_tasks: tasks/olm_guard.yml
 
-    - name: Destroy Namespace
-      k8s:
+    # First, while the operator still runs, so it can run the finalizers.
+    - name: Remove the test CRs
+      ansible.builtin.include_tasks: tasks/cleanup.yml
+
+    - name: Render the test overlay
+      ansible.builtin.include_tasks: tasks/overlay.yml
+
+    - name: Delete the operator manifests
+      kubernetes.core.k8s:
+        definition: "{{ item }}"
+        state: absent
+        wait: true
+      loop: "{{ e2e_overlay_resources | reverse | list }}"
+      loop_control:
+        label: "{{ item.kind }}/{{ item.metadata.name }}"
+
+    - name: Delete the test namespace
+      kubernetes.core.k8s:
         api_version: v1
         kind: Namespace
-        name: '{{ namespace }}'
+        name: "{{ e2e_namespace }}"
         state: absent
-
-    - name: Unset pull policy
-      command: '{{ kustomize }} edit remove patch pull_policy/{{ operator_pull_policy }}.yaml'
-      args:
-        chdir: '{{ config_dir }}/testing'
+        wait: true
+        wait_timeout: "{{ e2e_timeout }}"

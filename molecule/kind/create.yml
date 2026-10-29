@@ -3,6 +3,52 @@
   hosts: localhost
   connection: local
   gather_facts: false
+
   tasks:
-    - name: Create test kind cluster
-      command: kind create cluster --name osdk-test --kubeconfig {{ kubeconfig }}
+    - name: Pick the kind node provider
+      ansible.builtin.include_tasks: tasks/kind_env.yml
+
+    - name: List the kind clusters
+      ansible.builtin.command:
+        argv:
+          - "{{ kind }}"
+          - get
+          - clusters
+      environment: "{{ e2e_kind_env }}"
+      register: e2e_kind_clusters
+      changed_when: false
+
+    - name: Create the kind cluster
+      ansible.builtin.command:
+        argv: >-
+          {{ [kind, 'create', 'cluster', '--name', kind_cluster_name, '--config', kind_config,
+              '--kubeconfig', kubeconfig, '--wait', '5m']
+             + (['--image', kind_node_image] if kind_node_image | length > 0 else []) }}
+      environment: "{{ e2e_kind_env }}"
+      when: kind_cluster_name not in e2e_kind_clusters.stdout_lines
+      changed_when: true
+
+    - name: Write the kubeconfig of the kind cluster
+      ansible.builtin.command:
+        argv:
+          - "{{ kind }}"
+          - export
+          - kubeconfig
+          - --name
+          - "{{ kind_cluster_name }}"
+          - --kubeconfig
+          - "{{ kubeconfig }}"
+      environment: "{{ e2e_kind_env }}"
+      changed_when: false
+
+    - name: Wait for every node to be ready
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Node
+      register: e2e_kind_nodes
+      until: >-
+        e2e_kind_nodes.resources | default([]) | length == 3
+        and e2e_kind_nodes.resources | map(attribute='status.conditions') | map('selectattr', 'type', 'equalto', 'Ready')
+            | map('first') | map(attribute='status') | reject('equalto', 'True') | list | length == 0
+      retries: 60
+      delay: 5

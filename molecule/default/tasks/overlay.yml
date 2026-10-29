@@ -1,0 +1,68 @@
+---
+# Renders a throwaway kustomize overlay on top of config/testing in
+# overlay_dir (under $MOLECULE_EPHEMERAL_DIRECTORY) that sets the namespace,
+# the operator image and its pull policy, and builds it into
+# e2e_overlay_resources. Tracked files are never edited.
+- name: Create the overlay directory
+  ansible.builtin.file:
+    path: "{{ overlay_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Write the overlay kustomization
+  ansible.builtin.copy:
+    dest: "{{ overlay_dir }}/kustomization.yaml"
+    mode: "0644"
+    content: "{{ e2e_overlay | to_nice_yaml(indent=2) }}"
+  vars:
+    e2e_overlay:
+      apiVersion: kustomize.config.k8s.io/v1beta1
+      kind: Kustomization
+      namespace: "{{ e2e_namespace }}"
+      # kustomize only accepts relative resource paths.
+      resources:
+        - "{{ (config_dir ~ '/testing') | relpath(overlay_dir) }}"
+      patches:
+        - target:
+            group: apps
+            version: v1
+            kind: Deployment
+            labelSelector: control-plane=controller-manager
+          patch: "{{ e2e_overlay_patch | to_json }}"
+    e2e_overlay_patch:
+      - op: replace
+        path: /spec/template/spec/containers/0/image
+        value: "{{ operator_image }}"
+      - op: add
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: "{{ operator_pull_policy }}"
+
+- name: Build the overlay
+  ansible.builtin.command:
+    argv:
+      - "{{ kustomize }}"
+      - build
+      # config/testing loads ../default/manager_metrics_patch.yaml
+      - --load-restrictor
+      - LoadRestrictionsNone
+      - "{{ overlay_dir }}"
+  register: e2e_overlay_build
+  changed_when: false
+
+- name: Keep the rendered manifests
+  ansible.builtin.set_fact:
+    e2e_overlay_resources: "{{ e2e_overlay_build.stdout | from_yaml_all | list }}"
+
+- name: Check that the overlay deploys the requested image
+  ansible.builtin.assert:
+    that:
+      - e2e_manager.name == 'manager'
+      - e2e_manager.image == operator_image
+    fail_msg: >-
+      The rendered Deployment's first container is {{ e2e_manager.name }} with image
+      {{ e2e_manager.image }}; expected the manager with {{ operator_image }}.
+    quiet: true
+  vars:
+    e2e_manager: >-
+      {{ (e2e_overlay_resources | selectattr('kind', 'equalto', 'Deployment') | first).spec.template.spec.containers | first }}
+  when: operator_image | length > 0

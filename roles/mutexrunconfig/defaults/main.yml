@@ -1,2 +1,29 @@
 ---
 # defaults file for MutexRunConfig
+
+# How long to wait for a released node to finish its upgrade (the desired
+# machineconfiguration.openshift.io/release-image-version label, MCO state Done
+# with currentConfig equal to desiredConfig, and Ready) after it was
+# released, and for a node MCO was already updating to finish that update:
+# retries x delay seconds (default 120 x 60s = 2 hours per node).
+# How long one Job may run is set per MutexRule (spec.timeoutSeconds, default
+# 3600 in the CRD).
+mutexrunconfig_node_upgrade_retries: 120
+mutexrunconfig_node_upgrade_delay: 60
+
+# How often a running Job is polled for a Complete or Failed condition.
+mutexrunconfig_job_poll_delay: 10
+
+# APIService availability check: attempts and delay between them, so that a
+# short flap of an aggregated API does not fail the reconcile.
+mutexrunconfig_apiservice_retries: 3
+mutexrunconfig_apiservice_delay: 10
+
+# Seconds a selector change that depends on a release label waits after that
+# label changed: the re-point at the start of a run after the canary's own
+# nodes got the label (the canary's release-labelled-at annotation), and the
+# removal of the label from them after the canary's restore (its restored-at
+# annotation). After an API outage MCO's controller re-lists the nodes 60-90
+# seconds after the API is back and re-renders about 2 minutes later, so it
+# has seen the label change by then.
+mutexrunconfig_label_settle_seconds: 300

@@ -1,43 +1,56 @@
 ---
+# Validates the jobSpec and the optional cleanUpJobSpec with a server-side
+# dry-run create of a Job: kubernetes.core.k8s in check mode sends the create
+# with dryRun=All (kubernetes python client >= 18.20). The API server applies
+# its real schema, defaulting, admission and RBAC checks for the namespace the
+# Jobs will run in, and nothing is created, changed or deleted.
+# The default authentication is used (in the operator: the ansible-operator
+# proxy kubeconfig; with 'make run': the local kubeconfig).
 - name: Configuration Validation Block
   block:
+    - name: Check Rule Type
+      ansible.builtin.fail:
+        msg: "spec.type '{{ mutexrule_spec.type | default('') }}' is not supported; only 'kubernetes' is."
+      when: (mutexrule_spec.type | default('')) != "kubernetes"
+
+    - name: Check Job Fields
+      ansible.builtin.fail:
+        msg: "{{ item.msg }}"
+      loop:
+        - msg: spec.jobName is empty.
+          failed: "{{ mutexrule_spec.jobName | default('', true) | length == 0 }}"
+        - msg: spec.jobSpec is not an object.
+          failed: "{{ (mutexrule_spec.jobSpec | default(none)) is not mapping }}"
+        - msg: spec.cleanUpJobSpec is set but is not an object.
+          failed: "{{ mutexrule_spec.cleanUpJobSpec is defined and (mutexrule_spec.cleanUpJobSpec | default(none)) is not mapping }}"
+        - msg: spec.timeoutSeconds must be a positive number of seconds.
+          failed: "{{ mutexrule_spec.timeoutSeconds is defined and not ((mutexrule_spec.timeoutSeconds | string) is match('^[1-9][0-9]*$')) }}"
+      loop_control:
+        label: "{{ item.msg }}"
+      when: item.failed | bool
+
     - name: Confirm Valid K8s jobSpec
       kubernetes.core.k8s:
-        host: "{{ _openshift_optional_skrzypek_io_mutexrule_spec.host | default('https://kubernetes.default.svc') }}"
-        ca_cert: "{{ _openshift_optional_skrzypek_io_mutexrule_spec.ca_cert | default('/run/secrets/kubernetes.io/serviceaccount/ca.crt') }}"
-        client_key: "{{ _openshift_optional_skrzypek_io_mutexrule_spec.ca_cert | default('/run/secrets/kubernetes.io/serviceaccount/token') }}"
         api_version: "batch/v1"
         kind: "Job"
-        name: "{{ _openshift_optional_skrzypek_io_mutexrule_spec.jobName }}"
-        namespace: "{{ _openshift_optional_skrzypek_io_mutexrule_spec.jobNamespace }}"
+        generate_name: "{{ mutexrule_spec.jobName }}-"
+        namespace: "{{ mutexrule_job_namespace }}"
         definition:
-          spec: "{{ _openshift_optional_skrzypek_io_mutexrule_spec.jobSpec }}"
-        state: absent
-        validate:
-          fail_on_error: true
-          strict: true
-      register: k8s_validation
-      when: _openshift_optional_skrzypek_io_mutexrule_spec.type == "kubernetes"
+          spec: "{{ mutexrule_spec.jobSpec }}"
+        state: present
+      check_mode: true
 
     - name: Confirm Valid K8s cleanUpJobSpec
       kubernetes.core.k8s:
-        host: "{{ _openshift_optional_skrzypek_io_mutexrule_spec.host | default('https://kubernetes.default.svc') }}"
-        ca_cert: "{{ _openshift_optional_skrzypek_io_mutexrule_spec.ca_cert | default('/run/secrets/kubernetes.io/serviceaccount/ca.crt') }}"
-        client_key: "{{ _openshift_optional_skrzypek_io_mutexrule_spec.ca_cert | default('/run/secrets/kubernetes.io/serviceaccount/token') }}"
         api_version: "batch/v1"
         kind: "Job"
-        name: "cleanup-{{ _openshift_optional_skrzypek_io_mutexrule_spec.jobName }}"
-        namespace: "{{ _openshift_optional_skrzypek_io_mutexrule_spec.jobNamespace }}"
+        generate_name: "cleanup-{{ mutexrule_spec.jobName }}-"
+        namespace: "{{ mutexrule_job_namespace }}"
         definition:
-          spec: "{{ _openshift_optional_skrzypek_io_mutexrule_spec.cleanUpJobSpec }}"
-        state: absent
-        validate:
-          fail_on_error: true
-          strict: true
-      register: k8s_validation
-      when:
-      - _openshift_optional_skrzypek_io_mutexrule_spec.type == "kubernetes"
-      - _openshift_optional_skrzypek_io_mutexrule_spec.cleanUpJobSpec is defined
+          spec: "{{ mutexrule_spec.cleanUpJobSpec }}"
+        state: present
+      check_mode: true
+      when: mutexrule_spec.cleanUpJobSpec is defined
 
     - name: Report Configuration Results
       operator_sdk.util.k8s_status:
@@ -49,10 +62,20 @@
           - type: ValidConfig
             status: "True"
             reason: ValidConfig
-            message: The Host/Token/Job combination is valid.
-            lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
+            message: >-
+              {{ 'jobSpec and cleanUpJobSpec' if mutexrule_spec.cleanUpJobSpec is defined else 'jobSpec' }}
+              passed a server-side dry-run create of a Job in namespace {{ mutexrule_job_namespace }}.
+            lastTransitionTime: "{{ mutexrule_now }}"
+
+    - name: Set Configuration Status
+      ansible.builtin.set_fact:
+        ValidConfig: true
 
   rescue:
+    - name: Set Configuration Status
+      ansible.builtin.set_fact:
+        ValidConfig: false
+
     - name: Report Invalid Config
       operator_sdk.util.k8s_status:
         api_version: "openshift-optional.skrzypek.io/v1alpha1"
@@ -63,10 +86,5 @@
           - type: ValidConfig
             status: "False"
             reason: InvalidConfig
-            message: The Host/Token/Job combination is not valid.
-            lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
-
-  always:
-    - name: Set Configuration Status
-      ansible.builtin.set_fact:
-        ValidConfig: "{{ (ansible_failed_result is not defined) | ternary('true', 'false') }}"
+            message: "{{ mutexrule_failed_msg | truncate(1000) }}"
+            lastTransitionTime: "{{ mutexrule_now }}"

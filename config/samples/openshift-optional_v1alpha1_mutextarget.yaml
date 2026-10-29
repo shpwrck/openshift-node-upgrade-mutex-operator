@@ -1,3 +1,6 @@
+# A MutexTarget must be created in the operator's namespace. status.nodes
+# lists the nodes that MCO assigns to these MachineConfigPools (a node in a
+# custom pool belongs to that pool, not to 'worker').
 apiVersion: openshift-optional.skrzypek.io/v1alpha1
 kind: MutexTarget
 metadata:

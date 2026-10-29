@@ -35,8 +35,13 @@ spec:
         kubectl.kubernetes.io/default-container: manager
       labels:
         control-plane: controller-manager
+        # Unique to this operator's pod, unlike the scaffold label above, so
+        # 'oc delete pod -l app.kubernetes.io/name=...' is safe in a shared
+        # namespace. Not part of the selector, which must not change.
+        app.kubernetes.io/name: openshift-node-upgrade-mutex-operator
     spec:
-
+      # Run on a control-plane node, so the operator is never on a worker that
+      # it is about to release for an upgrade.
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -44,30 +49,55 @@ spec:
               - matchExpressions:
                   - key: node-role.kubernetes.io/control-plane
                     operator: Exists
+      # OpenShift taints control-plane nodes with node-role.kubernetes.io/master;
+      # upstream Kubernetes (and kind) uses node-role.kubernetes.io/control-plane.
       tolerations:
         - key: node-role.kubernetes.io/master
           effect: NoSchedule
+        - key: node-role.kubernetes.io/control-plane
+          effect: NoSchedule
+      # Pod Security Standards "restricted": the pod runs as non-root with the
+      # runtime's default seccomp profile, no privilege escalation and no
+      # capabilities.
+      # More info: https://kubernetes.io/docs/concepts/security/pod-security-standards/#restricted
       securityContext:
         runAsNonRoot: true
-        # TODO(user): For common cases that do not require escalating privileges
-        # it is recommended to ensure that all your Pods/Containers are restrictive.
-        # More info: https://kubernetes.io/docs/concepts/security/pod-security-standards/#restricted
-        # Please uncomment the following code if your project does NOT have to work on old Kubernetes
-        # versions < 1.19 or on vendors versions which do NOT support this field by default (i.e. Openshift < 4.11 ).
-        # seccompProfile:
-        #   type: RuntimeDefault
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - args:
         - --leader-elect
         - --leader-election-id=openshift-node-upgrade-mutex-operator
+        - --health-probe-bind-address=:6789
+        # One reconcile at a time per kind: MutexRunConfigs that share pools must
+        # not edit the canary MachineConfigPool concurrently.
         - --max-concurrent-reconciles=1
         image: controller:latest
         name: manager
         env:
         - name: ANSIBLE_GATHERING
           value: explicit
+        # The roles only reconcile MutexRules, MutexTargets and MutexRunConfigs
+        # in this namespace (the operator namespace); CRs anywhere else get
+        # Reconciled=False reason NamespaceNotAllowed and nothing else.
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        # Namespaces ansible-operator watches. OLM sets the olm.targetNamespaces
+        # annotation from the OperatorGroup: the operator namespace for an
+        # OwnNamespace install, empty (all namespaces) for AllNamespaces. Without
+        # OLM (make deploy) the annotation is absent and all namespaces are
+        # watched; POD_NAMESPACE above still limits what is reconciled.
+        - name: WATCH_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.annotations['olm.targetNamespaces']
         securityContext:
           allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          seccompProfile:
+            type: RuntimeDefault
           capabilities:
             drop:
             - "ALL"
@@ -83,8 +113,8 @@ spec:
             port: 6789
           initialDelaySeconds: 5
           periodSeconds: 10
-        # TODO(user): Configure the resources accordingly based on the project requirements.
-        # More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+        # ansible-runner forks a Python process per reconcile; one reconcile per
+        # kind runs at a time (--max-concurrent-reconciles=1).
         resources:
           limits:
             cpu: 500m

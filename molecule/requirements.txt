@@ -1,0 +1,7 @@
+# Python packages for running the molecule scenarios (pip install -r).
+# ansible-core matches the ansible-operator v1.42.3 base image and the CI
+# lint job. The collections come from ../requirements.yml (molecule's galaxy
+# dependency step installs them).
+ansible-core==2.18.18
+molecule==26.10.0
+kubernetes==33.1.0

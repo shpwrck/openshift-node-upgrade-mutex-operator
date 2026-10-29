@@ -1,57 +1,67 @@
 ---
+# End-to-end checks of the deployed operator. The CRs come from
+# config/samples and are created in the operator's namespace, as the
+# namespace boundary requires.
+#
+# Everywhere (also on a real OpenShift cluster):
+#   preflight, MutexRule (dry-run validation), MutexTarget (status.nodes),
+#   MutexRunConfig with no upgrade pending (only when that cannot start a
+#   run), namespace boundary.
+# Fake OpenShift only (kind scenario, e2e_fake_openshift):
+#   a full simulated upgrade, then the finalizer, including deletion in the
+#   middle of a run.
 - name: Verify
   hosts: localhost
   connection: local
-  gather_facts: no
-  collections:
-    - kubernetes.core
-
+  gather_facts: false
+  vars_files:
+    - vars/e2e.yml
   vars:
-    ctrl_label: control-plane=controller-manager
+    e2e_sample_rule: "{{ lookup('ansible.builtin.file', samples_dir ~ '/openshift-optional_v1alpha1_mutexrule.yaml') | from_yaml }}"
+    e2e_owner: "{{ e2e_namespace }}/{{ e2e_runconfig_name }}"
+    e2e_release_value: "{{ e2e_owner | hash('sha1') }}"
+    e2e_rule_label: "{{ e2e_label_prefix }}{{ e2e_rule_name }}.{{ e2e_namespace }}"
 
   tasks:
-    - block:
-        - name: Import all test files from tasks/
-          include_tasks: '{{ item }}'
-          with_fileglob:
-            - tasks/*_test.yml
+    - name: Run the tests
+      block:
+        - name: Remove test CRs left by an earlier run
+          ansible.builtin.include_tasks: tasks/cleanup.yml
+
+        - name: Reset the fake OpenShift state
+          ansible.builtin.include_tasks: tasks/fake_reset.yml
+          when: e2e_fake_openshift | bool
+
+        - name: Preflight
+          ansible.builtin.include_tasks: tasks/preflight.yml
+
+        - name: MutexRule
+          ansible.builtin.include_tasks: tasks/mutexrule_test.yml
+
+        - name: MutexTarget
+          ansible.builtin.include_tasks: tasks/mutextarget_test.yml
+
+        - name: MutexRunConfig without an upgrade
+          ansible.builtin.include_tasks: tasks/mutexrunconfig_test.yml
+
+        - name: Namespace boundary
+          ansible.builtin.include_tasks: tasks/namespace_test.yml
+
+        - name: Simulated upgrade
+          ansible.builtin.include_tasks: tasks/upgrade_test.yml
+          when: e2e_fake_openshift | bool
+
+        - name: Finalizer
+          ansible.builtin.include_tasks: tasks/finalizer_test.yml
+          when: e2e_fake_openshift | bool
+
+        - name: Remove the test CRs
+          ansible.builtin.include_tasks: tasks/cleanup.yml
+
       rescue:
-        - name: Retrieve relevant resources
-          k8s_info:
-            api_version: '{{ item.api_version }}'
-            kind: '{{ item.kind }}'
-            namespace: '{{ namespace }}'
-          loop:
-            - api_version: v1
-              kind: Pod
-            - api_version: apps/v1
-              kind: Deployment
-            - api_version: v1
-              kind: Secret
-            - api_version: v1
-              kind: ConfigMap
-          register: debug_resources
+        - name: Show the cluster state
+          ansible.builtin.include_tasks: tasks/debug.yml
 
-        - name: Retrieve Pod logs
-          k8s_log:
-            name: '{{ item.metadata.name }}'
-            namespace: '{{ namespace }}'
-            container: manager
-          loop: "{{ q('k8s', api_version='v1', kind='Pod', namespace=namespace, label_selector=ctrl_label) }}"
-          register: debug_logs
-
-        - name: Output gathered resources
-          debug:
-            var: debug_resources
-
-        - name: Output gathered logs
-          debug:
-            var: item.log_lines
-          loop: '{{ debug_logs.results }}'
-
-        - name: Re-emit failure
-          vars:
-            failed_task:
-              result: '{{ ansible_failed_result }}'
-          fail:
-            msg: '{{ failed_task }}'
+        - name: Re-raise the failure
+          ansible.builtin.fail:
+            msg: "{{ ansible_failed_task.name | default('verify') }}: {{ ansible_failed_result.msg | default(ansible_failed_result) }}"

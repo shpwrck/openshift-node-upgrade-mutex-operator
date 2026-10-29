@@ -1,2 +1,199 @@
 ---
 # vars file for MutexRunConfig
+
+# RFC 3339 UTC timestamp used for every status condition. It is a lazy
+# template, so each use renders the current time.
+mutexrunconfig_now: "{{ now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') }}"
+
+# "<namespace>/<name>" of the MutexRunConfig being reconciled. Written to the
+# paused-by annotation of every MachineConfigPool this run pauses and to the
+# Jobs it creates.
+mutexrunconfig_owner: "{{ ansible_operator_meta.namespace }}/{{ ansible_operator_meta.name }}"
+
+# Node label keys are mutexrule.openshift-optional.skrzypek.io/<rule>.<namespace>.
+mutexrunconfig_label_prefix: "mutexrule.openshift-optional.skrzypek.io/"
+# The "<rule>.<namespace>" part must be a valid label name: at most 63
+# characters, alphanumeric at both ends, [-A-Za-z0-9_.] in between.
+mutexrunconfig_label_name_regex: '^(?=.{1,63}$)[A-Za-z0-9]([-A-Za-z0-9_.]*[A-Za-z0-9])?$'
+# Release label: set on a target node in the patch that releases it (with
+# released-by) and removed with released-by once its cleanup Jobs have run;
+# set on the canary's own nodes (04) for the length of a run and removed from
+# them by a pass after the one that restores the canary, once that restore is
+# mutexrunconfig_label_settle_seconds old (08). Value:
+# SHA-1 of '<namespace>/<name>' ('/' is not allowed in a label value). During
+# a run the canary selects only nodes carrying it with this value and the
+# target pools only nodes without this value, so an MCO view that predates a
+# release still sees the node held.
+# The key starts with mutexrunconfig_label_prefix, so every filter that drops
+# mutex label keys from saved or live selectors drops it too. 'release' has
+# no '.', so it never collides with a rule key '<rule>.<namespace>'.
+mutexrunconfig_release_label: "{{ mutexrunconfig_label_prefix }}release"
+mutexrunconfig_release_value: "{{ mutexrunconfig_owner | hash('sha1') }}"
+
+# Annotations this role writes on MachineConfigPools.
+# original-match-expressions: JSON copy of spec.nodeSelector.matchExpressions
+#   taken before the first selector change; the restore reads it back.
+# modified-by: owner of that change, written together with
+#   original-match-expressions. The restore puts back the selector of every
+#   pool carrying this MutexRunConfig's owner value, whoever paused the pool
+#   and whether or not its MutexTarget still exists.
+# paused-by: set when this role pauses a pool; only pools carrying it with this
+#   MutexRunConfig's owner value are ever unpaused by the role.
+# release-labelled-at (canary only): the time (mutexrunconfig_now) of the
+#   latest release label change at the start of a run, written by 04 before
+#   that change while the canary does not yet select on this run's release
+#   value, in a patch that also writes modified-by, and again after those
+#   changes. 05 re-points the pools only once it is
+#   mutexrunconfig_label_settle_seconds old, and never in the reconcile that
+#   wrote it. The re-point of the canary and every restore of a pool that
+#   carries it remove it.
+# restored-at (canary only): '<time> <owner>', written by 08 in the patch that
+#   restores the canary when a node then carries this run's release value.
+#   The release label is removed from the nodes once it is
+#   mutexrunconfig_label_settle_seconds old, and then restored-at too.
+mutexrunconfig_annotation_original_expressions: "openshift-optional.skrzypek.io/original-match-expressions"
+mutexrunconfig_annotation_modified_by: "openshift-optional.skrzypek.io/modified-by"
+mutexrunconfig_annotation_paused_by: "openshift-optional.skrzypek.io/paused-by"
+mutexrunconfig_annotation_release_labelled_at: "openshift-optional.skrzypek.io/release-labelled-at"
+mutexrunconfig_annotation_restored_at: "openshift-optional.skrzypek.io/restored-at"
+
+# Times in these annotations have the format of mutexrunconfig_now, so they
+# compare as strings. A time is settled when it is at or before
+# mutexrunconfig_settled_before, now minus mutexrunconfig_label_settle_seconds.
+# A value that is empty, does not have that format or is later than now counts
+# as just written, and the role writes the time again (04, 08). now() is local time without a zone, which
+# timestamp() reads as local time, so the epoch value is right whatever the
+# time zone of the operator pod.
+mutexrunconfig_time_regex: '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$'
+mutexrunconfig_settled_before: >-
+  {{ '%Y-%m-%dT%H:%M:%SZ' | strftime(second=(now().timestamp() - (mutexrunconfig_label_settle_seconds | int)), utc=true) }}
+
+# Annotations this role writes on target nodes.
+# labelled-by: owner, set together with the mutex labels and removed with
+#   them. The restore removes mutex labels only from nodes carrying this
+#   owner value and from nodes without labelled-by that are target nodes (any
+#   node, when no MutexTarget is left), so MutexRunConfigs that share a
+#   MutexRule or a pool never remove each other's labels from a marked node.
+# released-by: '<owner>|<desired version>', set in the same patch that removes
+#   the node's mutex labels and cleared, together with the release label, once
+#   its cleanup Jobs have completed.
+#   A node carrying it with this owner (for any version) was released by this
+#   run and still needs its cleanup Jobs, also after a failure, an operator
+#   restart or a move of the cluster to a newer version.
+mutexrunconfig_annotation_labelled_by: "openshift-optional.skrzypek.io/labelled-by"
+mutexrunconfig_annotation_released_by: "openshift-optional.skrzypek.io/released-by"
+mutexrunconfig_released_marker: "{{ mutexrunconfig_owner }}|{{ desired_version | default('') }}"
+
+# Label put on every Job the role creates. Its value is a hash of the
+# MutexRunConfig, node, rule, phase and desired version, so a re-entered run
+# finds and reuses a Job it already started instead of starting another one.
+mutexrunconfig_job_key_label: "openshift-optional.skrzypek.io/job-key"
+
+mutexrunconfig_version_label: "machineconfiguration.openshift.io/release-image-version"
+
+# Semantic version as accepted by Ansible's version test (version_type=semver).
+mutexrunconfig_semver_regex: '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(0|[1-9][0-9]*|[0-9]*[a-zA-Z-][a-zA-Z0-9-]*)(\.(0|[1-9][0-9]*|[0-9]*[a-zA-Z-][a-zA-Z0-9-]*))*)?(\+[0-9a-zA-Z-]+(\.[0-9a-zA-Z-]+)*)?$'  # yamllint disable-line rule:line-length
+
+# Builds a label selector string ("k=v,k in (a,b),k notin (c),k,!k") from
+# mutexrunconfig_selector_source, a dict with matchLabels and matchExpressions,
+# which the calling task passes as a task var.
+mutexrunconfig_selector: >-
+  {%- set ns = namespace(parts=[]) -%}
+  {%- for key, value in (mutexrunconfig_selector_source.matchLabels | default({}, true)) | dictsort -%}
+  {%- set ns.parts = ns.parts + [key ~ '=' ~ value] -%}
+  {%- endfor -%}
+  {%- for expression in mutexrunconfig_selector_source.matchExpressions | default([], true) -%}
+  {%- if expression.operator == 'In' -%}
+  {%- set ns.parts = ns.parts + [expression.key ~ ' in (' ~ (expression['values'] | default([], true) | join(',')) ~ ')'] -%}
+  {%- elif expression.operator == 'NotIn' -%}
+  {%- set ns.parts = ns.parts + [expression.key ~ ' notin (' ~ (expression['values'] | default([], true) | join(',')) ~ ')'] -%}
+  {%- elif expression.operator == 'Exists' -%}
+  {%- set ns.parts = ns.parts + [expression.key] -%}
+  {%- elif expression.operator == 'DoesNotExist' -%}
+  {%- set ns.parts = ns.parts + ['!' ~ expression.key] -%}
+  {%- endif -%}
+  {%- endfor -%}
+  {{- ns.parts | join(',') -}}
+
+# Env injected into every container and initContainer of a MutexRule Job,
+# replacing entries with the same names. Rendered per node and rule.
+mutexrunconfig_injected_env_names:
+  - NODE_NAME
+  - MUTEX_RULE
+mutexrunconfig_injected_env:
+  - name: NODE_NAME
+    value: "{{ targetNode }}"
+  - name: MUTEX_RULE
+    value: "{{ mutexrunconfig_rule.name }}"
+
+# nodeAffinity matchExpression added to every nodeSelectorTerm of a MutexRule
+# Job, so its pod never runs on the node that is about to be upgraded.
+mutexrunconfig_node_exclusion:
+  key: kubernetes.io/hostname
+  operator: NotIn
+  values:
+    - "{{ targetNode }}"
+
+# State of the Job last read into mutexrunconfig_job_info:
+# Missing, Failed, Complete or Running.
+mutexrunconfig_job_conditions: >-
+  {{ (mutexrunconfig_job_info.resources | default([]) | first | default({})).status.conditions | default([]) }}
+mutexrunconfig_job_state: >-
+  {{ 'Missing' if (mutexrunconfig_job_info.resources | default([]) | length == 0) else
+     ('Failed' if (mutexrunconfig_job_conditions | selectattr('type', 'equalto', 'Failed')
+                   | selectattr('status', 'equalto', 'True') | list | length > 0) else
+     ('Complete' if (mutexrunconfig_job_conditions | selectattr('type', 'equalto', 'Complete')
+                     | selectattr('status', 'equalto', 'True') | list | length > 0) else
+     'Running')) }}
+
+# Why the node last read into mutexrunconfig_wait_info does not yet count as
+# upgraded (empty once it does). A node is upgraded when its
+# release-image-version label is desired_version, the MCO daemon reports
+# state Done with currentConfig equal to desiredConfig, that config is a
+# rendered config of the canary, and its Ready condition is True. The label
+# alone is not enough: it can appear while MCO is still updating the node or
+# before the node has rebooted. Requiring the canary's config means MCO has
+# moved the released node into the canary and finished there: right after
+# the release patch the node still looks Done on its old config, and a node
+# whose label already shows desired_version (one MCO had already updated)
+# would otherwise pass at once.
+# A rendered MachineConfig of the canary pool: rendered-<canary>-<hash>. The
+# hash has no '-', so a pool whose name starts with the canary's (canary-apps
+# for canary) does not match.
+mutexrunconfig_canary_config_pattern: "{{ '^rendered-' ~ (mutexrunconfig_canary_name | regex_escape) ~ '-[^-]+$' }}"
+mutexrunconfig_wait_node: "{{ mutexrunconfig_wait_info.resources | default([]) | first | default({}) }}"
+mutexrunconfig_wait_annotations: "{{ mutexrunconfig_wait_node.metadata.annotations | default({}, true) }}"
+mutexrunconfig_wait_version: "{{ mutexrunconfig_wait_node.metadata.labels[mutexrunconfig_version_label] | default('') }}"
+mutexrunconfig_wait_state: "{{ mutexrunconfig_wait_annotations['machineconfiguration.openshift.io/state'] | default('') }}"
+mutexrunconfig_wait_current_config: "{{ mutexrunconfig_wait_annotations['machineconfiguration.openshift.io/currentConfig'] | default('') }}"
+mutexrunconfig_wait_desired_config: "{{ mutexrunconfig_wait_annotations['machineconfiguration.openshift.io/desiredConfig'] | default('') }}"
+# (A status of "True" or "False" comes back as a boolean, so it is compared
+# as a string.)
+mutexrunconfig_wait_ready: >-
+  {{ mutexrunconfig_wait_node.status.conditions | default([], true) | selectattr('type', 'equalto', 'Ready')
+     | map(attribute='status') | first | default('missing') }}
+mutexrunconfig_wait_problems: >-
+  {{ ([] if mutexrunconfig_wait_version == desired_version
+      else ["its " ~ mutexrunconfig_version_label ~ " label is '" ~ mutexrunconfig_wait_version ~ "'"])
+     + ([] if mutexrunconfig_wait_current_config is match(mutexrunconfig_canary_config_pattern)
+        else ["its currentConfig '" ~ mutexrunconfig_wait_current_config ~ "' is not a rendered config of the canary "
+              ~ mutexrunconfig_canary_name])
+     + mutexrunconfig_wait_mco_problems }}
+# The same without the version label: MCO has finished whatever update it was
+# applying to the node.
+mutexrunconfig_wait_mco_problems: >-
+  {{ (['the node could not be read: ' ~ (mutexrunconfig_wait_info.msg | default('not found'))]
+      if mutexrunconfig_wait_info.resources | default([]) | length == 0 else [])
+     + ([] if mutexrunconfig_wait_state == 'Done'
+        else ["machineconfiguration.openshift.io/state is '" ~ mutexrunconfig_wait_state ~ "', not 'Done'"])
+     + ([] if mutexrunconfig_wait_current_config == mutexrunconfig_wait_desired_config
+        else ["machineconfiguration.openshift.io/currentConfig '" ~ mutexrunconfig_wait_current_config
+              ~ "' is not its desiredConfig '" ~ mutexrunconfig_wait_desired_config ~ "'"])
+     + ([] if mutexrunconfig_wait_ready | string == 'True' else ["its Ready condition is '" ~ mutexrunconfig_wait_ready ~ "'"]) }}
+
+# Error text for a rescue: the failed task's msg plus the msg of each failed
+# loop item (a looped task only says "One or more items failed").
+mutexrunconfig_failed_msg: >-
+  {{ ([ansible_failed_result.msg | default('')]
+      + (ansible_failed_result.results | default([]) | map(attribute='msg', default='') | list))
+     | select | unique | join(': ') | default('unknown error', true) }}

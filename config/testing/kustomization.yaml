@@ -1,23 +1,37 @@
-# Adds namespace to all resources.
-namespace: osdk-test
-
-namePrefix: osdk-
-
-# Labels to add to all resources and selectors.
-#commonLabels:
-#  someName: someValue
-
-
+# Overlay deployed by the molecule scenarios (molecule/). It is the shipped
+# operator (config/crd, config/rbac, config/manager) with:
+#   - the image name 'testing', which molecule replaces;
+#   - ansible debug logs;
+#   - a toleration for the upstream control-plane taint, so the manager also
+#     schedules on kind and other non-OpenShift clusters;
+#   - metrics served by the manager itself over HTTPS, exactly as in
+#     config/default (manager_metrics_patch.yaml).
+#
+# molecule never edits this directory. It renders a throwaway overlay on top
+# of it in $MOLECULE_EPHEMERAL_DIRECTORY that sets the image, the pull policy
+# and the namespace (see molecule/default/tasks/overlay.yml).
+#
+# The patch from ../default is outside this directory, so build it with
+#   kustomize build --load-restrictor LoadRestrictionsNone config/testing
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
+
+namespace: osdk-test
+namePrefix: osdk-
+
 resources:
-- ../crd
-- ../rbac
-- ../manager
+  - ../crd
+  - ../rbac
+  - ../manager
+
 images:
-- name: testing
-  newName: testing-operator
+  - name: testing
+    newName: testing-operator
+
 patches:
-- path: manager_image.yaml
-- path: debug_logs_patch.yaml
-- path: manager_auth_proxy_patch.yaml
+  - path: manager_image.yaml
+  - path: debug_logs_patch.yaml
+  - path: manager_tolerations_patch.yaml
+  - path: ../default/manager_metrics_patch.yaml
+    target:
+      kind: Deployment

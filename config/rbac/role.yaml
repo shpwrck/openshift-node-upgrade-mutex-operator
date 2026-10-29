@@ -1,91 +1,80 @@
 ---
+# Permissions of the operator's ServiceAccount (CSV clusterPermissions).
+#
+# Least privilege: each rule lists only what the roles in roles/ or
+# ansible-operator itself call. Keep docs/USAGE.md ("Permissions") in sync.
+#
+# get/list/watch on every resource the roles read: ansible-operator serves
+# GET and LIST requests from its informer cache when the operator watches all
+# namespaces (WATCH_NAMESPACE empty), and that cache lists and watches the
+# resource type.
+#
+# The scaffold's "base operator rules" (secrets, pods, pods/exec, pods/log and
+# apps workloads) are gone: nothing in this operator uses them.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: manager-role
 rules:
   ##
-  ## Base operator rules
+  ## Resources the roles act on
   ##
+  # Jobs from MutexRule specs: dry-run create in the mutexrule role, real
+  # create and polling in mutexrunconfig 07-run-job.yml, and a list by the
+  # job-key label to reuse a Job a re-entered run already started. The
+  # operator never deletes, patches or updates a Job.
   - apiGroups:
-      - ""
-    resources:
-      - secrets
-      - pods
-      - pods/exec
-      - pods/log
-    verbs:
-      - create
-      - delete
-      - get
-      - list
-      - patch
-      - update
-      - watch
-  - apiGroups:
-      - apps
-    resources:
-      - deployments
-      - daemonsets
-      - replicasets
-      - statefulsets
-    verbs:
-      - create
-      - delete
-      - get
-      - list
-      - patch
-      - update
-      - watch
-  ##
-  ## Rules added for related resources
-  ##
-  - apiGroups:
-      - "batch"
+      - batch
     resources:
       - jobs
     verbs:
       - create
-      - delete
       - get
       - list
-      - patch
-      - update
       - watch
+  # Nodes: read versions, pool membership, mutex labels, the MCO state,
+  # currentConfig and desiredConfig annotations and the Ready condition;
+  # patch adds and removes the mutexrule.openshift-optional.skrzypek.io/*
+  # labels (the mutex labels and the .../release label) and the
+  # openshift-optional.skrzypek.io/labelled-by and
+  # openshift-optional.skrzypek.io/released-by annotations.
   - apiGroups:
-      - "config.openshift.io"
+      - ""
+    resources:
+      - nodes
+    verbs:
+      - get
+      - list
+      - watch
+      - patch
+  # MachineConfigPools: read selectors, pause state and annotations; patch
+  # sets spec.paused, spec.nodeSelector.matchExpressions and the
+  # openshift-optional.skrzypek.io/paused-by,
+  # openshift-optional.skrzypek.io/original-match-expressions,
+  # openshift-optional.skrzypek.io/modified-by,
+  # openshift-optional.skrzypek.io/release-labelled-at and
+  # openshift-optional.skrzypek.io/restored-at annotations.
+  - apiGroups:
+      - machineconfiguration.openshift.io
+    resources:
+      - machineconfigpools
+    verbs:
+      - get
+      - list
+      - watch
+      - patch
+  # ClusterVersion 'version': status.desired.version and status.history.
+  - apiGroups:
+      - config.openshift.io
     resources:
       - clusterversions
     verbs:
       - get
       - list
       - watch
+  # APIService health gate before a run.
   - apiGroups:
-      - ""
-    resources:
-      - nodes
-    verbs:
-      - create
-      - delete
-      - get
-      - list
-      - patch
-      - update
-      - watch
-  - apiGroups:
-      - "machineconfiguration.openshift.io"
-    resources:
-      - machineconfigpools
-    verbs:
-      - create
-      - delete
-      - get
-      - list
-      - patch
-      - update
-      - watch
-  - apiGroups:
-      - "apiregistration.k8s.io"
+      - apiregistration.k8s.io
     resources:
       - apiservices
     verbs:
@@ -93,54 +82,49 @@ rules:
       - list
       - watch
   ##
-  ## Rules for openshift-optional.skrzypek.io/v1alpha1, Kind: MutexRule
+  ## The operator's own resources
   ##
+  # get/list/watch: ansible-operator watches the CRs and the roles read the
+  # referenced MutexRules and MutexTargets. update/patch: ansible-operator adds
+  # and removes the MutexRunConfig finalizer. The operator never creates or
+  # deletes its CRs.
   - apiGroups:
       - openshift-optional.skrzypek.io
     resources:
       - mutexrules
-      - mutexrules/status
-      - mutexrules/finalizers
-    verbs:
-      - create
-      - delete
-      - get
-      - list
-      - patch
-      - update
-      - watch
-  ##
-  ## Rules for openshift-optional.skrzypek.io/v1alpha1, Kind: MutexTarget
-  ##
-  - apiGroups:
-      - openshift-optional.skrzypek.io
-    resources:
       - mutextargets
-      - mutextargets/status
-      - mutextargets/finalizers
+      - mutexrunconfigs
     verbs:
-      - create
-      - delete
       - get
       - list
-      - patch
-      - update
       - watch
-  ##
-  ## Rules for openshift-optional.skrzypek.io/v1alpha1, Kind: MutexRunConfig
-  ##
+      - update
+      - patch
+  # Status: the roles write it with operator_sdk.util.k8s_status (merge patch,
+  # or a PUT with replace: true), and ansible-operator writes an error status
+  # (PUT) when a reconcile cannot start.
   - apiGroups:
       - openshift-optional.skrzypek.io
     resources:
-      - mutexrunconfigs
+      - mutexrules/status
+      - mutextargets/status
       - mutexrunconfigs/status
+    verbs:
+      - get
+      - update
+      - patch
+  # The OwnerReferencesPermissionEnforcement admission plugin (enabled on
+  # OpenShift) requires update on the owner's finalizers subresource to set an
+  # ownerReference with blockOwnerDeletion: true. The ansible-operator v1.42
+  # proxy owns the Jobs it creates to the MutexRule (dry run) or
+  # MutexRunConfig without blockOwnerDeletion, so this is not exercised
+  # today; it is kept, as in the operator-sdk scaffold, so such references
+  # stay admissible. It grants nothing else.
+  - apiGroups:
+      - openshift-optional.skrzypek.io
+    resources:
+      - mutexrules/finalizers
       - mutexrunconfigs/finalizers
     verbs:
-      - create
-      - delete
-      - get
-      - list
-      - patch
       - update
-      - watch
-#+kubebuilder:scaffold:rules
+# +kubebuilder:scaffold:rules

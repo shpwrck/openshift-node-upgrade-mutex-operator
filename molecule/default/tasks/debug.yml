@@ -1,0 +1,63 @@
+---
+# Prints what is needed to understand a failed verify: the test CRs, pools,
+# ClusterVersion, node labels, Jobs and pods, and the operator log.
+- name: Gather the test CRs, Jobs and pods
+  kubernetes.core.k8s_info:
+    api_version: "{{ item.api_version }}"
+    kind: "{{ item.kind }}"
+    namespace: "{{ item.namespaced | default(true) | ternary(e2e_namespace, omit) }}"
+  loop:
+    - {api_version: "{{ e2e_api_version }}", kind: MutexRule}
+    - {api_version: "{{ e2e_api_version }}", kind: MutexTarget}
+    - {api_version: "{{ e2e_api_version }}", kind: MutexRunConfig}
+    - {api_version: batch/v1, kind: Job}
+    - {api_version: v1, kind: Pod}
+    - {api_version: machineconfiguration.openshift.io/v1, kind: MachineConfigPool, namespaced: false}
+    - {api_version: config.openshift.io/v1, kind: ClusterVersion, namespaced: false}
+    - {api_version: v1, kind: Node, namespaced: false}
+  loop_control:
+    label: "{{ item.kind }}"
+  register: e2e_debug_resources
+  failed_when: false
+
+- name: Show the test CRs, pools and ClusterVersion
+  ansible.builtin.debug:
+    msg: >-
+      {{ item.item.kind }}: {{ item.resources | default([])
+         | map(attribute='metadata.name') | zip(item.resources | default([]) | map(attribute='spec', default={}),
+                                                 item.resources | default([]) | map(attribute='status', default={}),
+                                                 item.resources | default([]) | map(attribute='metadata.annotations', default={})) | list }}
+  loop: >-
+    {{ e2e_debug_resources.results
+       | selectattr('item.kind', 'in', ['MutexRule', 'MutexTarget', 'MutexRunConfig', 'MachineConfigPool', 'ClusterVersion']) }}
+  loop_control:
+    label: "{{ item.item.kind }}"
+
+- name: Show the node labels, Jobs and pods
+  ansible.builtin.debug:
+    msg:
+      nodes: "{{ dict(e2e_nodes | map(attribute='metadata.name') | zip(e2e_nodes | map(attribute='metadata.labels'))) }}"
+      jobs: >-
+        {{ e2e_jobs | map(attribute='metadata.name') | zip(e2e_jobs | map(attribute='metadata.annotations', default={}),
+                                                            e2e_jobs | map(attribute='status', default={})) | list }}
+      pods: >-
+        {{ e2e_pods | map(attribute='metadata.name') | zip(e2e_pods | map(attribute='spec.nodeName', default=''),
+                                                            e2e_pods | map(attribute='status.phase', default='')) | list }}
+  vars:
+    e2e_nodes: "{{ (e2e_debug_resources.results | selectattr('item.kind', 'equalto', 'Node') | first).resources | default([]) }}"
+    e2e_jobs: "{{ (e2e_debug_resources.results | selectattr('item.kind', 'equalto', 'Job') | first).resources | default([]) }}"
+    e2e_pods: "{{ (e2e_debug_resources.results | selectattr('item.kind', 'equalto', 'Pod') | first).resources | default([]) }}"
+
+- name: Read the operator log
+  kubernetes.core.k8s_log:
+    namespace: "{{ e2e_namespace }}"
+    label_selectors:
+      - control-plane=controller-manager
+    container: manager
+    tail_lines: 300
+  register: e2e_operator_log
+  failed_when: false
+
+- name: Show the operator log
+  ansible.builtin.debug:
+    var: e2e_operator_log.log_lines

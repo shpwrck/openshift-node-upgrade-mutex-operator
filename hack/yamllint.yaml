@@ -1,0 +1,24 @@
+# yamllint settings for `make lint` and CI. Relaxed from the default preset
+# where the existing roles and generated manifests do not follow it.
+extends: default
+
+ignore: |
+  bin/
+  bundles/
+  catalog/
+  catalog-template.yaml
+
+rules:
+  document-start: disable
+  line-length:
+    max: 160
+  comments:
+    min-spaces-from-content: 1
+  comments-indentation: disable
+  truthy:
+    allowed-values: ["true", "false", "yes", "no", "True", "False"]
+    check-keys: false
+  # Some role task files mix indentation styles; report, do not fail.
+  indentation:
+    level: warning
+    indent-sequences: whatever

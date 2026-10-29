@@ -1,3 +1,111 @@
+# Publishes each worker's release version as the node label
+# machineconfiguration.openshift.io/release-image-version, which the operator
+# compares with ClusterVersion status.desired.version. It needs the Node
+# Feature Discovery operator with the NodeFeatureDiscovery in
+# nodefeaturediscovery.yaml: a systemd timer runs the script below every
+# minute, the script writes the version into NFD's features.d directory, and
+# nfd-worker turns it into the label.
+#
+# The version comes from /etc/machine-config-daemon/currentconfig, the
+# rendered MachineConfig that MCD expects the node to run. MCD writes that
+# file before it reboots the node into the new config, so the script
+# publishes the version only once the booted OS image is the one the config
+# names (the same check MCD makes after the reboot). The check needs
+# rpm-ostree, so it works on RHCOS nodes. When a release does not change the
+# OS image, the image already matches before the reboot, and the label can
+# change shortly before the node reboots.
+#
+# WARNING: applying (or changing) this MachineConfig rolls out to the whole
+# worker pool: MCO drains and reboots every worker, as many at a time as the
+# pool's maxUnavailable allows. New files and systemd units are not
+# rebootless changes. Apply it in a maintenance window, before using the
+# operator. It keeps the name of the earlier sample, so applying it replaces
+# that one.
+#
+# The data: URL below is this script, base64-encoded, installed as
+# /usr/local/bin/release-image-version-feature.sh:
+#
+#   #!/bin/bash
+#   # Publishes the release version of the rendered MachineConfig this node has
+#   # booted into as a Node Feature Discovery local feature, so nfd-worker labels
+#   # the node machineconfiguration.openshift.io/release-image-version=<version>.
+#   #
+#   # MCD writes currentconfig (and, with on-cluster layering, currentimage)
+#   # before it reboots the node into that config, so the file alone does not
+#   # show that the node runs it. The version is published only when the booted
+#   # OS image is the one these files name, compared as MCD compares them after
+#   # the reboot. Otherwise, or when something cannot be read, the feature file
+#   # is left as it is. Reads the annotation by name (not by position), so extra
+#   # annotations such as os-image-url-overridden do not change the result.
+#   set -euo pipefail
+#
+#   key=machineconfiguration.openshift.io/release-image-version
+#   config=/etc/machine-config-daemon/currentconfig
+#   image_file=/etc/machine-config-daemon/currentimage
+#   dir=/etc/kubernetes/node-feature-discovery/features.d
+#   file="$dir/release-image-version"
+#   # Written by the earlier version of this sample, which could publish a wrong
+#   # or stale value; remove it so only this file sets the label.
+#   legacy="$dir/node-version"
+#
+#   skip() {
+#     echo "$*; leaving $file unchanged" >&2
+#     exit 0
+#   }
+#
+#   # Prints the image of an rpm-ostree container-image-reference without its
+#   # ostree scheme, remote and transport, as MCD does: for example
+#   # ostree-unverified-registry:quay.io/x@sha256:... gives quay.io/x@sha256:...
+#   image_of() {
+#     local scheme=${1%%:*} rest=${1#*:} transport
+#     case $scheme in
+#       ostree-remote-registry | ostree-remote-image) rest=${rest#*:} ;;
+#     esac
+#     case $scheme in
+#       ostree-unverified-registry | ostree-remote-registry) ;;
+#       ostree-image-signed | ostree-unverified-image | ostree-remote-image)
+#         transport=${rest%%:*}
+#         rest=${rest#*:}
+#         if [ "$transport" = docker ]; then
+#           rest=${rest#//}
+#         fi
+#         ;;
+#       *) return 1 ;;
+#     esac
+#     printf '%s\n' "$rest"
+#   }
+#
+#   version=$(jq -r --arg key "$key" '.metadata.annotations[$key] // empty' "$config") ||
+#     skip "cannot read $config"
+#   [ -n "$version" ] || skip "$config has no $key annotation"
+#
+#   # The image MCD checks the booted OS against: currentimage when it is set,
+#   # else the config's osImageURL.
+#   expected=
+#   if [ -s "$image_file" ]; then
+#     expected=$(tr -d '[:space:]' <"$image_file") || skip "cannot read $image_file"
+#   fi
+#   if [ -z "$expected" ]; then
+#     expected=$(jq -r '.spec.osImageURL // empty' "$config") || skip "cannot read $config"
+#   fi
+#   [ -n "$expected" ] || skip "$config has no spec.osImageURL"
+#
+#   ref=$(rpm-ostree status --json |
+#     jq -r 'first(.deployments[] | select(.booted == true)) | .["container-image-reference"] // empty') ||
+#     skip "cannot read the booted deployment from rpm-ostree status"
+#   [ -n "$ref" ] || skip "the booted deployment has no container-image-reference"
+#   booted=$(image_of "$ref") || skip "cannot parse the booted image reference $ref"
+#   [ "$booted" = "$expected" ] ||
+#     skip "the booted OS image $booted is not $expected (release $version)"
+#
+#   rm -f "$legacy"
+#
+#   line="$key=$version"
+#   if [ "$(cat "$file" 2>/dev/null || true)" != "$line" ]; then
+#     mkdir -p "$dir"
+#     printf '%s\n' "$line" > "$file.tmp"
+#     mv -f "$file.tmp" "$file"
+#   fi
 apiVersion: machineconfiguration.openshift.io/v1
 kind: MachineConfig
 metadata:
@@ -5,30 +113,36 @@ metadata:
     machineconfiguration.openshift.io/role: worker
   name: 00-release-image-version
 spec:
-  baseOSExtensionsContainerImage: ""
   config:
     ignition:
-      version: 3.4.0
+      version: 3.2.0
     storage:
       files:
-      - contents:
-          source: data:,%23!%2Fbin%2Fbash%20%20%0A%0Awhile%20true%3B%20do%0A%20%20cat%20%2Fetc%2Fmachine-config-daemon%2Fcurrentconfig%20%7C%20jq%20-c%20%27.metadata.annotations%27%20%7C%20awk%20--field-separator%20%22%2C%7C%7B%7C%7D%7C%3A%7C%5C%22%22%20%27%7Bprint%20%249%22%3D%22%2412%7D%27%20%3E%20%2Fetc%2Fkubernetes%2Fnode-feature-discovery%2Ffeatures.d%2Fnode-version%3B%0A%20%20sleep%201%3B%0Adone
-        mode: 484
-        overwrite: true
-        path: /etc/kubernetes/node-feature-discovery/source.d/node-version.sh
+        - path: /usr/local/bin/release-image-version-feature.sh
+          mode: 493
+          overwrite: true
+          contents:
+            # yamllint disable-line rule:line-length
+            source: data:text/plain;charset=utf-8;base64,IyEvYmluL2Jhc2gKIyBQdWJsaXNoZXMgdGhlIHJlbGVhc2UgdmVyc2lvbiBvZiB0aGUgcmVuZGVyZWQgTWFjaGluZUNvbmZpZyB0aGlzIG5vZGUgaGFzCiMgYm9vdGVkIGludG8gYXMgYSBOb2RlIEZlYXR1cmUgRGlzY292ZXJ5IGxvY2FsIGZlYXR1cmUsIHNvIG5mZC13b3JrZXIgbGFiZWxzCiMgdGhlIG5vZGUgbWFjaGluZWNvbmZpZ3VyYXRpb24ub3BlbnNoaWZ0LmlvL3JlbGVhc2UtaW1hZ2UtdmVyc2lvbj08dmVyc2lvbj4uCiMKIyBNQ0Qgd3JpdGVzIGN1cnJlbnRjb25maWcgKGFuZCwgd2l0aCBvbi1jbHVzdGVyIGxheWVyaW5nLCBjdXJyZW50aW1hZ2UpCiMgYmVmb3JlIGl0IHJlYm9vdHMgdGhlIG5vZGUgaW50byB0aGF0IGNvbmZpZywgc28gdGhlIGZpbGUgYWxvbmUgZG9lcyBub3QKIyBzaG93IHRoYXQgdGhlIG5vZGUgcnVucyBpdC4gVGhlIHZlcnNpb24gaXMgcHVibGlzaGVkIG9ubHkgd2hlbiB0aGUgYm9vdGVkCiMgT1MgaW1hZ2UgaXMgdGhlIG9uZSB0aGVzZSBmaWxlcyBuYW1lLCBjb21wYXJlZCBhcyBNQ0QgY29tcGFyZXMgdGhlbSBhZnRlcgojIHRoZSByZWJvb3QuIE90aGVyd2lzZSwgb3Igd2hlbiBzb21ldGhpbmcgY2Fubm90IGJlIHJlYWQsIHRoZSBmZWF0dXJlIGZpbGUKIyBpcyBsZWZ0IGFzIGl0IGlzLiBSZWFkcyB0aGUgYW5ub3RhdGlvbiBieSBuYW1lIChub3QgYnkgcG9zaXRpb24pLCBzbyBleHRyYQojIGFubm90YXRpb25zIHN1Y2ggYXMgb3MtaW1hZ2UtdXJsLW92ZXJyaWRkZW4gZG8gbm90IGNoYW5nZSB0aGUgcmVzdWx0LgpzZXQgLWV1byBwaXBlZmFpbAoKa2V5PW1hY2hpbmVjb25maWd1cmF0aW9uLm9wZW5zaGlmdC5pby9yZWxlYXNlLWltYWdlLXZlcnNpb24KY29uZmlnPS9ldGMvbWFjaGluZS1jb25maWctZGFlbW9uL2N1cnJlbnRjb25maWcKaW1hZ2VfZmlsZT0vZXRjL21hY2hpbmUtY29uZmlnLWRhZW1vbi9jdXJyZW50aW1hZ2UKZGlyPS9ldGMva3ViZXJuZXRlcy9ub2RlLWZlYXR1cmUtZGlzY292ZXJ5L2ZlYXR1cmVzLmQKZmlsZT0iJGRpci9yZWxlYXNlLWltYWdlLXZlcnNpb24iCiMgV3JpdHRlbiBieSB0aGUgZWFybGllciB2ZXJzaW9uIG9mIHRoaXMgc2FtcGxlLCB3aGljaCBjb3VsZCBwdWJsaXNoIGEgd3JvbmcKIyBvciBzdGFsZSB2YWx1ZTsgcmVtb3ZlIGl0IHNvIG9ubHkgdGhpcyBmaWxlIHNldHMgdGhlIGxhYmVsLgpsZWdhY3k9IiRkaXIvbm9kZS12ZXJzaW9uIgoKc2tpcCgpIHsKICBlY2hvICIkKjsgbGVhdmluZyAkZmlsZSB1bmNoYW5nZWQiID4mMgogIGV4aXQgMAp9CgojIFByaW50cyB0aGUgaW1hZ2Ugb2YgYW4gcnBtLW9zdHJlZSBjb250YWluZXItaW1hZ2UtcmVmZXJlbmNlIHdpdGhvdXQgaXRzCiMgb3N0cmVlIHNjaGVtZSwgcmVtb3RlIGFuZCB0cmFuc3BvcnQsIGFzIE1DRCBkb2VzOiBmb3IgZXhhbXBsZQojIG9zdHJlZS11bnZlcmlmaWVkLXJlZ2lzdHJ5OnF1YXkuaW8veEBzaGEyNTY6Li4uIGdpdmVzIHF1YXkuaW8veEBzaGEyNTY6Li4uCmltYWdlX29mKCkgewogIGxvY2FsIHNjaGVtZT0kezElJToqfSByZXN0PSR7MSMqOn0gdHJhbnNwb3J0CiAgY2FzZSAkc2NoZW1lIGluCiAgICBvc3RyZWUtcmVtb3RlLXJlZ2lzdHJ5IHwgb3N0cmVlLXJlbW90ZS1pbWFnZSkgcmVzdD0ke3Jlc3QjKjp9IDs7CiAgZXNhYwogIGNhc2UgJHNjaGVtZSBpbgogICAgb3N0cmVlLXVudmVyaWZpZWQtcmVnaXN0cnkgfCBvc3RyZWUtcmVtb3RlLXJlZ2lzdHJ5KSA7OwogICAgb3N0cmVlLWltYWdlLXNpZ25lZCB8IG9zdHJlZS11bnZlcmlmaWVkLWltYWdlIHwgb3N0cmVlLXJlbW90ZS1pbWFnZSkKICAgICAgdHJhbnNwb3J0PSR7cmVzdCUlOip9CiAgICAgIHJlc3Q9JHtyZXN0Iyo6fQogICAgICBpZiBbICIkdHJhbnNwb3J0IiA9IGRvY2tlciBdOyB0aGVuCiAgICAgICAgcmVzdD0ke3Jlc3QjLy99CiAgICAgIGZpCiAgICAgIDs7CiAgICAqKSByZXR1cm4gMSA7OwogIGVzYWMKICBwcmludGYgJyVzXG4nICIkcmVzdCIKfQoKdmVyc2lvbj0kKGpxIC1yIC0tYXJnIGtleSAiJGtleSIgJy5tZXRhZGF0YS5hbm5vdGF0aW9uc1ska2V5XSAvLyBlbXB0eScgIiRjb25maWciKSB8fAogIHNraXAgImNhbm5vdCByZWFkICRjb25maWciClsgLW4gIiR2ZXJzaW9uIiBdIHx8IHNraXAgIiRjb25maWcgaGFzIG5vICRrZXkgYW5ub3RhdGlvbiIKCiMgVGhlIGltYWdlIE1DRCBjaGVja3MgdGhlIGJvb3RlZCBPUyBhZ2FpbnN0OiBjdXJyZW50aW1hZ2Ugd2hlbiBpdCBpcyBzZXQsCiMgZWxzZSB0aGUgY29uZmlnJ3Mgb3NJbWFnZVVSTC4KZXhwZWN0ZWQ9CmlmIFsgLXMgIiRpbWFnZV9maWxlIiBdOyB0aGVuCiAgZXhwZWN0ZWQ9JCh0ciAtZCAnWzpzcGFjZTpdJyA8IiRpbWFnZV9maWxlIikgfHwgc2tpcCAiY2Fubm90IHJlYWQgJGltYWdlX2ZpbGUiCmZpCmlmIFsgLXogIiRleHBlY3RlZCIgXTsgdGhlbgogIGV4cGVjdGVkPSQoanEgLXIgJy5zcGVjLm9zSW1hZ2VVUkwgLy8gZW1wdHknICIkY29uZmlnIikgfHwgc2tpcCAiY2Fubm90IHJlYWQgJGNvbmZpZyIKZmkKWyAtbiAiJGV4cGVjdGVkIiBdIHx8IHNraXAgIiRjb25maWcgaGFzIG5vIHNwZWMub3NJbWFnZVVSTCIKCnJlZj0kKHJwbS1vc3RyZWUgc3RhdHVzIC0tanNvbiB8CiAganEgLXIgJ2ZpcnN0KC5kZXBsb3ltZW50c1tdIHwgc2VsZWN0KC5ib290ZWQgPT0gdHJ1ZSkpIHwgLlsiY29udGFpbmVyLWltYWdlLXJlZmVyZW5jZSJdIC8vIGVtcHR5JykgfHwKICBza2lwICJjYW5ub3QgcmVhZCB0aGUgYm9vdGVkIGRlcGxveW1lbnQgZnJvbSBycG0tb3N0cmVlIHN0YXR1cyIKWyAtbiAiJHJlZiIgXSB8fCBza2lwICJ0aGUgYm9vdGVkIGRlcGxveW1lbnQgaGFzIG5vIGNvbnRhaW5lci1pbWFnZS1yZWZlcmVuY2UiCmJvb3RlZD0kKGltYWdlX29mICIkcmVmIikgfHwgc2tpcCAiY2Fubm90IHBhcnNlIHRoZSBib290ZWQgaW1hZ2UgcmVmZXJlbmNlICRyZWYiClsgIiRib290ZWQiID0gIiRleHBlY3RlZCIgXSB8fAogIHNraXAgInRoZSBib290ZWQgT1MgaW1hZ2UgJGJvb3RlZCBpcyBub3QgJGV4cGVjdGVkIChyZWxlYXNlICR2ZXJzaW9uKSIKCnJtIC1mICIkbGVnYWN5IgoKbGluZT0iJGtleT0kdmVyc2lvbiIKaWYgWyAiJChjYXQgIiRmaWxlIiAyPi9kZXYvbnVsbCB8fCB0cnVlKSIgIT0gIiRsaW5lIiBdOyB0aGVuCiAgbWtkaXIgLXAgIiRkaXIiCiAgcHJpbnRmICclc1xuJyAiJGxpbmUiID4gIiRmaWxlLnRtcCIKICBtdiAtZiAiJGZpbGUudG1wIiAiJGZpbGUiCmZpCg==
     systemd:
       units:
-      - contents: |
-          [Unit]
-          Description=Add Node Version
+        - name: release-image-version-feature.service
+          contents: |
+            [Unit]
+            Description=Publish the release-image-version node feature for NFD
 
-          [Service]
-          ExecStart=/bin/bash /etc/kubernetes/node-feature-discovery/source.d/node-version.sh
+            [Service]
+            Type=oneshot
+            ExecStart=/usr/local/bin/release-image-version-feature.sh
+        - name: release-image-version-feature.timer
+          enabled: true
+          contents: |
+            [Unit]
+            Description=Refresh the release-image-version node feature every minute
 
-          [Install]
-          WantedBy=multi-user.target
-        enabled: true
-        name: node-version.service
-  fips: false
-  kernelArguments: null
-  kernelType: ""
+            [Timer]
+            OnBootSec=30s
+            OnUnitActiveSec=60s
+
+            [Install]
+            WantedBy=timers.target

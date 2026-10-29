@@ -1,0 +1,148 @@
+---
+# Runs one MutexRule Job for one node and waits for it to finish.
+# Inputs: targetNode, desired_version, mutexrunconfig_rule (an entry of
+# mutexrunconfig_rules) and mutexrunconfig_job_phase (pre or cleanup).
+#
+# Job contract:
+#   * every container and initContainer gets NODE_NAME (the node being
+#     upgraded) and MUTEX_RULE (the MutexRule name) appended to its env;
+#     user entries with those names are replaced, all other env is kept;
+#   * the pod never runs on the node being upgraded: a
+#     'kubernetes.io/hostname NotIn [<node>]' matchExpression is added to
+#     every nodeSelectorTerm of the user's required nodeAffinity (or a term is
+#     created); podAffinity, podAntiAffinity and preferred terms are kept;
+#   * the Job is created with generateName '<jobName>-' (cleanup:
+#     'cleanup-<jobName>-') in spec.jobNamespace (default: the MutexRule's
+#     namespace) and must reach Complete within the rule's spec.timeoutSeconds
+#     (the CRD defaults it to 3600, so the literal fallback below only covers a
+#     rule read without the default). A Failed condition stops the run at
+#     once.
+#   * the Job carries the job-key label, a hash of MutexRunConfig, node, rule,
+#     phase and desired version. A re-entered run reuses a Job with the same
+#     key that has not failed (waiting for it if it still runs) rather than
+#     starting another.
+- name: Prepare Job
+  ansible.builtin.set_fact:
+    mutexrunconfig_job_template: >-
+      {{ mutexrunconfig_rule.spec.jobSpec if mutexrunconfig_job_phase == 'pre' else mutexrunconfig_rule.spec.cleanUpJobSpec }}
+    mutexrunconfig_job_prefix: >-
+      {{ ('' if mutexrunconfig_job_phase == 'pre' else 'cleanup-') ~ mutexrunconfig_rule.spec.jobName ~ '-' }}
+    mutexrunconfig_job_namespace: "{{ mutexrunconfig_rule.spec.jobNamespace | default(mutexrunconfig_rule.namespace, true) }}"
+    mutexrunconfig_job_key: >-
+      {{ [mutexrunconfig_owner, targetNode, mutexrunconfig_rule.namespace, mutexrunconfig_rule.name,
+          mutexrunconfig_job_phase, desired_version] | join('|') | hash('sha1') }}
+    mutexrunconfig_job_timeout: "{{ mutexrunconfig_rule.spec.timeoutSeconds | default(3600, true) | int }}"
+    mutexrunconfig_job_containers: []
+    mutexrunconfig_job_init_containers: []
+    mutexrunconfig_job_terms: []
+
+- name: Inject NODE_NAME And MUTEX_RULE Into Containers
+  ansible.builtin.set_fact:
+    mutexrunconfig_job_containers: >-
+      {{ mutexrunconfig_job_containers
+         + [item | combine({'env': (item.env | default([], true) | rejectattr('name', 'in', mutexrunconfig_injected_env_names) | list)
+                                    + mutexrunconfig_injected_env})] }}
+  loop: "{{ mutexrunconfig_job_template.template.spec.containers | default([], true) }}"
+  loop_control:
+    label: "{{ item.name | default('') }}"
+
+- name: Inject NODE_NAME And MUTEX_RULE Into Init Containers
+  ansible.builtin.set_fact:
+    mutexrunconfig_job_init_containers: >-
+      {{ mutexrunconfig_job_init_containers
+         + [item | combine({'env': (item.env | default([], true) | rejectattr('name', 'in', mutexrunconfig_injected_env_names) | list)
+                                    + mutexrunconfig_injected_env})] }}
+  loop: "{{ mutexrunconfig_job_template.template.spec.initContainers | default([], true) }}"
+  loop_control:
+    label: "{{ item.name | default('') }}"
+
+- name: Keep The Job Off The Node Being Upgraded
+  ansible.builtin.set_fact:
+    mutexrunconfig_job_terms: >-
+      {{ mutexrunconfig_job_terms
+         + [item | combine({'matchExpressions': (item.matchExpressions | default([], true)) + [mutexrunconfig_node_exclusion]})] }}
+  loop: >-
+    {{ (mutexrunconfig_job_template.template.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms
+        | default([], true)) or [{}] }}
+
+- name: Build Job Spec
+  ansible.builtin.set_fact:
+    mutexrunconfig_job_spec: >-
+      {{ mutexrunconfig_job_template | combine({'template': mutexrunconfig_job_template.template | combine({'spec':
+           mutexrunconfig_pod_spec | combine({'containers': mutexrunconfig_job_containers,
+             'affinity': mutexrunconfig_affinity | combine({'nodeAffinity': mutexrunconfig_node_affinity | combine({
+               'requiredDuringSchedulingIgnoredDuringExecution': mutexrunconfig_required | combine({
+                 'nodeSelectorTerms': mutexrunconfig_job_terms})})})},
+             ({'initContainers': mutexrunconfig_job_init_containers} if mutexrunconfig_job_init_containers | length > 0 else {}))})}) }}
+  vars:
+    mutexrunconfig_pod_spec: "{{ mutexrunconfig_job_template.template.spec }}"
+    mutexrunconfig_affinity: "{{ mutexrunconfig_pod_spec.affinity | default({}, true) }}"
+    mutexrunconfig_node_affinity: "{{ mutexrunconfig_affinity.nodeAffinity | default({}, true) }}"
+    mutexrunconfig_required: "{{ mutexrunconfig_node_affinity.requiredDuringSchedulingIgnoredDuringExecution | default({}, true) }}"
+
+- name: Look For A Job Already Started For This Node, Rule And Version
+  kubernetes.core.k8s_info:
+    api_version: "batch/v1"
+    kind: Job
+    namespace: "{{ mutexrunconfig_job_namespace }}"
+    label_selectors:
+      - "{{ mutexrunconfig_job_key_label }}={{ mutexrunconfig_job_key }}"
+  register: mutexrunconfig_existing_jobs
+
+- name: Pick A Job That Has Not Failed
+  ansible.builtin.set_fact:
+    mutexrunconfig_job_name: >-
+      {{ mutexrunconfig_existing_jobs.resources | map(attribute='metadata.name')
+         | difference(mutexrunconfig_existing_jobs.resources | subelements('status.conditions', skip_missing=True)
+                      | selectattr('1.type', 'equalto', 'Failed') | selectattr('1.status', 'equalto', 'True')
+                      | map(attribute='0.metadata.name') | list)
+         | first | default('') }}
+
+- name: Launch Job
+  kubernetes.core.k8s:
+    api_version: "batch/v1"
+    kind: Job
+    generate_name: "{{ mutexrunconfig_job_prefix }}"
+    namespace: "{{ mutexrunconfig_job_namespace }}"
+    definition:
+      metadata:
+        labels:
+          openshift-optional.skrzypek.io/job-key: "{{ mutexrunconfig_job_key }}"
+        annotations:
+          openshift-optional.skrzypek.io/mutexrunconfig: "{{ mutexrunconfig_owner }}"
+          openshift-optional.skrzypek.io/mutexrule: "{{ mutexrunconfig_rule.namespace }}/{{ mutexrunconfig_rule.name }}"
+          openshift-optional.skrzypek.io/node: "{{ targetNode }}"
+          openshift-optional.skrzypek.io/phase: "{{ mutexrunconfig_job_phase }}"
+          openshift-optional.skrzypek.io/desired-version: "{{ desired_version }}"
+      spec: "{{ mutexrunconfig_job_spec }}"
+    state: present
+  register: mutexrunconfig_job_created
+  when: mutexrunconfig_job_name | length == 0
+
+- name: Remember Job Name
+  ansible.builtin.set_fact:
+    mutexrunconfig_job_name: "{{ mutexrunconfig_job_created.result.metadata.name }}"
+  when: mutexrunconfig_job_created is not skipped
+
+- name: Wait For Job To Complete Or Fail
+  kubernetes.core.k8s_info:
+    api_version: "batch/v1"
+    kind: Job
+    name: "{{ mutexrunconfig_job_name }}"
+    namespace: "{{ mutexrunconfig_job_namespace }}"
+  register: mutexrunconfig_job_info
+  until: mutexrunconfig_job_state != 'Running'
+  retries: "{{ [((mutexrunconfig_job_timeout | int) / ([mutexrunconfig_job_poll_delay | int, 1] | max)) | round(0, 'ceil') | int, 1] | max }}"
+  delay: "{{ mutexrunconfig_job_poll_delay | int }}"
+  failed_when: false
+
+- name: Check Job Result
+  ansible.builtin.fail:
+    msg: >-
+      {{ mutexrunconfig_job_phase }} Job {{ mutexrunconfig_job_namespace }}/{{ mutexrunconfig_job_name }} of MutexRule
+      {{ mutexrunconfig_rule.namespace }}/{{ mutexrunconfig_rule.name }} for node {{ targetNode }}
+      {{ {'Failed': 'failed: ' ~ (mutexrunconfig_job_conditions | selectattr('type', 'equalto', 'Failed')
+                                   | map(attribute='message', default='') | first | default('')),
+          'Missing': 'could not be read: ' ~ (mutexrunconfig_job_info.msg | default('not found')),
+          'Running': 'did not finish within ' ~ mutexrunconfig_job_timeout ~ 's (timeoutSeconds)'}[mutexrunconfig_job_state] }}
+  when: mutexrunconfig_job_state != 'Complete'

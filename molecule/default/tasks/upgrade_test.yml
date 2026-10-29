@@ -1,0 +1,131 @@
+---
+# Fake OpenShift only: a full run of the sample MutexRunConfig.
+# The fake ClusterVersion reports a completed control-plane upgrade to
+# e2e_to_version while the workers still run e2e_from_version. The operator
+# must pause the target pool, label the target nodes, re-point the target
+# pool and the canary to the release label and then, one node at a time, run
+# the pre-upgrade Job off that node, release the node and wait. The test plays
+# the MCO: once a node is released (one patch replaced its mutex label with
+# the release label, so it now belongs to the canary) it sets desiredConfig
+# and state Working, then the release-image-version label to e2e_to_version
+# (and checks that no cleanup Job starts yet), then state Done with
+# currentConfig equal to desiredConfig. The operator then runs the cleanup
+# Job, removes the release label with released-by (the node is back in its
+# paused pool) and moves to the next node, and at the end restores the pools.
+- name: Snapshot the pools before the run
+  ansible.builtin.include_tasks: pools.yml
+  vars:
+    e2e_snapshot: true
+
+- name: Start the upgrade (control plane done, workers behind)
+  ansible.builtin.include_tasks: cluster_version.yml
+  vars:
+    e2e_cv_version: "{{ e2e_to_version }}"
+    e2e_cv_previous: "{{ e2e_from_version }}"
+
+# MCPUpdated=True is written once both selectors are changed, right before
+# the first Job starts.
+- name: Wait for the run to start
+  ansible.builtin.include_tasks: conditions.yml
+  vars:
+    e2e_kind: MutexRunConfig
+    e2e_name: "{{ e2e_runconfig_name }}"
+    e2e_delay: 2
+    e2e_expected:
+      - {type: UpgradeChecked, status: "True", reason: CheckSucceeded}
+      - {type: UpgradeAvailable, status: "True", reason: UpgradeAvailable}
+      - {type: UpgradeReady, status: "True", reason: UpgradeReady}
+      - {type: MutexRulesApplied, status: "True", reason: ApplySucceeded}
+      - {type: MCPUpdated, status: "True", reason: UpdateSucceeded}
+
+- name: Read the pools and nodes during the run
+  ansible.builtin.include_tasks: pools.yml
+
+- name: Check the pools and nodes during the run
+  ansible.builtin.assert:
+    that:
+      - e2e_target.spec.paused | bool
+      - e2e_target_annotations[e2e_annotation_paused_by] | default('') == e2e_owner
+      - e2e_target.spec.nodeSelector.matchExpressions | default([], true)
+        == e2e_target_before_expressions + [dict(key=e2e_release_label, operator='NotIn', values=[e2e_release_value])]
+      - e2e_target_annotations[e2e_annotation_original_expressions] | default('null') | from_json == e2e_target_before_expressions
+      # isCanary is not satisfied by the target nodes, so it is dropped for
+      # the run, and the canary selects only nodes with this run's release
+      # label (kind has no canary nodes of its own).
+      - e2e_canary.spec.nodeSelector.matchExpressions | default([], true) == [dict(key=e2e_release_label, operator='In', values=[e2e_release_value])]
+      - e2e_canary_annotations[e2e_annotation_original_expressions] | default('null') | from_json == e2e_canary_before_expressions
+      - not (e2e_canary.spec.paused | default(false) | bool)
+      # Nodes after the first one keep their labels until it is upgraded.
+      - e2e_target_nodes[1:] | reject('in', e2e_labelled_nodes) | list | length == 0
+      # No node carries the release label yet. Only the first target node
+      # may already have been released (its pre-upgrade Job can finish
+      # before this read), and then without its mutex label.
+      - e2e_released_nodes | reject('equalto', e2e_target_nodes[0]) | list | length == 0
+      - e2e_target_nodes[0] not in e2e_released_nodes or e2e_target_nodes[0] not in e2e_labelled_nodes
+    fail_msg: >-
+      target pool {{ e2e_target | to_json }}; canary {{ e2e_canary | to_json }};
+      labelled nodes {{ e2e_labelled_nodes }}; nodes with {{ e2e_release_label }}: {{ e2e_released_nodes }}
+    success_msg: >-
+      {{ e2e_target_pool }} is paused by {{ e2e_owner }} and selects its nodes without {{ e2e_release_label }}={{ e2e_release_value }};
+      {{ e2e_canary_pool }} selects nodes with it; labelled: {{ e2e_labelled_nodes | join(', ') }}
+  vars:
+    e2e_target: "{{ e2e_pools[e2e_target_pool] }}"
+    e2e_canary: "{{ e2e_pools[e2e_canary_pool] }}"
+    e2e_target_annotations: "{{ e2e_target.metadata.annotations | default({}, true) }}"
+    e2e_canary_annotations: "{{ e2e_canary.metadata.annotations | default({}, true) }}"
+    e2e_target_before_expressions: "{{ e2e_pools_before[e2e_target_pool].spec.nodeSelector.matchExpressions | default([], true) }}"
+    e2e_canary_before_expressions: "{{ e2e_pools_before[e2e_canary_pool].spec.nodeSelector.matchExpressions | default([], true) }}"
+    e2e_labelled_nodes: >-
+      {{ e2e_nodes_now | dict2items | selectattr('value', 'contains', e2e_rule_label) | map(attribute='key') | list }}
+    e2e_released_nodes: >-
+      {{ e2e_nodes_now | dict2items | selectattr('value', 'contains', e2e_release_label) | map(attribute='key') | list }}
+
+- name: Upgrade the target nodes one at a time
+  ansible.builtin.include_tasks: upgrade_node.yml
+  loop: "{{ e2e_target_nodes }}"
+  loop_control:
+    loop_var: e2e_node
+    index_var: e2e_node_index
+
+- name: Wait for the target pool to be unpaused
+  kubernetes.core.k8s_info:
+    api_version: machineconfiguration.openshift.io/v1
+    kind: MachineConfigPool
+    name: "{{ e2e_target_pool }}"
+  register: e2e_target_after
+  until: >-
+    not ((e2e_target_after.resources | first).spec.paused | default(false) | bool)
+    and e2e_annotation_paused_by not in ((e2e_target_after.resources | first).metadata.annotations | default({}, true))
+  retries: "{{ ((e2e_timeout | int) / 3) | int }}"
+  delay: 3
+
+- name: Check that the run restored the pools and labels
+  ansible.builtin.include_tasks: assert_restored.yml
+  vars:
+    e2e_restored_context: after the run
+    e2e_expect_version: "{{ e2e_to_version }}"
+
+- name: Wait for the run's final conditions
+  ansible.builtin.include_tasks: conditions.yml
+  vars:
+    e2e_kind: MutexRunConfig
+    e2e_name: "{{ e2e_runconfig_name }}"
+    e2e_expected:
+      - {type: ConfigValidated, status: "True", reason: FetchSucceeded}
+      - {type: JobRun, status: "True", reason: JobRunSucceeded}
+      - {type: NodeUpgrade, status: "True", reason: NodeUpgradeSucceeded}
+      - {type: MCPUpdated, status: "False", reason: SelectorsRestored}
+      - {type: TargetPoolsPaused, status: "False", reason: NotPaused}
+      - {type: Degraded, status: "False", reason: NoPoolsPaused}
+      # UpgradeFinished at the end of the run; a later reconcile reports
+      # UpgradeUnavailable because every target node is now current.
+      - {type: UpgradeAvailable, status: "False", reasons: [UpgradeFinished, UpgradeUnavailable]}
+      - {type: UpgradeReady, status: "False", reasons: [UpgradeFinished, UpgradeNotReady]}
+
+- name: Check that the last node is reported
+  ansible.builtin.assert:
+    that:
+      - e2e_node_upgrade.message is search(e2e_target_nodes[-1])
+    fail_msg: "NodeUpgrade: {{ e2e_node_upgrade | to_json }}"
+  vars:
+    e2e_node_upgrade: "{{ e2e_cr.resources[0].status.conditions | selectattr('type', 'equalto', 'NodeUpgrade') | first }}"

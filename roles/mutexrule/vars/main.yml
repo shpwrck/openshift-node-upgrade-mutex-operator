@@ -1,2 +1,19 @@
 ---
 # vars file for MutexRule
+
+# RFC 3339 UTC timestamp used for every status condition. It is a lazy
+# template, so each use renders the current time.
+mutexrule_now: "{{ now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') }}"
+
+mutexrule_spec: "{{ _openshift_optional_skrzypek_io_mutexrule_spec }}"
+
+# Jobs run in spec.jobNamespace, or in the MutexRule's own namespace when it
+# is not set (the MutexRunConfig role uses the same default).
+mutexrule_job_namespace: "{{ mutexrule_spec.jobNamespace | default(ansible_operator_meta.namespace, true) }}"
+
+# Error text for a rescue: the failed task's msg plus the msg of each failed
+# loop item.
+mutexrule_failed_msg: >-
+  {{ ([ansible_failed_result.msg | default('')]
+      + (ansible_failed_result.results | default([]) | map(attribute='msg', default='') | list))
+     | select | unique | join(': ') | default('unknown error', true) }}

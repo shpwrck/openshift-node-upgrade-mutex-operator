@@ -1,0 +1,174 @@
+---
+# Fake OpenShift only: the finalizer.
+# 1. Deleting the finished sample MutexRunConfig changes nothing.
+# 2. A run whose pre-upgrade Job fails stops at once and leaves the pools
+#    paused, the nodes labelled and the selectors changed (Degraded=True
+#    PoolsLeftPaused): no node is upgraded without its Job. Deleting that
+#    MutexRunConfig in the middle of the run - the documented way to abort -
+#    unpauses the pools, removes the labels and restores the selectors.
+#
+# The finalizer runs once the reconcile in progress has returned (the
+# operator does not interrupt a running reconcile, and runs one reconcile per
+# kind at a time). A failed Job ends the reconcile quickly, which is why the
+# mid-run deletion is tested on a failed run.
+- name: Snapshot the pools
+  ansible.builtin.include_tasks: pools.yml
+  vars:
+    e2e_snapshot: true
+
+- name: Delete the finished sample MutexRunConfig
+  kubernetes.core.k8s:
+    api_version: "{{ e2e_api_version }}"
+    kind: MutexRunConfig
+    name: "{{ e2e_runconfig_name }}"
+    namespace: "{{ e2e_namespace }}"
+    state: absent
+    wait: true
+    wait_timeout: "{{ e2e_timeout }}"
+
+- name: Check that its finalizer changed nothing
+  ansible.builtin.include_tasks: assert_restored.yml
+  vars:
+    e2e_restored_context: finalizer after a finished run
+    e2e_expect_version: "{{ e2e_to_version }}"
+
+- name: Create a MutexRule whose Job fails
+  kubernetes.core.k8s:
+    state: present
+    namespace: "{{ e2e_namespace }}"
+    definition:
+      apiVersion: "{{ e2e_api_version }}"
+      kind: MutexRule
+      metadata:
+        name: e2e-failing-rule
+      spec:
+        type: kubernetes
+        jobName: failing-step
+        jobSpec:
+          backoffLimit: 0
+          template:
+            metadata:
+              labels:
+                # Lets a simulated kubelet (kwok) fail this pod too.
+                mutex-e2e/expect: failure
+            spec:
+              restartPolicy: Never
+              containers:
+                - name: fail
+                  image: "{{ e2e_sample_rule.spec.jobSpec.template.spec.containers[0].image }}"
+                  command:
+                    - /bin/sh
+                    - -c
+                  args:
+                    - echo "failing on purpose for node $(NODE_NAME)"; exit 1
+                  securityContext: "{{ e2e_sample_rule.spec.jobSpec.template.spec.containers[0].securityContext }}"
+
+- name: Wait for the failing MutexRule to pass the dry run
+  ansible.builtin.include_tasks: conditions.yml
+  vars:
+    e2e_kind: MutexRule
+    e2e_name: e2e-failing-rule
+    e2e_expected:
+      - {type: ValidConfig, status: "True", reason: ValidConfig}
+
+- name: Start another upgrade
+  ansible.builtin.include_tasks: cluster_version.yml
+  vars:
+    e2e_cv_version: "{{ e2e_abort_version }}"
+    e2e_cv_previous: "{{ e2e_to_version }}"
+
+- name: Create a MutexRunConfig with the failing rule
+  kubernetes.core.k8s:
+    state: present
+    namespace: "{{ e2e_namespace }}"
+    definition:
+      apiVersion: "{{ e2e_api_version }}"
+      kind: MutexRunConfig
+      metadata:
+        name: e2e-abort
+      spec:
+        canary:
+          name: "{{ e2e_canary_pool }}"
+        mutexRules:
+          - name: e2e-failing-rule
+        mutexTargets:
+          - name: "{{ e2e_target_name }}"
+
+- name: Wait for the run to stop on the failed Job with the pools left paused
+  ansible.builtin.include_tasks: conditions.yml
+  vars:
+    e2e_kind: MutexRunConfig
+    e2e_name: e2e-abort
+    e2e_expected:
+      - {type: MCPUpdated, status: "True", reason: UpdateSucceeded}
+      - {type: JobRun, status: "False", reason: JobRunFailed}
+      - {type: TargetPoolsPaused, status: "True", reason: Paused}
+      - {type: Degraded, status: "True", reason: PoolsLeftPaused}
+
+- name: Check the failed Job of the first node
+  ansible.builtin.include_tasks: job.yml
+  vars:
+    e2e_node: "{{ e2e_target_nodes[0] }}"
+    e2e_phase: pre
+    e2e_owner: "{{ e2e_namespace }}/e2e-abort"
+    e2e_job_rule: e2e-failing-rule
+    e2e_job_outcome: Failed
+    e2e_job_log_pattern: false
+
+- name: Read the pools and nodes in the middle of the failed run
+  ansible.builtin.include_tasks: pools.yml
+
+- name: Check that the failure left everything held
+  ansible.builtin.assert:
+    that:
+      - e2e_target.spec.paused | bool
+      - e2e_target_annotations[e2e_annotation_paused_by] | default('') == e2e_namespace ~ '/e2e-abort'
+      - e2e_target.spec.nodeSelector.matchExpressions | default([], true)
+        == e2e_target_before_expressions + [dict(key=e2e_release_label, operator='NotIn', values=[e2e_abort_release_value])]
+      - e2e_canary.spec.nodeSelector.matchExpressions | default([], true) == [dict(key=e2e_release_label, operator='In', values=[e2e_abort_release_value])]
+      # Every target node keeps its label and none carries the release
+      # label: none is upgraded without its Job.
+      - e2e_target_nodes | reject('in', e2e_labelled_nodes) | list | length == 0
+      - e2e_target_nodes | select('in', e2e_released_nodes) | list | length == 0
+    fail_msg: >-
+      target pool {{ e2e_target | to_json }}; canary {{ e2e_canary | to_json }}; labelled {{ e2e_labelled_nodes }};
+      with {{ e2e_release_label }}: {{ e2e_released_nodes }}
+    success_msg: "{{ e2e_target_pool }} stays paused, {{ e2e_labelled_nodes | join(', ') }} keep {{ e2e_failing_label }}"
+  vars:
+    e2e_failing_label: "{{ e2e_label_prefix }}e2e-failing-rule.{{ e2e_namespace }}"
+    e2e_abort_release_value: "{{ (e2e_namespace ~ '/e2e-abort') | hash('sha1') }}"
+    e2e_target: "{{ e2e_pools[e2e_target_pool] }}"
+    e2e_canary: "{{ e2e_pools[e2e_canary_pool] }}"
+    e2e_target_annotations: "{{ e2e_target.metadata.annotations | default({}, true) }}"
+    e2e_target_before_expressions: "{{ e2e_pools_before[e2e_target_pool].spec.nodeSelector.matchExpressions | default([], true) }}"
+    e2e_labelled_nodes: >-
+      {{ e2e_nodes_now | dict2items | selectattr('value', 'contains', e2e_failing_label) | map(attribute='key') | list }}
+    e2e_released_nodes: >-
+      {{ e2e_nodes_now | dict2items | selectattr('value', 'contains', e2e_release_label) | map(attribute='key') | list }}
+
+- name: Delete the MutexRunConfig in the middle of the run
+  kubernetes.core.k8s:
+    api_version: "{{ e2e_api_version }}"
+    kind: MutexRunConfig
+    name: e2e-abort
+    namespace: "{{ e2e_namespace }}"
+    state: absent
+    wait: true
+    wait_timeout: "{{ e2e_timeout }}"
+
+# MCO would now upgrade the nodes without their Jobs; nobody plays the MCO
+# here, so they still report the previous version.
+- name: Check that the finalizer unpaused, unlabelled and restored everything
+  ansible.builtin.include_tasks: assert_restored.yml
+  vars:
+    e2e_restored_context: finalizer in the middle of a run
+    e2e_expect_version: "{{ e2e_to_version }}"
+
+- name: Delete the failing MutexRule
+  kubernetes.core.k8s:
+    api_version: "{{ e2e_api_version }}"
+    kind: MutexRule
+    name: e2e-failing-rule
+    namespace: "{{ e2e_namespace }}"
+    state: absent
+    wait: true

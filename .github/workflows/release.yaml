@@ -1,0 +1,105 @@
+---
+# Publish a release when a tag v<MAJOR>.<MINOR>.<PATCH>[-<pre-release>] is
+# pushed. `make release` builds and pushes the operator, bundle and catalog
+# images to ghcr.io/<repository owner> with GITHUB_TOKEN, labelled with this
+# repository, and adds the bundle to the catalog. The updated catalog template
+# and rendered catalog are then pushed to the branch release/<tag>, for a pull
+# request into the default branch. A pre-release (for example v0.3.0-rc1)
+# does not move the :latest tags. The version without its pre-release part
+# must match .envrc. The tag must be on the default branch, with the same
+# .github/workflows: GITHUB_TOKEN cannot push a branch whose workflows differ
+# from the default branch's.
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-24.04
+    permissions:
+      # contents: push the release/<tag> branch; packages: push to ghcr.io.
+      contents: write
+      packages: write
+    env:
+      CONTAINER_TOOL: podman
+      USE_IMAGE_DIGESTS: "true"
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Read the version and the registry
+        run: |
+          tag=$GITHUB_REF_NAME
+          # semver 2.0.0 without build metadata
+          num='(0|[1-9][0-9]*)'
+          pre='(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)'
+          if ! [[ $tag =~ ^v($num\.$num\.$num)(-$pre(\.$pre)*)?$ ]]; then
+            echo "::error::tag $tag is not v<major>.<minor>.<patch>[-<pre-release>] (semver)"
+            exit 1
+          fi
+          base=${BASH_REMATCH[1]}
+          envrc=$(sed -n 's/^export MAJOR=//p' .envrc).$(sed -n 's/^export MINOR=//p' .envrc).$(sed -n 's/^export PATCH=//p' .envrc)
+          if [ "$base" != "$envrc" ]; then
+            echo "::error::tag $tag does not match the version in .envrc ($envrc)"
+            exit 1
+          fi
+          {
+            echo "VERSION=${tag#v}"
+            echo "IMAGE_TAG_BASE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/openshift-node-upgrade-mutex-operator"
+            echo "IMAGE_SOURCE=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+          } >> "$GITHUB_ENV"
+
+      - name: Check that the tag is on the default branch
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          git fetch --no-tags origin "refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
+          if ! git merge-base --is-ancestor HEAD "origin/$DEFAULT_BRANCH"; then
+            echo "::error::$GITHUB_REF_NAME is not on $DEFAULT_BRANCH: tag a commit of $DEFAULT_BRANCH"
+            exit 1
+          fi
+          if ! git diff --quiet HEAD "origin/$DEFAULT_BRANCH" -- .github/workflows; then
+            echo "::error::.github/workflows at $GITHUB_REF_NAME differ from $DEFAULT_BRANCH, so GITHUB_TOKEN could not push release/$GITHUB_REF_NAME"
+            exit 1
+          fi
+          echo "DEFAULT_BRANCH=$DEFAULT_BRANCH" >> "$GITHUB_ENV"
+
+      - name: Log in to ghcr.io
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # podman pushes the images; operator-sdk and opm read the docker login.
+          printf '%s' "$TOKEN" | podman login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          printf '%s' "$TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+
+      - name: Release
+        run: make release
+
+      - name: Push the catalog update
+        run: |
+          branch=release/$GITHUB_REF_NAME
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add catalog-template.yaml catalog/
+          git commit -m "catalog: add $VERSION"
+          # The branch belongs to this workflow: a re-run replaces it.
+          git push --force origin "$branch"
+          {
+            echo "Released $VERSION to $IMAGE_TAG_BASE (-bundle, -catalog)."
+            echo "Open the pull request that commits the catalog update into $DEFAULT_BRANCH:"
+            echo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/compare/$DEFAULT_BRANCH...$branch?expand=1"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -1,4 +1,8 @@
-# permissions to do leader election.
+# Permissions for leader election. ansible-operator v1.42 always uses a
+# coordination.k8s.io Lease (its --leader-elect-resource-lock flag is
+# deprecated and hard-coded to leases), so the scaffold's configmaps rule is
+# not needed. Keep this Role small: with an AllNamespaces install OLM grants
+# these namespaced permissions cluster-wide.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -11,18 +15,6 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: leader-election-role
 rules:
-- apiGroups:
-  - ""
-  resources:
-  - configmaps
-  verbs:
-  - get
-  - list
-  - watch
-  - create
-  - update
-  - patch
-  - delete
 - apiGroups:
   - coordination.k8s.io
   resources:

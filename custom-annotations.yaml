@@ -1,3 +1,6 @@
 annotations:
-    #OpenShift
-    com.redhat.openshift.versions: v4.14
+    # OpenShift: the oldest release this bundle supports, and every later one
+    # (the open-ended "vX.Y" form; a closed range would drop the bundle from
+    # newer catalogs). Keep spec.minKubeVersion in the CSV base at the matching
+    # Kubernetes version (4.16 = 1.29). Raise both when 4.16 leaves support.
+    com.redhat.openshift.versions: v4.16

@@ -1,3 +1,8 @@
+# A MutexRunConfig must be created in the operator's namespace, and so must
+# the MutexRules and MutexTargets it references: leave out 'namespace' on the
+# references and they resolve in this MutexRunConfig's namespace. 'canary' is
+# an existing, unpaused MachineConfigPool whose nodeSelector.matchLabels
+# select the target nodes (see the canary example in the README).
 apiVersion: openshift-optional.skrzypek.io/v1alpha1
 kind: MutexRunConfig
 metadata:
@@ -10,10 +15,8 @@ metadata:
   name: mutexrunconfig-sample
 spec:
   canary:
-    name: canary-example
+    name: canary
   mutexRules:
     - name: mutexrule-sample
-      namespace: node-upgrade-mutex-operator
   mutexTargets:
     - name: mutextarget-sample
-      namespace: node-upgrade-mutex-operator

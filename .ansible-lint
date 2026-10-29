@@ -1,0 +1,19 @@
+---
+# ansible-lint settings for `make lint` and CI.
+exclude_paths:
+  - .github/
+  - bin/
+  - bundles/
+  - catalog/
+  - catalog-template.yaml
+  - config/
+  - molecule/
+  - sample-manifests/
+  - tests/
+
+# Findings that already exist in roles/ are reported as warnings instead of
+# failing the build. Drop an entry once the roles no longer trigger it.
+warn_list:
+  - var-naming[pattern]         # camelCase gate facts (ConfigValidated, JobRun, ...)
+  - var-naming[no-role-prefix]  # version, nodes, desired_version, ...
+  - args[module]                # templated k8s_status condition status

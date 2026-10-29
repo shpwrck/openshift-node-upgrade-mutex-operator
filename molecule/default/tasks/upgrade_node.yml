@@ -1,0 +1,146 @@
+---
+# One target node of the run in upgrade_test.yml (loop var e2e_node).
+- name: "Run the pre-upgrade Job of {{ e2e_node }}"
+  ansible.builtin.include_tasks: job.yml
+  vars:
+    e2e_phase: pre
+    e2e_job_rule: "{{ e2e_rule_name }}"
+
+# The release label with this run's value is what moves the node into the
+# canary pool.
+- name: "Wait for the operator to release to the canary {{ e2e_node }}"
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Node
+    name: "{{ e2e_node }}"
+  register: e2e_released
+  until: ((e2e_released.resources | first).metadata.labels | default({}, true))[e2e_release_label] | default('') == e2e_release_value
+  retries: "{{ ((e2e_timeout | int) / 2) | int }}"
+  delay: 2
+
+# One patch releases the node: the release label never appears without
+# released-by, and never while the mutex label is still there.
+- name: "Check that one patch released {{ e2e_node }}"
+  ansible.builtin.assert:
+    that:
+      - e2e_rule_label not in e2e_released_labels
+      - (e2e_released_annotations[e2e_annotation_prefix ~ 'released-by'] | default('')).startswith(e2e_owner ~ '|')
+    fail_msg: "{{ e2e_node }} carries {{ e2e_release_label }}: labels {{ e2e_released_labels }}; annotations {{ e2e_released_annotations }}"
+  vars:
+    e2e_released_labels: "{{ (e2e_released.resources | first).metadata.labels | default({}, true) }}"
+    e2e_released_annotations: "{{ (e2e_released.resources | first).metadata.annotations | default({}, true) }}"
+
+- name: "List the nodes after releasing {{ e2e_node }}"
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Node
+  register: e2e_after_release
+
+- name: "Check that the later nodes still wait while upgrading {{ e2e_node }}"
+  ansible.builtin.assert:
+    that:
+      - e2e_waiting | difference(e2e_still_labelled) | length == 0
+      - e2e_waiting | intersect(e2e_with_release) | length == 0
+    fail_msg: >-
+      Nodes {{ e2e_waiting }} should still carry {{ e2e_rule_label }} and not {{ e2e_release_label }};
+      labelled: {{ e2e_still_labelled }}; with the release label: {{ e2e_with_release }}
+  vars:
+    e2e_waiting: "{{ e2e_target_nodes[(e2e_node_index | int) + 1 :] }}"
+    e2e_still_labelled: >-
+      {{ e2e_after_release.resources | selectattr('metadata.labels', 'defined')
+         | selectattr('metadata.labels', 'contains', e2e_rule_label) | map(attribute='metadata.name') | list }}
+    e2e_with_release: >-
+      {{ e2e_after_release.resources | selectattr('metadata.labels', 'defined')
+         | selectattr('metadata.labels', 'contains', e2e_release_label) | map(attribute='metadata.name') | list }}
+
+# Playing the MCO: the released node now matches the canary pool, which is
+# unpaused. MCO gives it the canary's rendered config as desiredConfig and its
+# daemon reports state Working while it drains, updates and reboots the node.
+- name: "Start the update as MCO would, on {{ e2e_node }}"
+  kubernetes.core.k8s:
+    api_version: v1
+    kind: Node
+    name: "{{ e2e_node }}"
+    state: patched
+    definition:
+      metadata:
+        annotations: "{{ {e2e_mco_state: 'Working', e2e_mco_desired_config: e2e_canary_rendered_config} }}"
+
+# NFD can publish the new release version before the reboot (the daemon
+# writes the new config to disk first), so the label alone must not let the
+# operator move on.
+- name: "Publish the new version label before MCO is done, as NFD can, on {{ e2e_node }}"
+  kubernetes.core.k8s:
+    api_version: v1
+    kind: Node
+    name: "{{ e2e_node }}"
+    state: patched
+    definition:
+      metadata:
+        labels: "{{ {e2e_version_label: e2e_to_version} }}"
+
+# The operator re-checks a released node every mutexrunconfig_node_upgrade_delay
+# (60 s). Keep it Working with the new label for longer than that, so an
+# operator that trusts the label alone starts its cleanup Job inside the window.
+- name: "Watch for a cleanup Job while MCO is still updating {{ e2e_node }}"
+  kubernetes.core.k8s_info:
+    api_version: batch/v1
+    kind: Job
+    namespace: "{{ e2e_namespace }}"
+  register: e2e_early_jobs
+  until: e2e_early_cleanup | length > 0
+  retries: 35
+  delay: 2
+  failed_when: false
+  vars:
+    e2e_early_cleanup: &e2e_early_cleanup >-
+      {%- set ns = namespace(names=[]) -%}
+      {%- for job in e2e_early_jobs.resources | default([]) -%}
+      {%- set a = job.metadata.annotations | default({}, true) -%}
+      {%- if a[e2e_annotation_prefix ~ 'node'] | default('') == e2e_node
+            and a[e2e_annotation_prefix ~ 'phase'] | default('') == 'cleanup'
+            and a[e2e_annotation_prefix ~ 'mutexrunconfig'] | default('') == e2e_owner -%}
+      {%- set ns.names = ns.names + [job.metadata.name] -%}
+      {%- endif -%}
+      {%- endfor -%}
+      {{ ns.names | join(', ') }}
+
+- name: "Check that no cleanup Job started while MCO is still updating {{ e2e_node }}"
+  ansible.builtin.assert:
+    that:
+      - e2e_early_cleanup | length == 0
+    fail_msg: "Cleanup Job(s) {{ e2e_early_cleanup }} started while MCO still reports {{ e2e_node }} Working"
+  vars:
+    e2e_early_cleanup: *e2e_early_cleanup
+
+# After the reboot the daemon reports the new config as current and state
+# Done. The kind and kwok nodes report Ready themselves.
+- name: "Finish the update as MCO would after the reboot, on {{ e2e_node }}"
+  kubernetes.core.k8s:
+    api_version: v1
+    kind: Node
+    name: "{{ e2e_node }}"
+    state: patched
+    definition:
+      metadata:
+        annotations: "{{ {e2e_mco_state: 'Done', e2e_mco_current_config: e2e_canary_rendered_config} }}"
+
+- name: "Run the cleanup Job of {{ e2e_node }}"
+  ansible.builtin.include_tasks: job.yml
+  vars:
+    e2e_phase: cleanup
+    e2e_job_rule: "{{ e2e_rule_name }}"
+
+# After the cleanup Jobs one patch removes the release label and released-by,
+# so the node goes back to its paused pool.
+- name: "Wait for the operator to return to its paused pool {{ e2e_node }}"
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Node
+    name: "{{ e2e_node }}"
+  register: e2e_returned
+  until: >-
+    e2e_release_label not in ((e2e_returned.resources | first).metadata.labels | default({}, true))
+    and (e2e_annotation_prefix ~ 'released-by') not in ((e2e_returned.resources | first).metadata.annotations | default({}, true))
+  retries: "{{ ((e2e_timeout | int) / 2) | int }}"
+  delay: 2

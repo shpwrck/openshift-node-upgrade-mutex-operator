@@ -1,18 +1,144 @@
 ---
-- name: Create the openshift-optional.skrzypek.io/v1alpha1.MutexRunConfig
-  k8s:
-    state: present
-    namespace: '{{ namespace }}'
-    definition: "{{ lookup('template', '/'.join([samples_dir, cr_file])) | from_yaml }}"
-    wait: yes
-    wait_timeout: 300
-    wait_condition:
-      type: Successful
-      status: "True"
+# MutexRunConfig with no upgrade pending: validation passes, the upgrade
+# check finds nothing to do and nothing in the cluster is changed. On a real
+# cluster this only runs when it cannot start a run: a canary pool exists,
+# ClusterVersion history[0] is Completed for status.desired.version and no
+# target node reports an older version. It is also skipped while the target
+# pool is paused, because a paused target pool sets TargetPoolsPaused=True.
+- name: Snapshot the canary and target pools
+  ansible.builtin.include_tasks: pools.yml
   vars:
-    cr_file: 'openshift-optional_v1alpha1_mutexrunconfig.yaml'
+    e2e_snapshot: true
 
-- name: Add assertions here
-  assert:
-    that: false
-    fail_msg: FIXME Add real assertions for your operator
+- name: Read the ClusterVersion
+  kubernetes.core.k8s_info:
+    api_version: config.openshift.io/v1
+    kind: ClusterVersion
+    name: version
+  register: e2e_cv
+
+- name: Reset the target node versions
+  ansible.builtin.set_fact:
+    e2e_target_versions: []
+
+# Label keys contain dots, so they cannot go through map(attribute=...).
+- name: Collect the target node versions
+  ansible.builtin.set_fact:
+    e2e_target_versions: "{{ e2e_target_versions + [e2e_nodes_now[item][e2e_version_label] | default('')] }}"
+  loop: "{{ e2e_target_nodes }}"
+
+- name: Work out whether the cluster is at rest
+  ansible.builtin.set_fact:
+    e2e_desired: "{{ e2e_cv_status.desired.version | default('') }}"
+    e2e_versions_known: "{{ e2e_target_versions | select('equalto', '') | list | length == 0 }}"
+    e2e_runconfig_safe: >-
+      {{ e2e_pools[e2e_canary_pool] | length > 0
+         and not ((e2e_pools[e2e_target_pool].spec | default({})).paused | default(false) | bool)
+         and (e2e_cv_status.history | default([], true) | first | default({})).state | default('') == 'Completed'
+         and (e2e_cv_status.history | default([], true) | first | default({})).version | default('') == e2e_cv_status.desired.version | default('')
+         and e2e_target_versions | reject('equalto', '') | reject('equalto', e2e_cv_status.desired.version | default('')) | list | length == 0 }}
+  vars:
+    e2e_cv_status: "{{ (e2e_cv.resources | first | default({})).status | default({}) }}"
+
+- name: Explain why the MutexRunConfig checks are skipped
+  ansible.builtin.debug:
+    msg: >-
+      Skipping the MutexRunConfig checks: they need a '{{ e2e_canary_pool }}' MachineConfigPool
+      (see the README), a cluster that is not upgrading and an unpaused
+      '{{ e2e_target_pool }}' pool, otherwise creating the sample would start a real run or
+      report the paused pool.
+  when: not e2e_runconfig_safe | bool
+
+- name: Check a MutexRunConfig with no upgrade pending
+  when: e2e_runconfig_safe | bool
+  block:
+    - name: Create the sample MutexRunConfig
+      kubernetes.core.k8s:
+        state: present
+        namespace: "{{ e2e_namespace }}"
+        definition: >-
+          {{ lookup('ansible.builtin.file', samples_dir ~ '/openshift-optional_v1alpha1_mutexrunconfig.yaml') | from_yaml
+             | combine({'metadata': {'annotations': {'ansible.sdk.operatorframework.io/reconcile-period': e2e_reconcile_period}}},
+                       recursive=true) }}
+
+    - name: Wait for the no-upgrade conditions
+      ansible.builtin.include_tasks: conditions.yml
+      vars:
+        e2e_kind: MutexRunConfig
+        e2e_name: "{{ e2e_runconfig_name }}"
+        e2e_expected: "{{ e2e_common + (e2e_known if e2e_versions_known | bool else e2e_unknown) }}"
+        e2e_common:
+          - {type: ConfigValidated, status: "True", reason: FetchSucceeded}
+          - {type: ClusterStateValidated, status: "True", reason: APIServicesUp}
+          - {type: TargetPoolsPaused, status: "False", reason: NotPaused}
+          - {type: Degraded, status: "False", reason: NoPoolsPaused}
+        e2e_known:
+          - {type: UpgradeChecked, status: "True", reason: CheckSucceeded}
+          - {type: NodeVersionsKnown, status: "True", reason: VersionsKnown}
+          - {type: UpgradeAvailable, status: "False", reason: UpgradeUnavailable}
+          - {type: UpgradeReady, status: "False", reason: UpgradeNotReady}
+        # Fail closed: a target node without a release-image-version label.
+        e2e_unknown:
+          - {type: UpgradeChecked, status: "False", reason: CheckFailed}
+          - {type: NodeVersionsKnown, status: "False", reason: VersionLabelMissing}
+
+    - name: Check that the operator added its finalizer
+      ansible.builtin.assert:
+        that:
+          - e2e_finalizer in (e2e_cr.resources[0].metadata.finalizers | default([]))
+        fail_msg: "metadata.finalizers is {{ e2e_cr.resources[0].metadata.finalizers | default([]) }}"
+
+    - name: Check that nothing was paused, labelled or re-pointed
+      ansible.builtin.include_tasks: assert_restored.yml
+      vars:
+        e2e_restored_context: no upgrade pending
+
+    - name: Create a MutexRunConfig that references a missing MutexRule
+      kubernetes.core.k8s:
+        state: present
+        namespace: "{{ e2e_namespace }}"
+        definition:
+          apiVersion: "{{ e2e_api_version }}"
+          kind: MutexRunConfig
+          metadata:
+            name: e2e-missing-rule
+          spec:
+            canary:
+              name: "{{ e2e_canary_pool }}"
+            mutexRules:
+              - name: e2e-no-such-rule
+            mutexTargets:
+              - name: "{{ e2e_target_name }}"
+
+    - name: Wait for the MutexRunConfig with a missing rule to fail validation
+      ansible.builtin.include_tasks: conditions.yml
+      vars:
+        e2e_kind: MutexRunConfig
+        e2e_name: e2e-missing-rule
+        e2e_expected:
+          - {type: ConfigValidated, status: "False", reason: ValidationFailed}
+          - {type: Degraded, status: "False", reason: NoPoolsPaused}
+
+    - name: Check that the missing rule is named
+      ansible.builtin.assert:
+        that:
+          - e2e_message is search('e2e-no-such-rule was not found')
+        fail_msg: "ConfigValidated message: {{ e2e_message }}"
+      vars:
+        e2e_message: >-
+          {{ (e2e_cr.resources[0].status.conditions | selectattr('type', 'equalto', 'ConfigValidated') | first).message | default('') }}
+
+    - name: Delete the MutexRunConfig with a missing rule (runs its finalizer)
+      kubernetes.core.k8s:
+        api_version: "{{ e2e_api_version }}"
+        kind: MutexRunConfig
+        name: e2e-missing-rule
+        namespace: "{{ e2e_namespace }}"
+        state: absent
+        wait: true
+        wait_timeout: "{{ e2e_timeout }}"
+
+    - name: Check that the failed validation changed nothing
+      ansible.builtin.include_tasks: assert_restored.yml
+      vars:
+        e2e_restored_context: invalid MutexRunConfig

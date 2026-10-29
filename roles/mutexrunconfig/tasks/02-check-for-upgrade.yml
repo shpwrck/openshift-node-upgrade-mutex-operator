@@ -1,4 +1,28 @@
 ---
+# Decides whether a target node is behind the version the cluster is moving to.
+#
+# desired_version is ClusterVersion 'version' status.desired.version, the
+# version the CVO reconciles towards; no release image is pulled and no oc
+# binary is needed. The control plane is done when status.history[0] is
+# Completed for desired_version.
+#
+# spec.skipTLSVerify is still accepted but has no effect any more: it only
+# applied to pulling the release image, which this check no longer does.
+#
+# Fails closed: if any target node has no release-image-version label or a
+# value that is not a semantic version, NodeVersionsKnown=False names the
+# nodes and nothing is paused, labelled or run.
+#
+# A target node that carries this MutexRunConfig's released-by annotation
+# still needs its cleanup Jobs (it was released, then the reconcile stopped).
+# The mark counts for any version, because the cluster may have moved on to a
+# newer one since. It keeps the upgrade available, so the run resumes it,
+# even when no target node is behind any more.
+#
+# A target node whose desiredConfig differs from its currentConfig is being
+# updated by MCO (mutexrunconfig_inflight_nodes). After the nodes this run
+# released, the run waits for it before it touches any other node (see
+# main.yml and 06).
 - name: Upgrade Check Block
   block:
     - name: Gather ClusterVersion Info
@@ -8,13 +32,21 @@
         name: version
       register: version
 
-    - name: Set MCP Facts
+    - name: Fail On Missing ClusterVersion
+      ansible.builtin.fail:
+        msg: ClusterVersion 'version' was not found.
+      when: version.resources | length == 0
+
+    - name: Set ClusterVersion Facts
       ansible.builtin.set_fact:
-        desired_image: "{{ version | community.general.json_query(di_query) }}"
-        version_history: "{{ version | community.general.json_query(vh_query) }}"
-      vars:
-        di_query: 'resources[*].spec.desiredUpdate.image | [0]'
-        vh_query: 'resources[*].status.history[0].state | [0]'
+        desired_version: "{{ version.resources[0].status.desired.version | default('', true) }}"
+        mutexrunconfig_history: "{{ version.resources[0].status.history | default([], true) | first | default({}) }}"
+
+    - name: Check Desired Version
+      ansible.builtin.fail:
+        msg: >-
+          ClusterVersion status.desired.version is '{{ desired_version }}', which is not a semantic version.
+      when: not (desired_version is match(mutexrunconfig_semver_regex))
 
     - name: Gather Node Info
       kubernetes.core.k8s_info:
@@ -22,49 +54,102 @@
         kind: Node
       register: nodes
 
-    - name: Set Node Version Facts
+    - name: Reset Node Facts
       ansible.builtin.set_fact:
-        node_version: "{{ nodes | community.general.json_query(query) }}"
+        mutexrunconfig_node_versions: {}
+        mutexrunconfig_canary_updating_nodes: []
+        mutexrunconfig_released_nodes: []
+        mutexrunconfig_inflight_nodes: []
+
+    # A target node that MCO is already updating through the canary pool (its
+    # desiredConfig is a rendered canary config that differs from its
+    # currentConfig) is left alone by 04: its update has started, so its
+    # pre-upgrade Jobs would come too late. (The mutex labels no longer move
+    # nodes between pools; the release label does.)
+    - name: Collect Target Node Versions
+      ansible.builtin.set_fact:
+        mutexrunconfig_node_versions: >-
+          {{ mutexrunconfig_node_versions | combine({item.metadata.name: mutexrunconfig_labels[mutexrunconfig_version_label] | default('')}) }}
+        mutexrunconfig_canary_updating_nodes: >-
+          {{ mutexrunconfig_canary_updating_nodes
+             + ([item.metadata.name] if (mutexrunconfig_desired_config is match(mutexrunconfig_canary_config_pattern)
+                                         and mutexrunconfig_desired_config != mutexrunconfig_current_config) else []) }}
+        mutexrunconfig_released_nodes: >-
+          {{ mutexrunconfig_released_nodes
+             + ([item.metadata.name] if (mutexrunconfig_annotations[mutexrunconfig_annotation_released_by] | default('')).startswith(mutexrunconfig_owner ~ '|')
+                else []) }}
+        mutexrunconfig_inflight_nodes: >-
+          {{ mutexrunconfig_inflight_nodes
+             + ([item.metadata.name] if mutexrunconfig_desired_config != mutexrunconfig_current_config else []) }}
+      loop: "{{ nodes.resources | selectattr('metadata.name', 'in', targetNodeList) | list }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"
       vars:
-        query: >-
-          resources[?!(metadata.labels."node-role.kubernetes.io/master"=='')].metadata.labels."machineconfiguration.openshift.io/release-image-version"
+        mutexrunconfig_labels: "{{ item.metadata.labels | default({}, true) }}"
+        mutexrunconfig_annotations: "{{ item.metadata.annotations | default({}, true) }}"
+        mutexrunconfig_desired_config: "{{ mutexrunconfig_annotations['machineconfiguration.openshift.io/desiredConfig'] | default('') }}"
+        mutexrunconfig_current_config: "{{ mutexrunconfig_annotations['machineconfiguration.openshift.io/currentConfig'] | default('') }}"
 
-    - name: Get Desired Version from Desired Image
-      ansible.builtin.command:
-        argv:
-          - /usr/bin/oc
-          - adm
-          - release
-          - info
-          - "{{ desired_image }}"
-          - -o
-          - jsonpath={$.metadata.version}
-          - "--insecure={{ _openshift_optional_skrzypek_io_mutexrunconfig_spec.skipTLSVerify | lower }}"
-      register: oc_output
-      changed_when: oc_output.rc == 0
-      failed_when: oc_output.rc != 0
-
-    - name: Set Desired Version
+    # A node this run released still gets its cleanup Jobs first when it is
+    # no longer a target node, for example because its pool was removed from
+    # the MutexTargets during the run.
+    - name: Collect Released Nodes That Are No Longer Targets
       ansible.builtin.set_fact:
-        desired_version: "{{ oc_output.stdout }}"
+        mutexrunconfig_released_nodes: >-
+          {%- set ns = namespace(names=mutexrunconfig_released_nodes) -%}
+          {%- for node in nodes.resources if node.metadata.name not in targetNodeList -%}
+          {%- if ((node.metadata.annotations | default({}, true))[mutexrunconfig_annotation_released_by]
+                  | default('')).startswith(mutexrunconfig_owner ~ '|') -%}
+          {%- set ns.names = ns.names + [node.metadata.name] -%}
+          {%- endif -%}
+          {%- endfor -%}
+          {{ ns.names }}
 
-    - name: Compare 'desired_version' to 'node_version' for each worker node
+    - name: Find Target Nodes Without A Known Version
       ansible.builtin.set_fact:
-        version_skew: "true"
-      loop: "{{ node_version }}"
-      when:
-        - desired_version | length > 0
-        - item is version( desired_version, 'lt', version_type='semver' )
+        mutexrunconfig_unknown_version_nodes: >-
+          {{ targetNodeList | difference(mutexrunconfig_node_versions | dict2items
+             | selectattr('value', 'match', mutexrunconfig_semver_regex) | map(attribute='key') | list) }}
 
-    - name: Determine state of upgrade
+    - name: Report Node Versions Unknown
+      operator_sdk.util.k8s_status:
+        api_version: "openshift-optional.skrzypek.io/v1alpha1"
+        kind: MutexRunConfig
+        name: "{{ ansible_operator_meta.name }}"
+        namespace: "{{ ansible_operator_meta.namespace }}"
+        conditions:
+          - type: NodeVersionsKnown
+            status: "False"
+            reason: VersionLabelMissing
+            message: >-
+              Target node(s) {{ mutexrunconfig_unknown_version_nodes | join(', ') }} do not exist or have no
+              semantic-version {{ mutexrunconfig_version_label }} label, so the operator cannot tell
+              whether they need the upgrade. Nothing is paused, labelled or run until every target
+              node carries the label.
+            lastTransitionTime: "{{ mutexrunconfig_now }}"
+      when: mutexrunconfig_unknown_version_nodes | length > 0
+
+    - name: Stop On Unknown Node Versions
+      ansible.builtin.fail:
+        msg: >-
+          Target node(s) {{ mutexrunconfig_unknown_version_nodes | join(', ') }} have no valid
+          {{ mutexrunconfig_version_label }} label.
+      when: mutexrunconfig_unknown_version_nodes | length > 0
+
+    - name: Compare 'desired_version' to the version of each target node
       ansible.builtin.set_fact:
-        controlplane_ready: "true"
-      when: version_history == "Completed"
+        mutexrunconfig_nodes_behind: >-
+          {{ mutexrunconfig_node_versions | dict2items
+             | selectattr('value', 'version', desired_version, 'lt', version_type='semver')
+             | map(attribute='key') | list }}
+        controlplane_ready: >-
+          {{ (mutexrunconfig_history.state | default('')) == 'Completed'
+             and (mutexrunconfig_history.version | default('')) == desired_version }}
 
     - name: Set Worker Nodes Upgradeable
       ansible.builtin.set_fact:
-        UpgradeAvailable: "{{ version_skew is defined }}"
-        UpgradeReady: "{{ (version_skew is defined and controlplane_ready is defined) | ternary('True', 'False') }}"
+        UpgradeAvailable: "{{ (mutexrunconfig_nodes_behind + mutexrunconfig_released_nodes) | length > 0 }}"
+        UpgradeReady: "{{ (mutexrunconfig_nodes_behind + mutexrunconfig_released_nodes) | length > 0 and controlplane_ready | bool }}"
 
     - name: Report Upgrade Exists
       operator_sdk.util.k8s_status:
@@ -73,11 +158,32 @@
         name: "{{ ansible_operator_meta.name }}"
         namespace: "{{ ansible_operator_meta.namespace }}"
         conditions:
+          - type: NodeVersionsKnown
+            status: "True"
+            reason: VersionsKnown
+            message: Every target node reports a {{ mutexrunconfig_version_label }} label.
+            lastTransitionTime: "{{ mutexrunconfig_now }}"
+          - type: UpgradeAvailable
+            status: "{{ UpgradeAvailable | ternary('True', 'False') }}"
+            reason: "{{ UpgradeAvailable | ternary('UpgradeAvailable', 'UpgradeUnavailable') }}"
+            message: >-
+              {{ ((('Target node(s) ' ~ (mutexrunconfig_nodes_behind | join(', ')) ~ ' are behind ' ~ desired_version ~ '.')
+                   if mutexrunconfig_nodes_behind | length > 0 else '')
+                  ~ ((' Target node(s) ' ~ (mutexrunconfig_released_nodes | join(', ')) ~ ' were released by this'
+                      ~ ' MutexRunConfig and still need their cleanup Jobs.')
+                     if mutexrunconfig_released_nodes | length > 0 else '')) | trim
+                 if UpgradeAvailable else ('All target nodes run ' ~ desired_version ~ '.') }}
+            lastTransitionTime: "{{ mutexrunconfig_now }}"
           - type: UpgradeReady
             status: "{{ UpgradeReady | ternary('True', 'False') }}"
             reason: "{{ UpgradeReady | ternary('UpgradeReady', 'UpgradeNotReady') }}"
-            message: "{{ UpgradeReady | ternary('An upgrade is available', 'An upgrade is not available') }}"
-            lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
+            message: >-
+              {{ 'An upgrade is available' if UpgradeReady
+                 else ('An upgrade is not available' if not UpgradeAvailable
+                       else ('Waiting for the control plane to complete ' ~ desired_version ~ ' (ClusterVersion history[0] is '
+                             ~ (mutexrunconfig_history.state | default('unknown')) ~ ' for '
+                             ~ (mutexrunconfig_history.version | default('unknown')) ~ ')')) }}
+            lastTransitionTime: "{{ mutexrunconfig_now }}"
 
     - name: Report Upgrade Check Success
       operator_sdk.util.k8s_status:
@@ -90,9 +196,20 @@
             status: "True"
             reason: "CheckSucceeded"
             message: Upgrade Check was run successfully.
-            lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
+            lastTransitionTime: "{{ mutexrunconfig_now }}"
+
+    - name: Set Upgrade Check
+      ansible.builtin.set_fact:
+        UpgradabilityChecked: true
 
   rescue:
+    - name: Set Upgrade Check
+      ansible.builtin.set_fact:
+        UpgradabilityChecked: false
+        UpgradeAvailable: false
+        UpgradeReady: false
+        mutexrunconfig_failure: "UpgradeChecked: {{ mutexrunconfig_failed_msg }}"
+
     - name: Report Upgrade Check Failure
       operator_sdk.util.k8s_status:
         api_version: "openshift-optional.skrzypek.io/v1alpha1"
@@ -103,10 +220,5 @@
           - type: UpgradeChecked
             status: "False"
             reason: "CheckFailed"
-            message: Upgrade Check was not run successfully.
-            lastTransitionTime: "{{ lookup('pipe', 'date --rfc-3339 seconds') }}"
-
-  always:
-    - name: Set Upgrade Check
-      ansible.builtin.set_fact:
-        UpgradabilityChecked: "{{ (ansible_failed_result is not defined) | ternary('true', 'false') }}"
+            message: "{{ mutexrunconfig_failed_msg | truncate(1000) }}"
+            lastTransitionTime: "{{ mutexrunconfig_now }}"

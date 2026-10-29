@@ -1,43 +1,60 @@
-Role Name
-=========
+# mutexrunconfig
 
-A brief description of the role goes here.
+Reconciles `MutexRunConfig` resources (`openshift-optional.skrzypek.io/v1alpha1`). ansible-operator runs it for every
+MutexRunConfig event and every 10 minutes (`watches.yaml`). On deletion the `openshift-optional.skrzypek.io/finalizer`
+finalizer runs it once more with `state: absent`. It is not meant to be used outside the operator.
 
-Requirements
-------------
+The user-facing description of the procedure, its conditions and recovery is in `docs/USAGE.md`. This file maps that
+procedure to the task files.
 
-Any pre-requisites that may not be covered by Ansible itself or the role should be mentioned here. For instance,
-if the role uses the EC2 module, it may be a good idea to mention in this section that the boto package is required.
+## Task files
 
-Role Variables
---------------
+| File | Step |
+| --- | --- |
+| `tasks/main.yml` | Namespace check (`Reconciled=False NamespaceNotAllowed` outside `POD_NAMESPACE`), gate facts, finalizer branch, then the steps below. Each gate is set to false at the top of its rescue and to true as the last task of its block. |
+| `00-resolve-references.yml` | Normalises `spec.mutexRules` and `spec.mutexTargets`. A missing `namespace` becomes the MutexRunConfig's namespace. Builds each rule's node label `mutexrule.openshift-optional.skrzypek.io/<rule>.<namespace>`, and the run-time selector expressions on the release label `mutexrule.openshift-optional.skrzypek.io/release`, whose value is the SHA-1 of `<namespace>/<name>`: `In (<value>)` for the canary, `NotIn (<value>)` for the target pools. Also one `<mutex label> DoesNotExist` per rule, for the canary's hold selector (05). |
+| `01-validate.yml` | Read-only checks, reported as `ConfigValidated`: references, label keys, the operator namespace, the rules' `ValidConfig`, the targets' `ValidConfig`/`NodeListGathered`/`status.nodes`, the canary (exists, unpaused, not a target, its `matchLabels` select every target node, and its `matchLabels` and kept `matchExpressions` select no node outside the canary and the target pools, so no node of a non-target `worker` pool either), and that no canary or target pool carries another MutexRunConfig's `paused-by` or `modified-by`. Refuses a canary node (it matches the canary's `matchLabels` and original `matchExpressions` and is not a target node) that carries the release label with another value, and names the `oc label` command that removes it. Collects the canary's own nodes (those nodes, except any node this run holds: this MutexRunConfig's `labelled-by` or one of its mutex labels), which 04 gives the release label; they are not counted as overlap. Refuses a run whose `spec.canary.name` changed while a former canary still carries this MutexRunConfig's `In` expression. During a run, an expression added to the canary's live `matchExpressions` is added to the saved original, and a node without this run's release label in a pool it still re-points or pauses but no longer targets is not counted as overlap. Then the APIService health gate (`ClusterStateValidated`). |
+| `02-check-for-upgrade.yml` | Reads ClusterVersion `version`. The desired version is `status.desired.version`, and the control plane is done when `status.history[0]` is `Completed` for it. Every target node must carry a semver `machineconfiguration.openshift.io/release-image-version` label (`NodeVersionsKnown`). Writes `UpgradeAvailable` (a target node is behind, or still carries this MutexRunConfig's `released-by`, for any version, and needs its cleanup Jobs), `UpgradeReady` (and the control plane is done) and `UpgradeChecked`. |
+| `03-pause-machine-config-pools.yml` | Pauses the target pools that are not paused yet and marks them with `openshift-optional.skrzypek.io/paused-by: <namespace>/<name>`. |
+| `04-apply-mutex-rules-as-labels.yml` | Labels every target node that is behind with one mutex label per rule and annotates it `openshift-optional.skrzypek.io/labelled-by: <namespace>/<name>`, removing any release label in the same patch. Nodes this run already released and nodes MCO is already updating through the canary are skipped. Then the holders (the nodes with this MutexRunConfig's `released-by`, for any version, and the canary's own nodes) get the release label with this MutexRunConfig's value, and every other node loses that value. While the canary does not select on that value yet, a release label change of a canary node or a removal of the value comes only after one patch of the canary that writes `openshift-optional.skrzypek.io/release-labelled-at` (the time), `modified-by` and `original-match-expressions` and, on a canary that still has its own selector, the hold selector: its original `matchExpressions` plus `<mutex label> DoesNotExist` per rule, which keeps the nodes this run holds out of it. A canary that already holds (the hold, or an earlier build's `DoesNotExist` selector) only gets the annotations. Target nodes without this MutexRunConfig's release value are labelled before that patch, and the time is written again after the release label changes. A time that is empty, does not have the format `YYYY-MM-DDTHH:MM:SSZ` or is later than now is written again. |
+| `05-modify-machineconfigpool.yml` | Saves each pool's original `matchExpressions` in `openshift-optional.skrzypek.io/original-match-expressions` and marks the pool `openshift-optional.skrzypek.io/modified-by: <namespace>/<name>`. The canary comes first and gets the expressions every target node satisfies plus `<release label> In (<value>)`. Then the target pools get `<release label> NotIn (<value>)`. The target pools come first only while the canary still has an earlier build's selector: `<mutex label> DoesNotExist` expressions next to expressions (ignoring mutex label keys) that differ from its original ones, which the hold selector of 04 never has. Nothing is re-pointed while the canary does not select on the release value yet and its `release-labelled-at` is less than `mutexrunconfig_label_settle_seconds` old, does not have the time format, or was written in this reconcile: `MCPUpdated=False CanaryMembersLabelled`, 06 does not run, and a later reconcile, normally the next one, re-points. The canary's re-point removes `release-labelled-at`. |
+| `06-execute-jobs.yml` | Runs once per target node, one node at a time: the pre-upgrade Jobs, then one patch that removes the node's mutex labels and `labelled-by`, sets `openshift-optional.skrzypek.io/released-by: <namespace>/<name>\|<version>` and adds the release label, then waiting until the node has finished its upgrade (version label, MCO `state` `Done` with `currentConfig` equal to `desiredConfig` and a rendered config of the canary, `Ready`), then the cleanup Jobs, then one patch that removes `released-by` and the release label, so the node goes back to its paused pool. A node that still carries this MutexRunConfig's `released-by`, for any version, resumes at the wait, so its cleanup Jobs run before the next node; this also covers a released node that is no longer a target. A node MCO is already updating (`desiredConfig` differs from `currentConfig`) comes next: the role first waits until MCO reports it `Done` and `Ready`. Before it takes a node down, the role stops the reconcile if MCO has meanwhile started updating another target node, so the next reconcile waits for that one first. A node that is already upgraded and was not released by this run is skipped. A release removes every mutex label of a node this MutexRunConfig holds, also that of a rule removed from `spec.mutexRules` during the run. |
+| `07-run-job.yml` | Runs one Job: injects `NODE_NAME`/`MUTEX_RULE` and the hostname `NotIn` affinity, reuses a Job with the same `openshift-optional.skrzypek.io/job-key` label, creates it with `generateName`, and polls until it is Complete or Failed or the rule's `timeoutSeconds` (CRD default 3600) runs out. |
+| `08-restore.yml` | Restores the saved selectors of the pools whose `modified-by` names this MutexRunConfig, the canary (and any pool with an `In` expression on the release label) last. A restore also removes `release-labelled-at`, and the canary's restore at the end of a run, when a node still carries this MutexRunConfig's release value, writes `openshift-optional.skrzypek.io/restored-at: <time> <namespace>/<name>`. Removes the release label from every node where it has this MutexRunConfig's value (at the end of a run only in a later pass that restores no selector and finds no `restored-at` of this MutexRunConfig younger than `mutexrunconfig_label_settle_seconds`, and that pass then removes `restored-at`; a `restored-at` of this MutexRunConfig without the time, without the time format or later than now is written again; the finalizer in the same pass, and its `restored-at` after that), removes the mutex labels from the nodes whose `labelled-by` names it and this run's mutex labels from target nodes without any `labelled-by` (a node whose `labelled-by` names another MutexRunConfig is left alone), removes its `labelled-by` and `released-by` annotations, and unpauses only the pools whose `paused-by` names it. It is used at the end of a run and by the finalizer, so it also covers pools and nodes whose MutexTarget is gone. |
+| `09-report.yml` | Writes `TargetPoolsPaused` (pools paused by this MutexRunConfig, and target pools paused by someone else) and `Degraded` (`PoolsLeftPaused` after a failure while such a pool is paused or a pool still carries this run's `modified-by`, else `RunInProgress` or `NoPoolsPaused`). |
 
-A description of the settable variables for this role should go here, including any variables that are in 
-defaults/main.yml, vars/main.yml, and any variables that can/should be set via parameters to the role. Any variables 
-that are read from other roles and/or the global scope (ie. hostvars, group vars, etc.) should be mentioned here as well
+A failure never unpauses a pool. The pools stay paused, `Degraded=True` explains why, and the next reconcile
+retries. Deleting the MutexRunConfig is the way to abort.
 
-Dependencies
-------------
+## Inputs
 
-A list of other roles hosted on Galaxy should go here, plus any details in regards to parameters that may need to be set
-for other roles, or variables that are used from other roles.
+| Variable | Source |
+| --- | --- |
+| `_openshift_optional_skrzypek_io_mutexrunconfig_spec`, `_openshift_optional_skrzypek_io_mutexrunconfig` | The MutexRunConfig spec and full object, passed by ansible-operator. |
+| `ansible_operator_meta.name`, `.namespace` | The MutexRunConfig's name and namespace. |
+| `state` | `absent` when the finalizer runs (`watches.yaml`). |
+| `POD_NAMESPACE` (environment) | The operator's namespace. Unset means every namespace is allowed. |
 
-Example Playbook
-----------------
+### Defaults (`defaults/main.yml`)
 
-Including an example of how to use your role (for instance, with variables passed in as parameters) is always nice for
-users too:
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `mutexrunconfig_node_upgrade_retries` / `_delay` | `120` / `60` | How long to wait (retries × seconds, 2 hours by default) for a released node to finish its upgrade, and for a node MCO was already updating to finish that update. |
+| `mutexrunconfig_job_poll_delay` | `10` | Seconds between Job status polls. |
+| `mutexrunconfig_apiservice_retries` / `_delay` | `3` / `10` | Attempts at the APIService health check, and the delay between them. |
+| `mutexrunconfig_label_settle_seconds` | `300` | How long a selector change that depends on a release label waits after that label changed: the re-point after the canary's own nodes got the label (`release-labelled-at`), and the removal of the label from them after the canary's restore (`restored-at`). MCO's controller reads the nodes again 60-90 seconds after an API outage and renders about 2 minutes later. |
 
-    - hosts: servers
-      roles:
-         - { role: username.rolename, x: 42 }
+No CRD field exposes these. To change them for the whole operator, set them under `vars:` of the MutexRunConfig
+entry in `watches.yaml` and rebuild the image. How long a Job may run is set per MutexRule in `spec.timeoutSeconds`
+(the CRD default is 3600) and cannot be changed for the whole operator.
 
-License
--------
+## Requirements
 
-BSD
+- ansible-core 2.18 or later (the `quay.io/operator-framework/ansible-operator:v1.42.3` base image).
+- Collections `kubernetes.core` and `operator_sdk.util` (see `requirements.yml`). No `oc` binary and no Python
+  libraries beyond those in the base image are needed.
+- API access as listed in `config/rbac/role.yaml`.
 
-Author Information
-------------------
+## License
 
-An optional section for the role authors to include contact information, or a website (HTML is not allowed).
+The repository has no license file yet; see `docs/HANDOFF.md`.

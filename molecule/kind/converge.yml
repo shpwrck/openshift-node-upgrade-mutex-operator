@@ -1,24 +1,51 @@
 ---
-- name: Converge
+- name: Build and load the operator image
   hosts: localhost
   connection: local
-  gather_facts: no
+  gather_facts: false
 
   tasks:
-    - name: Build operator image
-      docker_image:
-        build:
-          path: '{{ project_dir }}'
-          pull: no
-        name: '{{ operator_image }}'
-        tag: latest
-        push: no
-        source: build
-        force_source: yes
+    - name: Pick the kind node provider
+      ansible.builtin.include_tasks: tasks/kind_env.yml
 
-    - name: Load image into kind cluster
-      command: kind load docker-image --name osdk-test '{{ operator_image }}'
-      register: result
-      changed_when: '"not yet present" in result.stdout'
+    # The Dockerfile only pulls public images (quay.io/operator-framework)
+    # and galaxy collections, so no registry login is needed.
+    - name: Build the operator image
+      ansible.builtin.command:
+        argv:
+          - "{{ container_tool }}"
+          - build
+          - --tag
+          - "{{ operator_image }}"
+          - --file
+          - "{{ project_dir }}/Dockerfile"
+          - "{{ project_dir }}"
+      when: operator_build | bool
+      changed_when: true
 
-- import_playbook: ../default/converge.yml
+    # 'kind load docker-image' only works with docker; an archive works with
+    # every builder and node provider.
+    - name: Save the operator image
+      ansible.builtin.command:
+        argv:
+          - "{{ container_tool }}"
+          - save
+          - --output
+          - "{{ image_archive }}"
+          - "{{ operator_image }}"
+      changed_when: true
+
+    - name: Load the operator image into the kind nodes
+      ansible.builtin.command:
+        argv:
+          - "{{ kind }}"
+          - load
+          - image-archive
+          - "{{ image_archive }}"
+          - --name
+          - "{{ kind_cluster_name }}"
+      environment: "{{ e2e_kind_env }}"
+      changed_when: true
+
+- name: Deploy the operator
+  ansible.builtin.import_playbook: ../default/converge.yml
