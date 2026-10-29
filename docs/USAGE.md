@@ -154,8 +154,9 @@ Once the target pools are paused (see the [Safety model](#safety-model) for befo
 * Automated: lint, bundle and catalog validation, and a molecule end-to-end test on kind in CI, which simulates MCO.
 * Live: one small OpenShift 4.21 cluster through three z-stream upgrades, the last two with the design this release
   ships.
-* Not yet tested live: a minor-version upgrade, the low end of 4.16+, a stuck node, the manual restore as written, a
-  full run on a custom pool, and disconnected clusters. Details: [tests/Scenarios.md](../tests/Scenarios.md).
+* Not yet tested live: a minor-version upgrade, the low end of 4.16+, a stuck node, an abort with this design, the
+  manual restore as written, a full run on a custom pool, and disconnected clusters. Details:
+  [tests/Scenarios.md](../tests/Scenarios.md).
 
 ## Safety model
 
@@ -174,9 +175,13 @@ MCO upgrades these nodes **without** Jobs:
 * **Nodes outside the target pools:** the control-plane nodes, the nodes of every pool that is not a target pool, and
   the canary's own nodes, which MCO upgrades in the unpaused canary during the run.
 * **Every target node before the pause** (fail-open): while a check fails (validation, APIServices, version labels,
-  the upgrade check), and for up to 10 minutes until the operator notices the upgrade. See
-  [Check before every upgrade](#check-before-every-upgrade) and
+  the upgrade check), while the operator pod is not running, and for up to 10 minutes until the operator notices the
+  upgrade. See [Check before every upgrade](#check-before-every-upgrade) and
   [Pausing the pools yourself](#pausing-the-pools-yourself).
+* **The target nodes of a second MutexRunConfig** that had not paused its pools when the first one began working
+  through its nodes. MutexRunConfigs are reconciled one at a time, so the second pauses its pools only after that
+  whole run. It can happen when the first reconcile that notices the upgrade already finds the control plane done,
+  for example after the operator was down ([One MutexRunConfig at a time](#one-mutexrunconfig-at-a-time)).
 * **The remaining target nodes after an abort.** A node still released then also misses its cleanup Jobs
   ([Abort a run](#abort-a-run)).
 * **A target node whose version label already shows the new version** ([Trust assumptions](#trust-assumptions)).
@@ -190,7 +195,7 @@ MCO upgrades these nodes **without** Jobs:
 
 ### Check before every upgrade
 
-Before `oc adm upgrade`, every MutexRunConfig must show `ConfigValidated=True` and `NodeVersionsKnown=True`:
+Before `oc adm upgrade`, check every MutexRunConfig:
 
 ```sh
 oc get mutexrunconfig -n node-upgrade-mutex-operator
@@ -198,8 +203,15 @@ oc get mutexrunconfig <name> -n node-upgrade-mutex-operator \
   -o jsonpath='{range .status.conditions[*]}{.type}{"\t"}{.status}{"\t"}{.reason}{"\n"}{end}'
 ```
 
-Expected: `VALIDATED` `True` and `DEGRADED` `False`. In the second list, `ConfigValidated True`,
+Expected: `VALIDATED` `True` and `DEGRADED` `False`, and in the second list `ConfigValidated True`,
 `NodeVersionsKnown True` and `UpgradeChecked True`. If one is not, fix it first, or the upgrade runs without Jobs.
+`UPGRADE` must be `False`: `True` means a run is still in progress, so wait until it ends
+([Residual risks](#residual-risks), first row).
+
+Then check the pools with the pools command in [Commands](#commands): the canary is not paused and has
+`MACHINECOUNT` `0` (or only its own nodes), no pool shows `PAUSED-BY` or `MODIFIED-BY`, and no target pool is paused,
+unless you [paused it yourself](#pausing-the-pools-yourself) on purpose. And check that the canary still renders the
+same MachineConfigs as the target pools (the `diff` in [The canary pool](#the-canary-pool)).
 
 ### Pausing the pools yourself
 
@@ -365,7 +377,9 @@ before it counts a node as upgraded.
 3. **Applying the MachineConfig reboots every node of every pool that renders the worker MachineConfigs, as many at a
    time as each pool's `maxUnavailable` allows. Do it in a maintenance window, before you rely on the operator.**
    Apply [machineconfig.yaml](../sample-manifests/machineconfig.yaml) and wait until `oc get mcp` shows `UPDATED`
-   `True` for every pool.
+   `True` for every pool. Whether MCO drains the nodes for this reboot is not recorded; in the live runs, a
+   MachineConfig that only added files rebooted nodes without evicting their pods
+   ([tests/Scenarios.md](../tests/Scenarios.md)).
 4. Verify: `oc get nodes -L machineconfiguration.openshift.io/release-image-version` shows the cluster's version on
    every target node, within about 2 minutes of each reboot.
 
@@ -684,10 +698,10 @@ included:
 8. One patch removes the release label and `released-by`, so N returns to its paused pool, with no reboot. Then
    `JobRun=True JobRunSucceeded` and `NodeUpgrade=True NodeUpgradeSucceeded` ("Node is i of n").
 
-A restart of the operator after step 4 resumes at step 6. Nodes already at the new version get no Jobs
-(`NodeAlreadyUpgraded`). Deleting the MutexRunConfig does not interrupt a reconcile that is working on a node: it
-finishes that node, cleanup Jobs included, and stops at step 1 of the next. Every reconcile after the delete is the
-finalizer, which runs no Jobs, so a node still released then, for example after a `NodeUpgradeFailed`, gets no
+A restart of the operator after step 4 resumes at step 6, with a new 2-hour wait. Nodes already at the new version
+get no Jobs (`NodeAlreadyUpgraded`). Deleting the MutexRunConfig does not interrupt a reconcile that is working on a
+node: it finishes that node, cleanup Jobs included, and stops at step 1 of the next. Every reconcile after the delete
+is the finalizer, which runs no Jobs, so a node still released then, for example after a `NodeUpgradeFailed`, gets no
 cleanup Jobs.
 
 ### Your Job must
@@ -763,14 +777,10 @@ the target version or the MutexRunConfig: set your own env in each JobSpec, or r
 
 ## Before your first upgrade
 
-1. Run the [check](#check-before-every-upgrade) on every MutexRunConfig.
-2. The pools command in [Commands](#commands): the canary is not paused and has `MACHINECOUNT` `0` (or only its own
-   nodes), no pool shows `PAUSED-BY` or `MODIFIED-BY`, and no target pool is paused, unless you
-   [paused it yourself](#pausing-the-pools-yourself) on purpose.
-3. The canary renders the same MachineConfigs as the target pools (the `diff` in [The canary pool](#the-canary-pool)).
-4. Each MutexRule's Job works against a real node: see [JOBS.md](JOBS.md).
-5. The target pools have room for one node down, plus your Jobs' pods.
-6. Nobody will start a second OpenShift upgrade, scale the target pools, or upgrade the operator during the run.
+1. Run the [check before every upgrade](#check-before-every-upgrade): the MutexRunConfigs, the pools and the canary.
+2. Each MutexRule's Job works against a real node: see [JOBS.md](JOBS.md).
+3. The target pools have room for one node down, plus your Jobs' pods.
+4. Nobody will start a second OpenShift upgrade, scale the target pools, or upgrade the operator during the run.
 
 **Rehearsal.** The only supported rehearsal is a real z-stream upgrade on a non-production cluster that has the same
 kind of pools, canary and MutexRules. Watch it with the commands in [Watching a run](#watching-a-run).
@@ -1002,16 +1012,19 @@ oc get pods -n <namespace> -l job-name=<job> -o wide
 points to scheduling: no other node with room or matching tolerations, or an image that cannot be pulled.
 `ValidConfig=True` does not rule out any of these.
 
-**Fix.** Create the ServiceAccount or RBAC, fix the securityContext, or add tolerations, in the MutexRule. Then
-delete the stuck Job.
+**Fix.** A missing ServiceAccount, RBAC or quota: create or raise it in the job namespace. The Job controller keeps
+trying to create the pods, so the same Job can still finish. A JobSpec problem, such as the securityContext, the
+tolerations or the image: fix it in the MutexRule, then delete the stuck Job, so the retry creates one from the new
+JobSpec.
 
 **What happens next.** As in [A Job did not finish in time](#a-job-did-not-finish-in-time).
 
 ### A Job failed (JobRunFailed)
 
-**What you see.** `Degraded=True`, `JobRun=False JobRunFailed`, and a message with "pre Job ... for node `<node>`
-failed: ..." and the message of the Job's `Failed` condition, for example "Job has reached the specified backoff
-limit".
+**What you see.** `Degraded=True`, `JobRun=False JobRunFailed`, and a message with "`<phase>` Job ... for node
+`<node>` failed: ..." and the message of the Job's `Failed` condition, for example "Job has reached the specified
+backoff limit". After a `pre` Job the node stays held. After a `cleanup` Job it stays released, in the canary, and
+the retry resumes it at the wait, then its cleanup Jobs, before any other node.
 
 **Look closer.** `oc logs job/<job> -n <namespace> --all-containers`, and the Jobs command in
 [Watching a run](#watching-a-run). No logs and a deadline message: see
@@ -1107,18 +1120,26 @@ still released when the finalizer runs, for example after a `NodeUpgradeFailed`,
 yourself if you need them ([Test your Job](JOBS.md#test-your-job-before-an-upgrade) with `phase=cleanup`). With canary
 nodes of its own, see [Residual risks](#residual-risks) (the finalizer's single pass).
 
+An abort has not yet been run with the design this release ships, only rehearsed on an earlier one (S25 in
+[tests/Scenarios.md](../tests/Scenarios.md)).
+
 ### The operator is gone in the middle of a run
 
-**What you see.** No operator pod, or no CSV, while pools are still paused, or a MutexRunConfig stays `Terminating`.
+**What you see.** No operator pod, or no CSV, while pools are still paused, or a MutexRunConfig or the operator
+namespace stays `Terminating`.
 
-**Look closer.** `oc get csv,pods -n node-upgrade-mutex-operator`, and the pools and nodes commands in
-[Commands](#commands): every `PAUSED-BY`, `MODIFIED-BY` and `HELD` value, and `RELEASED` up to its `|`, names a
-MutexRunConfig as `<namespace>/<name>` whose changes are still in place.
+**Look closer.** `oc get namespace node-upgrade-mutex-operator`, `oc get csv,pods -n node-upgrade-mutex-operator`,
+and the pools and nodes commands in [Commands](#commands): every `PAUSED-BY`, `MODIFIED-BY` and `HELD` value, and
+`RELEASED` up to its `|`, names a MutexRunConfig as `<namespace>/<name>` whose changes are still in place.
 
 **Fix.** The simplest fix is to install the operator again in the same namespace, while its CRDs and CRs still exist.
-Install the same version if you can: `oc get installplan -n node-upgrade-mutex-operator` lists the CSVs installed, and
-the Subscription's `spec.startingCSV` picks one. Whether another version can finish a run that a different one
-started is unknown. If none of this is possible, restore by hand.
+Install the same version if you can: `oc get csv,installplan -n node-upgrade-mutex-operator` shows it while either is
+left (an uninstall may have removed both), and the Subscription's `spec.startingCSV` picks it. Whether another version
+can finish a run that a different one started is unknown. If none of this is possible, restore by hand.
+
+A deleted operator namespace stays `Terminating` while a MutexRunConfig in it still has the finalizer
+(`oc get mutexrunconfig -n node-upgrade-mutex-operator` lists it), and nothing can be installed in it. Restore by hand
+each MutexRunConfig there, step 4 included, so the deletion of the namespace can finish.
 
 **What happens next.** A reinstalled operator continues the run, or finishes the delete, at its first reconcile. After
 a restore by hand, MCO upgrades the remaining nodes **without** Jobs once the pools are unpaused.
@@ -1127,19 +1148,35 @@ a restore by hand, MCO upgrades the remaining nodes **without** Jobs once the po
 
 Use these steps when the operator is gone, or to undo a deleted MutexRunConfig that is waiting for another one's run.
 They change only what that MutexRunConfig changed. They need `jq` and `sha1sum` (macOS: `shasum -a 1`). Run them in
-order. Not yet run on a live cluster as written. First set the MutexRunConfig:
+order. Not yet run on a live cluster as written. This lists the MutexRunConfigs, as `<namespace>/<name>`, whose marks
+are still on pools or nodes:
 
 ```sh
-ns=<namespace>   # namespace of the MutexRunConfig
-name=<name>      # its name
-mrc="$ns/$name"
+oc get mcp,nodes -o json | jq -r '.items[].metadata.annotations // {} | to_entries[]
+  | select(.key | test("^nodeupgrade[.]redhat-na-ssa[.]github[.]io/((paused|modified|labelled|released)-by|restored-at)$"))
+  | .value | select(length > 0) | split("|")[0] | split(" ") | last' | sort -u
+```
+
+For each of them, set:
+
+```sh
+mrc=<namespace>/<name>
+ns=${mrc%/*}
+name=${mrc#*/}
 rel=$(printf '%s' "$mrc" | sha1sum | cut -c1-40)   # its value of the release label
 ```
 
-If the MutexRunConfig no longer exists, take `ns` and `name` from a `PAUSED-BY`, `MODIFIED-BY` or `HELD` value, or a
-`RELEASED` value up to its `|`, of the pools and nodes commands in [Commands](#commands), or from a `ConfigValidated`
-message that names a pool in use by a MutexRunConfig that is gone, and leave out step 4. In step 2, set `labels` and
-`targets` this way instead:
+Then set `labels`, the mutex labels of its MutexRules, and `targets`, the nodes of its MutexTargets, for step 2. If the
+MutexRunConfig still exists, also while it is `Terminating`:
+
+```sh
+labels=$(oc get mutexrunconfig "$name" -n "$ns" -o json | jq -c --arg ns "$ns" '[.spec.mutexRules[]
+  | "mutexrule.nodeupgrade.redhat-na-ssa.github.io/\(.name).\(if (.namespace // "") == "" then $ns else .namespace end)"]')
+targets=$(for t in $(oc get mutexrunconfig "$name" -n "$ns" -o json | jq -r '.spec.mutexTargets[].name'); do
+  oc get mutextarget "$t" -n "$ns" --ignore-not-found -o json; done | jq -s -c '[.[].status.nodes[]?]')
+```
+
+If it no longer exists, take the mutex labels from the nodes whose `labelled-by` names it, and leave out step 4:
 
 ```sh
 labels=$(oc get nodes -o json | jq -c --arg mrc "$mrc" '[.items[].metadata
@@ -1149,7 +1186,8 @@ labels=$(oc get nodes -o json | jq -c --arg mrc "$mrc" '[.items[].metadata
 targets='[]'
 ```
 
-To see what a step would change, run its `oc get ... | jq` part on its own.
+`echo "$labels $targets"` must print two JSON lists. To see what a step would change, run its `oc get ... | jq` part
+on its own.
 
 1. **Restore the pool selectors**, so the pools select their nodes as before. The canary, the pool with an `In`
    expression on the release label, comes last, so a released node does not drop into an unpaused `worker` pool:
@@ -1176,12 +1214,6 @@ To see what a step would change, run its `oc get ... | jq` part on its own.
    value, and its `labelled-by` and `released-by` annotations. Another MutexRunConfig's labels and value stay:
 
    ```sh
-   # the mutex label of each MutexRule of the MutexRunConfig
-   labels=$(oc get mutexrunconfig "$name" -n "$ns" -o json | jq -c --arg ns "$ns" '[.spec.mutexRules[]
-     | "mutexrule.nodeupgrade.redhat-na-ssa.github.io/\(.name).\(if (.namespace // "") == "" then $ns else .namespace end)"]')
-   # the nodes of its MutexTargets
-   targets=$(for t in $(oc get mutexrunconfig "$name" -n "$ns" -o json | jq -r '.spec.mutexTargets[].name'); do
-     oc get mutextarget "$t" -n "$ns" --ignore-not-found -o json; done | jq -s -c '[.[].status.nodes[]?]')
    oc get nodes -o json | jq -r --arg mrc "$mrc" --arg rel "$rel" \
        --argjson labels "$labels" --argjson targets "$targets" '
      .items[] | .metadata as $m | ($m.annotations // {}) as $a
@@ -1222,8 +1254,8 @@ To see what a step would change, run its `oc get ... | jq` part on its own.
 
    Verify: `oc get mcp -o yaml | grep -cE "(paused-by|restored-at): (.* )?$mrc$"` prints `0`.
 
-4. **Remove the finalizer** if the operator is uninstalled, so the MutexRunConfig can be deleted. Do this last,
-   because step 2 reads the MutexRunConfig:
+4. **Remove the finalizer** if the operator is uninstalled or its namespace is being deleted, so the MutexRunConfig
+   can be deleted. Do this last:
 
    ```sh
    oc patch mutexrunconfig "$name" -n "$ns" --type=merge -p '{"metadata":{"finalizers":null}}'
@@ -1250,9 +1282,13 @@ of this has been tested.
 
 ## Uninstall
 
-If the operator is already gone, first [restore by hand](#restore-by-hand) for each MutexRunConfig. After an
-`AllNamespaces` install into a shared namespace such as `openshift-operators`, use it instead of
-`node-upgrade-mutex-operator`, and keep it in step 5.
+If the operator is already gone, first [restore by hand](#restore-by-hand) for each MutexRunConfig. Set `ns` to the
+operator namespace. After an `AllNamespaces` install into a shared namespace such as `openshift-operators`, set it to
+that one, and delete only this operator's objects in it:
+
+```sh
+ns=node-upgrade-mutex-operator
+```
 
 1. Make sure no run is active: every MutexRunConfig shows `Upgrade` `False` and `Paused` `False`, and
    `oc get clusterversion` shows no upgrade in progress.
@@ -1272,23 +1308,29 @@ If the operator is already gone, first [restore by hand](#restore-by-hand) for e
    oc delete jobs -A -l nodeupgrade.redhat-na-ssa.github.io/job-key
    ```
 
-4. Delete the Subscription and the CSV:
+4. Delete this operator's Subscription and CSV by name. Never use `--all` here: in a shared namespace it deletes the
+   other operators' Subscriptions and CSVs too. The first command prints the Subscription and its CSV:
 
    ```sh
-   oc delete subscriptions.operators.coreos.com --all -n node-upgrade-mutex-operator
-   oc get csv -n node-upgrade-mutex-operator -o name | grep openshift-node-upgrade-mutex-operator |
-     xargs oc delete -n node-upgrade-mutex-operator
+   oc get subscriptions.operators.coreos.com -n "$ns" \
+     -o jsonpath='{range .items[?(@.spec.name=="openshift-node-upgrade-mutex-operator")]}{.metadata.name}{" "}{.status.installedCSV}{"\n"}{end}'
+   oc delete subscriptions.operators.coreos.com <subscription> -n "$ns"
+   oc delete csv <csv> -n "$ns"
    ```
 
-5. Delete the CRDs, the namespace (with its OperatorGroup), and the CatalogSource if you added one. If a CRD stays
-   `Terminating`, `oc get mutexrunconfig -A` shows the MutexRunConfig that still has the finalizer: restore it by hand,
-   including step 4 there.
+   Without a Subscription, `oc get csv -n "$ns"` shows the CSV, whose name starts with
+   `openshift-node-upgrade-mutex-operator.v`.
+
+5. Delete the CRDs, the CatalogSource if you added one, and, after an `OwnNamespace` install, the operator namespace
+   with its OperatorGroup. Never delete a shared namespace such as `openshift-operators` or its OperatorGroup. If a CRD
+   stays `Terminating`, `oc get mutexrunconfig -A` shows the MutexRunConfig that still has the finalizer: restore it
+   by hand, including step 4 there.
 
    ```sh
    oc delete crd mutexrules.nodeupgrade.redhat-na-ssa.github.io mutextargets.nodeupgrade.redhat-na-ssa.github.io \
      mutexrunconfigs.nodeupgrade.redhat-na-ssa.github.io
-   oc delete namespace node-upgrade-mutex-operator
    oc delete catalogsource node-upgrade-mutex-operator-catalog -n openshift-marketplace
+   oc delete namespace node-upgrade-mutex-operator      # OwnNamespace only
    ```
 
 6. Delete the RBAC you created: the metrics ClusterRoleBinding, if any (see [Metrics](#metrics)); for
@@ -1306,7 +1348,9 @@ If the operator is already gone, first [restore by hand](#restore-by-hand) for e
    removes the version label is unknown; `oc label nodes --all machineconfiguration.openshift.io/release-image-version-`
    does, once NFD is gone.
 10. Check that nothing is left: `oc get nodes,mcp -o yaml | grep -c 'nodeupgrade.redhat-na-ssa.github.io'` prints
-    `0`.
+    `0`. `oc get clusterroles,clusterrolebindings -o name | grep -E 'mutex|nodeupgrade'` lists the bundle's
+    metrics-reader ClusterRole and the roles OLM made for the CRDs if they are still there. Whether OLM removes them
+    is not recorded: delete any that are left.
 
 ## Reference
 
@@ -1318,9 +1362,9 @@ If the operator is already gone, first [restore by hand](#restore-by-hand) for e
 | --- | --- | --- | --- | --- |
 | label `mutexrule.nodeupgrade.redhat-na-ssa.github.io/<rule>.<namespace>` | target node that is behind | `""` | the Label step | the release patch; the restore; the finalizer |
 | annotation `nodeupgrade.redhat-na-ssa.github.io/labelled-by` | target node that is behind | `node-upgrade-mutex-operator/workers` | the Label step, with the mutex labels | with the mutex labels |
-| label `mutexrule.nodeupgrade.redhat-na-ssa.github.io/release` | released node | `<value>` | the release patch | the patch after its cleanup Jobs; the restore; the finalizer |
+| label `mutexrule.nodeupgrade.redhat-na-ssa.github.io/release` | released node | `<value>` | the release patch | the patch after its cleanup Jobs; the finalizer |
 | annotation `nodeupgrade.redhat-na-ssa.github.io/released-by` | released node | see below | the release patch | with the release label |
-| label `mutexrule.nodeupgrade.redhat-na-ssa.github.io/release` | the canary's own nodes | `<value>` | the Label step, at the start of a run | a reconcile after the settle time following the restore; the finalizer |
+| label `mutexrule.nodeupgrade.redhat-na-ssa.github.io/release` | the canary's own nodes | `<value>` | the Label step, at the start of a run | the Label step, from a node that has left the canary; a reconcile after the settle time following the restore; the finalizer |
 | annotation `nodeupgrade.redhat-na-ssa.github.io/paused-by` | target pool the run paused | `node-upgrade-mutex-operator/workers` | the Pause step, with `spec.paused: true` | the restore and the finalizer, which unpause the pool |
 | annotation `nodeupgrade.redhat-na-ssa.github.io/original-match-expressions` | target pools and canary | JSON of the original `matchExpressions` | the first selector change | the restore and the finalizer, which put the list back |
 | annotation `nodeupgrade.redhat-na-ssa.github.io/modified-by` | target pools and canary | `node-upgrade-mutex-operator/workers` | with `original-match-expressions` | with it |
@@ -1336,7 +1380,8 @@ During a run the target pools' `matchExpressions` get `mutexrule.nodeupgrade.red
 (<value>)`, and the canary's get its kept expressions plus `... release In (<value>)`. Before the re-point, a canary
 with nodes of its own has its own expressions plus one `<mutex label> DoesNotExist` per MutexRule. `matchLabels` are
 never changed. A pool an administrator paused is not annotated with `paused-by` and is never unpaused. Marks of
-another MutexRunConfig are left alone.
+another MutexRunConfig are left alone, with one exception: the Label step's patch of a target node that is behind
+removes any release label from it, whatever its value.
 
 ### Conditions
 
@@ -1402,8 +1447,8 @@ reports `ValidConfig`, `NodeListGathered` and `status.nodes`. During a run it us
 
 **MutexRunConfig:** each step lists the condition it writes and when it runs.
 
-1. **Namespace.** Outside the operator namespace: `Reconciled=False NamespaceNotAllowed`, and nothing else, also on
-   delete.
+1. **Namespace.** Outside the operator namespace: `Reconciled=False NamespaceNotAllowed`, and nothing else. On
+   delete, not even that condition is written: nothing is restored, and the finalizer goes.
 2. **Resolve references.** Default the reference namespaces; build the label keys and the release value. Always.
 3. **Finalize.** Only when the MutexRunConfig is being deleted: read the MutexTargets still present, run the Restore
    (step 10), and stop. No validation and no Jobs.
@@ -1487,7 +1532,8 @@ reconciled: their periodic reconciles, retries and finalizers wait, and their st
 MutexTargets have workers of their own and are not held up. In practice:
 
 * Several MutexRunConfigs upgrade their nodes one after another, so plan for the sum of their runs. One that has
-  already paused its pools keeps them paused while it waits.
+  already paused its pools keeps them paused while it waits. One that has not, does not protect its nodes until that
+  run ends ([When it does not protect you](#when-it-does-not-protect-you)).
 * A MutexRunConfig created or changed during another one's run is validated, and pauses its pools, only after that run.
 * Deleting a MutexRunConfig while another one works through its nodes takes effect only after that whole run. To
   abort sooner, [restore by hand](#restore-by-hand).

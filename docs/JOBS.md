@@ -72,15 +72,15 @@ In words, once the control plane has finished its upgrade and the pools are re-p
 8. One patch removes the release label and `released-by`. The node goes back to its paused pool without a reboot, and
    the next node's turn begins.
 
-If the operator restarts after step 4, it resumes the node at step 6. If the MutexRunConfig is deleted, the reconcile
-that is working on a node still finishes it, with its cleanup Jobs, and step 1 of the next node stops the run. The
-finalizer that then restores the pools runs no Jobs: a node that is still released at that point, for example after
-its upgrade wait timed out in an earlier reconcile, gets no cleanup Jobs. A node that already runs the new version
-gets no Jobs.
+If the operator restarts after step 4, it resumes the node at step 6, with a new 2-hour wait. If the MutexRunConfig is
+deleted, the reconcile that is working on a node still finishes it, with its cleanup Jobs, and step 1 of the next node
+stops the run. The finalizer that then restores the pools runs no Jobs: a node that is still released at that point,
+for example after its upgrade wait timed out in an earlier reconcile, gets no cleanup Jobs. A node that already runs
+the new version gets no Jobs.
 
 | What | When | Where it is set |
 | --- | --- | --- |
-| The operator notices the upgrade and pauses the target pools | at its next reconcile, at most 10 minutes after the upgrade starts, unless another MutexRunConfig is working through its nodes | `reconcilePeriod` in `watches.yaml` |
+| The operator notices the upgrade and pauses the target pools | at its next reconcile, at most 10 minutes after the upgrade starts, unless another MutexRunConfig is working through its nodes: then only after that run, and MCO can upgrade these nodes without Jobs meanwhile ([When it does not protect you](USAGE.md#when-it-does-not-protect-you)) | `reconcilePeriod` in `watches.yaml` |
 | The first node's pre-upgrade Jobs start | at the first reconcile after the control plane has finished (ClusterVersion `status.history[0]` is `Completed` for the new version), normally within 10 minutes; when the canary has nodes of its own, also at least 5 minutes after they were labelled | `roles/mutexrunconfig` |
 | Each Job is checked | every 10 seconds, for up to `timeoutSeconds` (default 3600) per attempt | `mutexrunconfig_job_poll_delay`, the MutexRule |
 | The node's upgrade is checked | every 60 seconds, at most 120 times (2 hours) | `mutexrunconfig_node_upgrade_delay`, `_retries` |
@@ -464,12 +464,13 @@ not your Job. The user guide has a runbook for each case: [A Job failed](USAGE.m
 
 **Fix and retry:**
 
-1. Fix the cause. If something is missing, such as the ServiceAccount or a RoleBinding, create it: the Job controller
-   keeps trying to create the pods, so the same Job can still finish. If the JobSpec is wrong, the cluster
-   administrator edits the MutexRule and checks that it reports `ValidConfig` `True` again.
-2. If the Job has not failed (it still runs, or it is `Complete` but did the wrong thing), delete it:
-   `oc delete job <job> -n <jobNamespace>`. Otherwise the retry re-uses it. A failed Job can stay: the retry starts a
-   new one from the current MutexRule.
+1. Fix the cause. If something is missing in `jobNamespace`, such as the ServiceAccount, a RoleBinding or quota,
+   create or raise it: the Job controller keeps trying to create the pods, so the same Job can still finish. If the
+   JobSpec is wrong (for example its securityContext, tolerations or image), the cluster administrator edits the
+   MutexRule and checks that it reports `ValidConfig` `True` again.
+2. Delete a Job that has not failed but must not be re-used: it hangs, its pods cannot start with the old JobSpec, or
+   it is `Complete` but did the wrong thing: `oc delete job <job> -n <jobNamespace>`. Otherwise the retry re-uses it,
+   also after a MutexRule edit. A failed Job can stay: the retry starts a new one from the current MutexRule.
 3. Wait for the retry, at most about 17 minutes, or start it now (see [Retry now](USAGE.md#retry-now)). Editing the
    MutexRule does not start one.
 

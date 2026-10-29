@@ -68,7 +68,8 @@ custom pools. Apply one file at a time, in the order below, and check each step 
    oc get pods -n node-upgrade-mutex-operator -o wide
    ```
 
-   Expected: the CSV's `PHASE` is `Succeeded`, and the operator pod runs on a control-plane node.
+   Expected: the CSV's `PHASE` is `Succeeded`, and the operator pod runs on a control-plane node. No InstallPlan
+   appears while the catalog has no release yet (step 4).
 
 6. Create the MutexRule `label-node`, with its ServiceAccount and RBAC:
 
