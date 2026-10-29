@@ -2,13 +2,14 @@
 # Publish a release when a tag v<MAJOR>.<MINOR>.<PATCH>[-<pre-release>] is
 # pushed. `make release` builds and pushes the operator, bundle and catalog
 # images to ghcr.io/<repository owner> with GITHUB_TOKEN, labelled with this
-# repository, and adds the bundle to the catalog. The updated catalog template
-# and rendered catalog are then pushed to the branch release/<tag>, for a pull
-# request into the default branch. A pre-release (for example v0.3.0-rc1)
-# does not move the :latest tags. The version without its pre-release part
-# must match .envrc. The tag must be on the default branch, with the same
-# .github/workflows: GITHUB_TOKEN cannot push a branch whose workflows differ
-# from the default branch's.
+# repository, and adds the bundle to the catalog. The bundle's CSV description
+# links to this repository at the tag (REPO_URL and BUNDLE_DOCS_REF in the
+# Makefile). The updated catalog template and rendered catalog are then pushed
+# to the branch release/<tag>, for a pull request into the default branch.
+# A pre-release (for example v0.3.0-rc2) does not move the :latest tags. The
+# version without its pre-release part must match .envrc. The tag must be on
+# the default branch, with the same .github/workflows: GITHUB_TOKEN cannot
+# push a branch whose workflows differ from the default branch's.
 name: Release
 
 on:
@@ -60,6 +61,7 @@ jobs:
             echo "VERSION=${tag#v}"
             echo "IMAGE_TAG_BASE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/openshift-node-upgrade-mutex-operator"
             echo "IMAGE_SOURCE=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+            echo "REPO_URL=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
           } >> "$GITHUB_ENV"
 
       - name: Check that the tag is on the default branch

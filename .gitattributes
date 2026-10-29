@@ -1,0 +1,7 @@
+# Generated files: GitHub collapses their diffs in pull requests and leaves them
+# out of the language statistics. Review their sources instead.
+# docs/diagrams/*.svg: `make diagrams` renders them from docs/diagrams/*.mmd.
+# /README.md: `make document` writes it from docs/USAGE.md and docs/DEVELOPMENT.md.
+# The leading slash keeps the hand-written roles/*/README.md and molecule/README.md out.
+docs/diagrams/*.svg linguist-generated=true
+/README.md linguist-generated=true
