@@ -262,7 +262,7 @@ Anyone who can create or edit MutexRules, MutexTargets or MutexRunConfigs **in t
 MachineConfigPools, relabel nodes, and run Jobs in any namespace with any ServiceAccount there. Treat write access to
 that namespace as cluster-admin. OLM creates `admin`, `edit` and `view` aggregated roles for these CRDs, so every user
 with `admin` or `edit` in the operator namespace has that access. CRs in other namespaces are not acted on for this
-reason, but see [Templated CR values](#templated-cr-values) for an `AllNamespaces` install. Check who has it:
+reason, and no task uses their values ([Templated CR values](#templated-cr-values)). Check who has it:
 `oc adm policy who-can create mutexrunconfigs -n node-upgrade-mutex-operator`.
 
 ### Job ServiceAccounts
@@ -280,14 +280,13 @@ keys the operator uses. It has no access to Secrets, ConfigMaps, Pods or workloa
 
 ### Templated CR values
 
-The operator does not set ansible-operator's `markUnsafe` option (in [watches.yaml](../watches.yaml)), so string values
-in the CRs may be evaluated as Ansible templates inside the operator pod. Two consequences: a value with `{{` in it,
-such as a Go template in a Job's arguments, may be rendered or rejected; and a writer of the operator namespace may be
-able to run code in the operator pod. This has not been tested through the operator itself, but a test of the same
-mechanism in the operator image, with a CR passed to Ansible as the operator passes it, did render a template in a
-`spec` string ([Known gaps](HANDOFF.md#known-gaps), G6). The `mutexrunconfig` role reads its CR once before it checks
-the namespace, so with an `AllNamespaces` install the same may hold for anyone who can create a MutexRunConfig in any
-namespace. Install in `OwnNamespace` mode ([Install](#install)).
+String values in the CRs are never evaluated as Ansible templates. [watches.yaml](../watches.yaml) sets
+ansible-operator's `markUnsafe: true` for MutexRules, MutexTargets and MutexRunConfigs, so ansible-operator passes
+every string of a CR to the role marked unsafe, and Ansible uses it only as data. A value with `{{` in it, such as a Go
+template in a Job's arguments, passes the MutexRule's dry run and reaches the Job as you wrote it. Each role also
+checks the namespace before any of its tasks uses a value of the CR, so no task uses the values of a CR outside the
+operator namespace. Earlier versions, 0.2.x and 0.3.0-rc1, do not set `markUnsafe`
+([Known gaps](HANDOFF.md#known-gaps), G6).
 
 ### Metrics authentication
 
@@ -496,8 +495,7 @@ tile, which is 0.2.x), then **Install** with:
 * Installation mode: **A specific namespace on the cluster**, the installed namespace `node-upgrade-mutex-operator`.
   This is the `OwnNamespace` mode, recommended: only the people you allow in that namespace can control the operator
   (see [Who controls the operator](#who-controls-the-operator)). `AllNamespaces` is supported but not recommended: it
-  adds nothing, because CRs outside the operator namespace are not acted on; a MutexRunConfig there is still read
-  before that check ([Templated CR values](#templated-cr-values)); and in a shared namespace such as
+  adds nothing, because CRs outside the operator namespace are not acted on, and in a shared namespace such as
   `openshift-operators` more people may have write access.
 * Update approval: **Manual**.
 

@@ -48,9 +48,10 @@ The conditions `Reconciled`, `NodeVersionsKnown`, `NodeUpgrade` and `Degraded` h
 ### tasks/main.yml
 
 - **Runs:** on every reconcile and in the finalizer.
-- **Reads:** `POD_NAMESPACE` and the MutexRunConfig's `deletionTimestamp`.
-- **Writes:** `Reconciled=False` (`NamespaceNotAllowed`) outside `POD_NAMESPACE`; after a restore `MCPUpdated=False`
-  (`SelectorsRestored`) and `UpgradeAvailable`/`UpgradeReady` `False` (`UpgradeFinished`).
+- **Reads:** `POD_NAMESPACE` and `ansible_operator_meta`; after the namespace check, the MutexRunConfig's
+  `deletionTimestamp`.
+- **Writes:** `Reconciled=False` (`NamespaceNotAllowed`) outside `POD_NAMESPACE`, except in a finalizer run; after a
+  restore `MCPUpdated=False` (`SelectorsRestored`) and `UpgradeAvailable`/`UpgradeReady` `False` (`UpgradeFinished`).
 - **Gates:** initialises every gate fact to false, then includes each step under the gates listed with it below.
 
 The finalizer branch reads the MutexTargets that still exist, runs `08` with the canary and their pools and nodes, and

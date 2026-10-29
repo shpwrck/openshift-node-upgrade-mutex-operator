@@ -45,8 +45,14 @@ Each build is the one before it plus the change in its row.
 | E | The rename build: D with the new API group and the license metadata, and no other change in `roles/` or `watches.yaml` | release-label |
 
 No live run used build E; the kind E2E passed on it (row S44). Today's `roles/` and `watches.yaml` are build E plus
-the documentation sweep after it, which changed comments, the role READMEs and the wording of two condition messages
-(`JobRunFailed` and `NodeUpgradeFailed` in `06-execute-jobs.yml`).
+two changes after it:
+
+* The documentation sweep, which changed comments, the role READMEs and the wording of two condition messages
+  (`JobRunFailed` and `NodeUpgradeFailed` in `06-execute-jobs.yml`).
+* The G6 fix ([Known gaps](../docs/HANDOFF.md#known-gaps)): `markUnsafe: true` on the three kinds in `watches.yaml`,
+  so every string of a CR reaches the roles marked unsafe, and the namespace check of the `mutexrunconfig` role moved
+  before its first read of the CR. With it, the offline harness gave the same results in all its scenarios as before.
+  The kind E2E has not run on it yet; its new checks are row S45.
 
 ### The two designs
 
@@ -63,9 +69,10 @@ What the design column means for each row:
 * From build A to today, `07-run-job.yml` (Jobs, timeouts, re-use), `03-pause-machine-config-pools.yml`,
   `09-report.yml` and the `mutexrule` and `mutextarget` roles changed only by the API group rename (build E) and, after
   it, in comments and the role READMEs. So the Job and validation rows that ran on the earlier design ran today's logic
-  in those files. The node handling around the Jobs (`06-execute-jobs.yml`), the labels (`04`), the canary re-point
+  in those files. The G6 fix changed how every role receives CR values, not what it does with a value that holds no
+  template expression. The node handling around the Jobs (`06-execute-jobs.yml`), the labels (`04`), the canary re-point
   (`05`) and the restore (`08`) changed with the redesign.
-* From build D to today, `roles/` and `watches.yaml` changed only as described for build E above.
+* From build D to today, `roles/` and `watches.yaml` changed only as described for build E and after it above.
 
 ### Rehearsals
 
@@ -120,10 +127,11 @@ tooling, not in the repository.
 | S6 | A MutexTarget for a pool that does not exist: `ValidConfig=False MachineConfigPoolFetchFailed`, no nodes | yes / yes | – | – | – | – | `mutextarget_test.yml` |
 | S7 | A MutexRunConfig with no upgrade pending: validated, `UpgradeAvailable=False`, nothing paused, labelled or re-pointed, finalizer added | yes / only when a `canary` pool exists, the cluster is not upgrading and the target pool is not paused; the canary must pass validation (where infra nodes keep the worker label, the sample canary needs `node-role.kubernetes.io/infra DoesNotExist`) | – | – | – | – | `mutexrunconfig_test.yml` |
 | S8 | A MutexRunConfig that references a missing MutexRule: `ConfigValidated=False ValidationFailed` naming the rule; nothing changed | yes / as S7 | – | – | – | – | `mutexrunconfig_test.yml` |
-| S9 | A CR outside the operator namespace: `Reconciled=False NamespaceNotAllowed`, nothing else happens | yes / only when the operator watches all namespaces | see S2 | – | – | whether a MutexRunConfig's string values are evaluated before this check ([Known gaps](../docs/HANDOFF.md#known-gaps) G6) | `namespace_test.yml` |
+| S9 | A CR outside the operator namespace: `Reconciled=False NamespaceNotAllowed`, nothing else happens | yes / only when the operator watches all namespaces | see S2 | – | – | – | `namespace_test.yml` |
 | S10 | A target node without a version label: `NodeVersionsKnown=False VersionLabelMissing` and nothing is paused, so an upgrade would go ahead without Jobs | no / accepted as the expected result when the nodes have no label | Checks and a rehearsal: as described, with `Degraded=False NoPoolsPaused` | earlier | 4.21.20 | – | a rehearsal with an empty label on one target node |
 | S11 | A custom target pool (for example `apps`) with the sample canary: `ConfigValidated=False` names the `worker` pool nodes that the canary's `matchLabels` select (each node's pool comes from the `rendered-<pool>-<hash>` name in its `currentConfig`), and nothing is paused or patched; with the suggested expression, such as `node-role.kubernetes.io/app Exists`, it validates | no / no (kind has only the `master`, `worker` and `canary` pools) | Checks: the refusal named the real nodes and pools; the suggested expression validated | earlier | 4.21.20 | a full run (S34) | [USAGE, The canary pool](../docs/USAGE.md#the-canary-pool) |
 | S12 | `spec.skipTLSVerify` has no effect | not needed: the roles never read it (`roles/mutexrunconfig/tasks/02-check-for-upgrade.yml:9`) | – | – | – | – | – |
+| S45 | Template expressions in CR values are used as written (`markUnsafe`, [Known gaps](../docs/HANDOFF.md#known-gaps) G6): a MutexRunConfig whose canary name is `{{ 'canary' }}` gets `ConfigValidated=False ValidationFailed` naming that string; a MutexRule Job argument `{{ 7 * 7 }} {{ .Values.name }}` passes the dry run and reaches the Job unchanged | yes / the canary name only, as S7 | – | – | – | – | `mutexrunconfig_test.yml`, `finalizer_test.yml` |
 
 ### A run
 

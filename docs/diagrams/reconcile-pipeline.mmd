@@ -10,9 +10,9 @@ flowchart TD
   accTitle: The mutexrunconfig role's reconcile pipeline
   accDescr: The mutexrunconfig role's reconcile pipeline: task files in order, the gate that decides whether each runs, and the conditions each writes.
 
+  ns("In the operator namespace<br/>(POD_NAMESPACE)?<br/>reads only ansible_operator_meta")
+  out["Reconciled=False<br/>NamespaceNotAllowed (not<br/>written in a finalizer run),<br/>end_play"]
   mode["Determine Reconcile Mode<br/>finalizing = state absent<br/>or deletionTimestamp set"]
-  ns("In the operator namespace<br/>(POD_NAMESPACE)?")
-  out["Reconciled=False<br/>NamespaceNotAllowed (not<br/>written while finalizing),<br/>end_play"]
   r00["00-resolve-references.yml<br/>rule and target references,<br/>mutex label keys, canary name,<br/>release and hold selector expressions"]
   fin("finalizing?")
   gather["Gather the MutexTargets<br/>still present"]
@@ -28,9 +28,8 @@ flowchart TD
   mt["mutextarget role"]
   rescue["Every step's rescue sets its gate<br/>false and mutexrunconfig_failure.<br/>A gate also needs the gates<br/>of the steps before it."]
 
-  mode --> ns
   ns -- no --> out
-  ns -- yes --> r00 --> fin
+  ns -- yes --> mode --> r00 --> fin
   fin -- yes --> gather --> restoreF
   fin -- no --> v01 --> c02 --> p03 --> l04 --> m05 --> j06 --> r08 --> rep09
   mt -. "status.nodes" .-> v01

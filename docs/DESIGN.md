@@ -19,8 +19,9 @@ anchor.
 In words:
 
 1. A MutexRunConfig outside the operator namespace (`POD_NAMESPACE`) gets `Reconciled=False` (`NamespaceNotAllowed`),
-   and the play ends (`main.yml:37-64`). A finalizer run (`state` `absent`) ends there too, without the report and
-   without any cleanup (`main.yml:55-64`). Without `POD_NAMESPACE`, as with `make run`, every namespace is allowed.
+   and the play ends (`main.yml:37-64`). These tasks use only `ansible_operator_meta` and the finalizer's `state`, no
+   value of the CR. A finalizer run (`state` `absent`) ends there too, without the report and without any cleanup
+   (`main.yml:55-64`). Without `POD_NAMESPACE`, as with `make run`, every namespace is allowed.
 2. `main.yml` decides the mode. The reconcile is a finalizer run when `state` is `absent` or the MutexRunConfig has a
    `deletionTimestamp` (`main.yml:66-70`).
 3. `00-resolve-references.yml` always runs. It resolves the rule and target references, the mutex label keys and the
@@ -95,6 +96,10 @@ These are the promises the code keeps. A change that breaks one of them needs a 
 11. **Status is merged, never replaced.** `manageStatus: false` (`watches.yaml:10`, `watches.yaml:18`,
     `watches.yaml:33`) leaves the status to the roles, which write conditions by type with
     `operator_sdk.util.k8s_status`.
+12. **CR values are data.** `markUnsafe: true` (`watches.yaml:11`, `watches.yaml:19`, `watches.yaml:34`) makes
+    ansible-operator pass every string of a CR to the role marked unsafe, so no template expression in a CR is
+    evaluated. No task uses a value of the CR before its role's namespace check (`main.yml:37-64` before
+    `main.yml:66-70`, `roles/mutexrule/tasks/main.yml:9-35`, `roles/mutextarget/tasks/main.yml:10-36`).
 
 ## State kept in the cluster
 
