@@ -63,9 +63,9 @@
 
     # A target node that MCO is already updating through the canary pool (its
     # desiredConfig is a rendered canary config that differs from its
-    # currentConfig) is left alone by 04: it was released by an earlier
-    # attempt, and labelling it again would pull it back into a paused pool in
-    # the middle of its update.
+    # currentConfig) is left alone by 04: its update has started, so its
+    # pre-upgrade Jobs would come too late. (The mutex labels no longer move
+    # nodes between pools; the release label does.)
     - name: Collect Target Node Versions
       ansible.builtin.set_fact:
         mutexrunconfig_node_versions: >-

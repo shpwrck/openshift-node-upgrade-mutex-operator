@@ -21,6 +21,10 @@ e2e_reconcile_period: 15s
 
 # Names the operator uses on nodes, pools and Jobs (see roles/mutexrunconfig).
 e2e_label_prefix: mutexrule.openshift-optional.skrzypek.io/
+# Release label: its value is the SHA-1 of '<namespace>/<name>' of the
+# MutexRunConfig. During a run the canary selects only nodes carrying it with
+# that value and the target pool only nodes without it.
+e2e_release_label: "{{ e2e_label_prefix }}release"
 e2e_version_label: machineconfiguration.openshift.io/release-image-version
 e2e_annotation_paused_by: openshift-optional.skrzypek.io/paused-by
 e2e_annotation_original_expressions: openshift-optional.skrzypek.io/original-match-expressions

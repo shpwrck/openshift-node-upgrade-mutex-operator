@@ -15,6 +15,19 @@ mutexrunconfig_label_prefix: "mutexrule.openshift-optional.skrzypek.io/"
 # The "<rule>.<namespace>" part must be a valid label name: at most 63
 # characters, alphanumeric at both ends, [-A-Za-z0-9_.] in between.
 mutexrunconfig_label_name_regex: '^(?=.{1,63}$)[A-Za-z0-9]([-A-Za-z0-9_.]*[A-Za-z0-9])?$'
+# Release label: set on a target node in the patch that releases it (with
+# released-by) and removed with released-by once its cleanup Jobs have run;
+# set on the canary's own nodes (04) for the length of a run and removed from
+# them on the reconcile after the one that restores the canary (08). Value:
+# SHA-1 of '<namespace>/<name>' ('/' is not allowed in a label value). During
+# a run the canary selects only nodes carrying it with this value and the
+# target pools only nodes without this value, so an MCO view that predates a
+# release still sees the node held.
+# The key starts with mutexrunconfig_label_prefix, so every filter that drops
+# mutex label keys from saved or live selectors drops it too. 'release' has
+# no '.', so it never collides with a rule key '<rule>.<namespace>'.
+mutexrunconfig_release_label: "{{ mutexrunconfig_label_prefix }}release"
+mutexrunconfig_release_value: "{{ mutexrunconfig_owner | hash('sha1') }}"
 
 # Annotations this role writes on MachineConfigPools.
 # original-match-expressions: JSON copy of spec.nodeSelector.matchExpressions
@@ -36,7 +49,8 @@ mutexrunconfig_annotation_paused_by: "openshift-optional.skrzypek.io/paused-by"
 #   node, when no MutexTarget is left), so MutexRunConfigs that share a
 #   MutexRule or a pool never remove each other's labels from a marked node.
 # released-by: '<owner>|<desired version>', set in the same patch that removes
-#   the node's mutex labels and cleared once its cleanup Jobs have completed.
+#   the node's mutex labels and cleared, together with the release label, once
+#   its cleanup Jobs have completed.
 #   A node carrying it with this owner (for any version) was released by this
 #   run and still needs its cleanup Jobs, also after a failure, an operator
 #   restart or a move of the cluster to a newer version.

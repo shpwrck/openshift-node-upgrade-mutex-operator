@@ -7,15 +7,17 @@
 #      carries runs (a Job that already completed for this node, rule and
 #      version is reused, see 07-run-job.yml);
 #   3. one patch removes the node's mutex labels and its labelled-by
-#      annotation and sets released-by '<owner>|<desired_version>', so it
-#      joins the canary pool and MCO upgrades it;
+#      annotation, sets released-by '<owner>|<desired_version>' and adds the
+#      release label with this MutexRunConfig's value, so it joins the canary
+#      pool and MCO upgrades it;
 #   4. the role waits until the node has finished its upgrade: the
 #      release-image-version label is desired_version, the MCO daemon reports
 #      state Done with currentConfig equal to desiredConfig, that config is a
 #      rendered config of the canary, and the node is Ready
 #      (mutexrunconfig_node_upgrade_retries x _delay);
 #   5. the cleanup Job of every rule that has a cleanUpJobSpec runs, and then
-#      the released-by annotation is removed.
+#      one patch removes the released-by annotation and the release label, so
+#      the node goes back to its own pool, which is still paused.
 # A node that still carries this MutexRunConfig's released-by (for any
 # version) was released by an earlier reconcile that then stopped (a failed or timed-out wait or
 # cleanup Job, or an operator restart). It resumes at step 4: its pre-upgrade
@@ -94,6 +96,7 @@
           {{ (mutexrunconfig_node_annotations[mutexrunconfig_annotation_released_by] | default('')).startswith(mutexrunconfig_owner ~ '|') }}
         mutexrunconfig_node_held_by_us: >-
           {{ mutexrunconfig_node_annotations[mutexrunconfig_annotation_labelled_by] | default('') == mutexrunconfig_owner }}
+        mutexrunconfig_node_release_ours: "{{ mutexrunconfig_node_labels[mutexrunconfig_release_label] | default('') == mutexrunconfig_release_value }}"
 
     # A timeout below is reported as NodeUpgradeFailed: no Job has run.
     - name: Set Node Step
@@ -169,13 +172,15 @@
     # The labels to remove when the node is released: this run's mutex
     # labels and, on a node this MutexRunConfig holds, every other mutex label
     # as well (for example of a MutexRule removed from spec.mutexRules during
-    # the run), which nothing else would remove once labelled-by is gone.
+    # the run), which nothing else would remove once labelled-by is gone. The
+    # release label shares the prefix but is not a mutex label; the release
+    # patch sets it.
     - name: Set Node Label Removal
       ansible.builtin.set_fact:
         mutexrunconfig_node_remove_labels: >-
           {%- set ns = namespace(labels=mutexrunconfig_remove_labels) -%}
           {%- if mutexrunconfig_node_held_by_us | bool -%}
-          {%- for key in mutexrunconfig_node_labels.keys() if key.startswith(mutexrunconfig_label_prefix) -%}
+          {%- for key in mutexrunconfig_node_labels.keys() if key.startswith(mutexrunconfig_label_prefix) and key != mutexrunconfig_release_label -%}
           {%- set ns.labels = ns.labels | combine({key: none}) -%}
           {%- endfor -%}
           {%- endif -%}
@@ -246,8 +251,15 @@
                 lastTransitionTime: "{{ mutexrunconfig_now }}"
           when: not mutexrunconfig_node_released | bool
 
-        # One patch, so the node is never released without the annotation
-        # that makes a later reconcile run its cleanup Jobs.
+        # One patch, so the node never joins the canary (the release label)
+        # without the released-by annotation that makes a later reconcile run
+        # its cleanup Jobs, and never carries released-by without the release
+        # label. No other write gives a target node the release label before
+        # its pre-upgrade Jobs have run (04 gives it only to nodes that
+        # already carry this run's released-by), so an MCO view of the node
+        # from before this patch can only show the node held. A node released
+        # by an earlier build without the release label gets it here as well,
+        # should 04 not have given it.
         - name: Release The Node
           kubernetes.core.k8s:
             state: patched
@@ -256,12 +268,13 @@
             name: "{{ targetNode }}"
             definition:
               metadata:
-                labels: "{{ mutexrunconfig_node_remove_labels }}"
+                labels: "{{ mutexrunconfig_node_remove_labels | combine({mutexrunconfig_release_label: mutexrunconfig_release_value}) }}"
                 annotations: "{{ {mutexrunconfig_annotation_labelled_by: none, mutexrunconfig_annotation_released_by: mutexrunconfig_released_marker} }}"
           when: >-
             not mutexrunconfig_node_released | bool
             or mutexrunconfig_held_rules | length > 0
             or mutexrunconfig_node_held_by_us | bool
+            or not mutexrunconfig_node_release_ours | bool
 
         - name: Set Node Step
           ansible.builtin.set_fact:
@@ -299,6 +312,9 @@
           vars:
             mutexrunconfig_job_phase: cleanup
 
+        # One patch removes released-by and the release label. The node goes
+        # back to its own pool, which is still paused, and keeps the canary's
+        # currentConfig until that pool is unpaused at the end of the run.
         - name: Clear The Release Mark
           kubernetes.core.k8s:
             state: patched
@@ -307,6 +323,7 @@
             name: "{{ targetNode }}"
             definition:
               metadata:
+                labels: "{{ {mutexrunconfig_release_label: none} }}"
                 annotations: "{{ {mutexrunconfig_annotation_released_by: none} }}"
 
         - name: Report Cleanup Of A Resumed Node

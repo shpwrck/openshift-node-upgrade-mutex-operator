@@ -3,9 +3,20 @@
 # per MutexRule, and marks it with the labelled-by annotation in the same
 # patch. Nodes already at desired_version are not labelled (they need no
 # jobs), and neither are nodes this run already released (for any version)
-# or nodes MCO is already updating through the canary (see 02). This keeps a
-# re-entered run from re-labelling nodes it released, which would pull them
-# back into a paused pool.
+# or nodes MCO is already updating through the canary (see 02). The mutex
+# labels only record that the node's pre-upgrade Jobs are pending: no pool
+# selects on them. The same patch removes any release label from the node,
+# so a held node never carries one and stays in its paused pool.
+# Then the holders get the release label with this MutexRunConfig's value:
+# every node it released (released-by, for any version, also when the node is
+# no longer a target) and the canary's own nodes (01; never a node this run
+# holds). Every other node loses that value. After this step the nodes
+# carrying this run's release value are exactly the holders, which is what the
+# run-time canary selector (05) relies on. The canary's own nodes keep the
+# value until the reconcile after the one that restores the canary (08).
+# In a reconcile in which this step gave a canary node the value or took it
+# from a node, 05 does not yet make the canary select on the value; it only
+# keeps the nodes this run holds out of the canary.
 - name: Node Label Block
   block:
     - name: Create Node List
@@ -13,6 +24,7 @@
         mutexrunconfig_nodes_to_label: >-
           {{ mutexrunconfig_nodes_behind | difference(mutexrunconfig_canary_updating_nodes)
              | difference(mutexrunconfig_released_nodes) }}
+        mutexrunconfig_holder_nodes: "{{ (mutexrunconfig_released_nodes + mutexrunconfig_canary_member_nodes) | unique }}"
 
     # Nodes labelled by an earlier reconcile are not patched again.
     - name: Find Nodes Without Their Labels
@@ -22,7 +34,8 @@
           {%- for node in nodes.resources | selectattr('metadata.name', 'in', mutexrunconfig_nodes_to_label) -%}
           {%- set labels = node.metadata.labels | default({}, true) -%}
           {%- if mutexrunconfig_mutex_labels.keys() | reject('in', labels) | list | length > 0
-                or (node.metadata.annotations | default({}, true))[mutexrunconfig_annotation_labelled_by] | default('') != mutexrunconfig_owner -%}
+                or (node.metadata.annotations | default({}, true))[mutexrunconfig_annotation_labelled_by] | default('') != mutexrunconfig_owner
+                or mutexrunconfig_release_label in labels -%}
           {%- set ns.names = ns.names + [node.metadata.name] -%}
           {%- endif -%}
           {%- endfor -%}
@@ -36,9 +49,73 @@
         name: "{{ item }}"
         definition:
           metadata:
-            labels: "{{ mutexrunconfig_mutex_labels }}"
+            labels: "{{ mutexrunconfig_mutex_labels | combine({mutexrunconfig_release_label: none}) }}"
             annotations: "{{ {mutexrunconfig_annotation_labelled_by: mutexrunconfig_owner} }}"
       loop: "{{ mutexrunconfig_nodes_to_patch }}"
+
+    # Holders are never labelled above: released nodes are skipped, and the
+    # canary's own nodes are not target nodes. A released node without this
+    # run's value (released by an earlier build) and a node that has just
+    # joined the canary get it. A node with this run's value that is not a
+    # holder, for example one that has left the canary since an earlier
+    # reconcile, loses it; the nodes labelled above have lost it already.
+    - name: Find Nodes Whose Release Label Is Wrong
+      ansible.builtin.set_fact:
+        mutexrunconfig_release_add_nodes: >-
+          {%- set ns = namespace(names=[]) -%}
+          {%- for node in nodes.resources if node.metadata.name in mutexrunconfig_holder_nodes -%}
+          {%- if (node.metadata.labels | default({}, true))[mutexrunconfig_release_label] | default('') != mutexrunconfig_release_value -%}
+          {%- set ns.names = ns.names + [node.metadata.name] -%}
+          {%- endif -%}
+          {%- endfor -%}
+          {{ ns.names }}
+        mutexrunconfig_release_remove_nodes: >-
+          {%- set ns = namespace(names=[]) -%}
+          {%- for node in nodes.resources if node.metadata.name not in (mutexrunconfig_holder_nodes + mutexrunconfig_nodes_to_patch) -%}
+          {%- if (node.metadata.labels | default({}, true))[mutexrunconfig_release_label] | default('') == mutexrunconfig_release_value -%}
+          {%- set ns.names = ns.names + [node.metadata.name] -%}
+          {%- endif -%}
+          {%- endfor -%}
+          {{ ns.names }}
+        mutexrunconfig_release_unset_nodes: >-
+          {%- set ns = namespace(names=[]) -%}
+          {%- for node in nodes.resources if node.metadata.name in mutexrunconfig_nodes_to_patch -%}
+          {%- if (node.metadata.labels | default({}, true))[mutexrunconfig_release_label] | default('') == mutexrunconfig_release_value -%}
+          {%- set ns.names = ns.names + [node.metadata.name] -%}
+          {%- endif -%}
+          {%- endfor -%}
+          {{ ns.names }}
+
+    # The release label changes of this reconcile that a stale MCO view of
+    # the nodes could miss: a canary node that gets this run's value, and a
+    # node that loses it (one labelled above included). 05 reads it.
+    - name: Collect The Release Label Changes
+      ansible.builtin.set_fact:
+        mutexrunconfig_release_changed_nodes: >-
+          {{ (mutexrunconfig_release_add_nodes | select('in', mutexrunconfig_canary_member_nodes) | list)
+             + mutexrunconfig_release_remove_nodes + mutexrunconfig_release_unset_nodes }}
+
+    - name: Give The Canary Holders The Release Label
+      kubernetes.core.k8s:
+        state: patched
+        api_version: "v1"
+        kind: "Node"
+        name: "{{ item }}"
+        definition:
+          metadata:
+            labels: "{{ {mutexrunconfig_release_label: mutexrunconfig_release_value} }}"
+      loop: "{{ mutexrunconfig_release_add_nodes }}"
+
+    - name: Take The Release Label From Other Nodes
+      kubernetes.core.k8s:
+        state: patched
+        api_version: "v1"
+        kind: "Node"
+        name: "{{ item }}"
+        definition:
+          metadata:
+            labels: "{{ {mutexrunconfig_release_label: none} }}"
+      loop: "{{ mutexrunconfig_release_remove_nodes }}"
 
     - name: Report Applied
       operator_sdk.util.k8s_status:
@@ -53,6 +130,8 @@
             message: >-
               MutexRule labels are applied to the {{ mutexrunconfig_nodes_to_label | length }} target node(s)
               behind {{ desired_version }}{{ (': ' ~ (mutexrunconfig_nodes_to_label | join(', '))) if mutexrunconfig_nodes_to_label | length > 0 else '' }}.
+              {{ mutexrunconfig_holder_nodes | length }} node(s) carry the release label: released by this run, or in
+              the canary before the run.
             lastTransitionTime: "{{ mutexrunconfig_now }}"
 
     - name: Set Mutex Rules Applied

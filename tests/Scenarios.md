@@ -18,7 +18,7 @@ cluster. The automated tests are the molecule scenarios in `molecule/`
 | MutexRunConfig with no upgrade pending: validated, `UpgradeAvailable=False`, nothing paused, labelled or re-pointed, finalizer added | yes | when a `canary` pool exists, the cluster is not upgrading and the target pool is not paused; the canary must pass validation (on a cluster whose infra nodes keep the worker label, the sample canary needs `node-role.kubernetes.io/infra DoesNotExist`) |
 | MutexRunConfig that references a missing MutexRule: `ConfigValidated=False`, nothing changed | yes | same as above |
 | CRs outside the operator namespace get `Reconciled=False NamespaceNotAllowed` | yes | when the operator watches all namespaces |
-| Simulated upgrade: target pool paused, nodes labelled, canary re-pointed, one node at a time; each Job gets `NODE_NAME`/`MUTEX_RULE`, runs off the node being upgraded, `$(NODE_NAME)` expands in its command; no cleanup Job starts while MCO still reports the node `Working`, cleanup Jobs run after the node has finished its upgrade; pools, labels, selectors and node annotations restored; final conditions | yes | no |
+| Simulated upgrade: target pool paused, nodes labelled, target pool and canary re-pointed to the release label (`NotIn`/`In` this MutexRunConfig's value), one node at a time; the release label set in the patch that removes the mutex labels and removed with `released-by` after the cleanup Job; each Job gets `NODE_NAME`/`MUTEX_RULE`, runs off the node being upgraded, `$(NODE_NAME)` expands in its command; no cleanup Job starts while MCO still reports the node `Working`, cleanup Jobs run after the node has finished its upgrade; pools, labels, selectors and node annotations restored; final conditions | yes | no |
 | Finalizer after a finished run changes nothing | yes | no |
 | A failed Job stops the run with pools left paused (`Degraded=True PoolsLeftPaused`); deleting the MutexRunConfig then unpauses, unlabels and restores | yes | no |
 
@@ -26,8 +26,8 @@ In the `kind` scenario nothing plays the MCO except the test. Before the
 tests, `molecule/default/tasks/fake_reset.yml` makes every node report
 `machineconfiguration.openshift.io/state` `Done` with `currentConfig` and
 `desiredConfig` set to `rendered-<master|worker>-<hash>`. When the operator
-releases a node (removes its mutex labels, so it joins the canary pool), the
-test:
+releases a node (removes its mutex labels and sets the release label, so it
+joins the canary pool), the test:
 
 1. sets the node's `desiredConfig` to the canary's rendered config and its
    `state` to `Working`;
@@ -40,7 +40,9 @@ test:
 Only then does the operator count the node as upgraded and run its cleanup
 Jobs. The check in step 2 lasts longer than the operator's 60-second node poll
 (`mutexrunconfig_node_upgrade_delay`), so an operator that trusted the label
-alone would start its cleanup Job inside that window.
+alone would start its cleanup Job inside that window. After the cleanup Job
+the test waits until the release label and `released-by` are gone from the
+node, which puts it back in its paused pool.
 
 ## Not automated (needs OpenShift)
 

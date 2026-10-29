@@ -14,6 +14,7 @@
         mutexrunconfig_canary_conflicts: []
         mutexrunconfig_canary_conflict_nodes: []
         mutexrunconfig_canary_suggestions: ""
+        mutexrunconfig_canary_member_nodes: []
 
     - name: Check References Are Present
       ansible.builtin.fail:
@@ -261,6 +262,64 @@
           {{ canaryPool.resources[0].spec.nodeSelector.matchExpressions | default([], true)
              | rejectattr('key', 'match', mutexrunconfig_label_prefix | regex_escape) | list }}
 
+    # Nodes in the canary before the run: they match its matchLabels and its
+    # original matchExpressions and are not target nodes. 04 gives them the
+    # release label so they stay in the canary during the run.
+    - name: Gather The Canary's Own Nodes
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Node
+        label_selectors:
+          - "{{ mutexrunconfig_selector }}"
+      vars:
+        mutexrunconfig_selector_source:
+          matchLabels: "{{ mutexrunconfig_canary_match_labels }}"
+          matchExpressions: "{{ mutexrunconfig_canary_original_expressions }}"
+      register: mutexrunconfig_canary_original_nodes
+
+    # One of these nodes that carries another release value would leave the
+    # canary for the whole run, because the run-time canary selects only this
+    # run's value. The label is not taken over: it may belong to a
+    # MutexRunConfig that exists.
+    - name: Fail On Canary Nodes With Another Release Label
+      ansible.builtin.fail:
+        msg: >-
+          Node(s) {{ mutexrunconfig_foreign_release_nodes[:10] | map(attribute='text') | join(', ') }} of the canary
+          MachineConfigPool {{ mutexrunconfig_canary_name }} carry the label {{ mutexrunconfig_release_label }} with a
+          value other than this MutexRunConfig's, so during a run the canary would not select them and they would
+          leave it. The label belongs to another MutexRunConfig, or was left by one that no longer exists (the value
+          is the SHA-1 of its '<namespace>/<name>'). If that MutexRunConfig is gone, remove the label: oc label node
+          {{ mutexrunconfig_foreign_release_nodes[:10] | map(attribute='name') | join(' ') }} {{ mutexrunconfig_release_label }}-
+      vars:
+        mutexrunconfig_foreign_release_nodes: >-
+          {%- set ns = namespace(nodes=[]) -%}
+          {%- for node in mutexrunconfig_canary_original_nodes.resources if node.metadata.name not in targetNodeList -%}
+          {%- set value = (node.metadata.labels | default({}, true))[mutexrunconfig_release_label] | default(mutexrunconfig_release_value) -%}
+          {%- if value != mutexrunconfig_release_value -%}
+          {%- set ns.nodes = ns.nodes + [{'name': node.metadata.name, 'text': node.metadata.name ~ ' (' ~ value ~ ')'}] -%}
+          {%- endif -%}
+          {%- endfor -%}
+          {{ ns.nodes }}
+      when: mutexrunconfig_foreign_release_nodes | length > 0
+
+    # A node this run holds (this MutexRunConfig's labelled-by or one of this
+    # run's mutex labels) is not a member, for example a held target node that
+    # an administrator gave the canary's labels during the run and that its
+    # MutexTarget then dropped: its pre-upgrade Jobs have not run, so it stays
+    # in its paused pool until the restore. A master node that matches is
+    # harmless: MCO keeps a node that matches the master pool in master.
+    - name: Collect Canary Members
+      ansible.builtin.set_fact:
+        mutexrunconfig_canary_member_nodes: >-
+          {%- set ns = namespace(names=[]) -%}
+          {%- for node in mutexrunconfig_canary_original_nodes.resources if node.metadata.name not in targetNodeList -%}
+          {%- if (node.metadata.annotations | default({}, true))[mutexrunconfig_annotation_labelled_by] | default('') != mutexrunconfig_owner
+                and mutexrunconfig_remove_labels.keys() | select('in', node.metadata.labels | default({}, true)) | list | length == 0 -%}
+          {%- set ns.names = ns.names + [node.metadata.name] -%}
+          {%- endif -%}
+          {%- endfor -%}
+          {{ ns.names }}
+
     # Target nodes released from their pool must be able to join the canary.
     - name: Gather Nodes Matching The Canary Labels
       kubernetes.core.k8s_info:
@@ -314,12 +373,16 @@
     # MCO refuses a node that matches two custom pools ("belongs to 2 custom
     # roles") or the master pool and a custom pool, and it moves a node that
     # matches the worker pool and one custom pool into the custom pool. During
-    # a run the canary selects its matchLabels plus the kept expressions (once
-    # a node has no mutex labels), so every node it would select must belong
-    # today to the canary itself or to a target pool. A worker-pool node is
-    # allowed only when 'worker' is a target pool: otherwise the canary would
-    # take it over and upgrade it, even while an administrator has paused the
-    # worker pool.
+    # a run the canary selects its matchLabels plus the kept expressions plus
+    # the release label with this MutexRunConfig's value, and only target
+    # nodes this run released and the canary's own nodes carry that. Still,
+    # every node the matchLabels and the kept expressions select must belong
+    # today to the canary itself or to a target pool, and a worker-pool node
+    # is allowed only when 'worker' is a target pool. The canary's own nodes
+    # (above) are not counted, whatever their pool: 04 gives them the release
+    # label, and MCO then moves a node added to the canary during a run into
+    # it. Counting such a node would fail every reconcile, because the
+    # run-time canary does not select it before it has the label.
     - name: Gather Nodes The Canary Can Select During A Run
       kubernetes.core.k8s_info:
         api_version: v1
@@ -333,19 +396,44 @@
       register: mutexrunconfig_canary_run_nodes
 
     # A pool that is no longer a target but still carries this
-    # MutexRunConfig's modified-by (it was removed from the MutexTargets during
-    # a run) keeps its labelled nodes until the restore at the end of the run
-    # puts back the canary first, so a node of it that this MutexRunConfig
-    # still holds (labelled-by and one of this run's mutex labels, which the
-    # canary's DoesNotExist expressions keep out) is not counted as overlap.
-    # Its other nodes are: one released by this run and still being updated,
-    # or the nodes of a former canary (spec.canary.name changed), are selected
-    # by the canary now.
+    # MutexRunConfig's modified-by or paused-by (it was removed from the
+    # MutexTargets during a run, also before the first re-point, see 05) keeps
+    # its paused state and any '<release label> NotIn' expression until the
+    # restore, so the canary never selects a node of it that this run has not
+    # released, and such a node is not counted as overlap. A node of it that
+    # carries this run's release label is counted: it was released and MCO
+    # has not yet moved it into the canary. A pool that is still this run's
+    # canary under an old name (spec.canary.name changed during a run) is
+    # refused by the next task.
     - name: Gather MachineConfigPools Re-pointed By This MutexRunConfig
       kubernetes.core.k8s_info:
         api_version: "machineconfiguration.openshift.io/v1"
         kind: MachineConfigPool
       register: mutexrunconfig_validate_all_pools
+
+    # The release value depends only on this MutexRunConfig, not on its
+    # canary. A former canary would keep '<release label> In (<value>)' until
+    # the restore, and every node released from now on would match it and
+    # the new canary.
+    - name: Fail When A Former Canary Still Selects Released Nodes
+      ansible.builtin.fail:
+        msg: >-
+          MachineConfigPool(s) {{ mutexrunconfig_former_canaries | join(', ') }} still carry this MutexRunConfig's
+          run-time canary selector ({{ mutexrunconfig_release_label }} In its release value): spec.canary.name was
+          changed during a run. A node released now would match two canary pools and MCO would not move it. Set
+          spec.canary.name back to {{ mutexrunconfig_former_canaries | first }} and change it after the run, or
+          delete this MutexRunConfig to end the run.
+      vars:
+        mutexrunconfig_former_canaries: >-
+          {%- set ns = namespace(names=[]) -%}
+          {%- for pool in mutexrunconfig_validate_all_pools.resources
+                if pool.metadata.name != mutexrunconfig_canary_name and pool.metadata.name not in machineConfigPoolList
+                and (pool.metadata.annotations | default({}, true))[mutexrunconfig_annotation_modified_by] | default('') == mutexrunconfig_owner
+                and mutexrunconfig_canary_release_expression in (pool.spec.nodeSelector.matchExpressions | default([], true)) -%}
+          {%- set ns.names = ns.names + [pool.metadata.name] -%}
+          {%- endfor -%}
+          {{ ns.names }}
+      when: mutexrunconfig_former_canaries | length > 0
 
     - name: Find Nodes That Would Belong To Two Pools
       ansible.builtin.set_fact:
@@ -361,18 +449,20 @@
         mutexrunconfig_held_pools: >-
           {%- set ns = namespace(names=[]) -%}
           {%- for pool in mutexrunconfig_validate_all_pools.resources -%}
-          {%- if (pool.metadata.annotations | default({}, true))[mutexrunconfig_annotation_modified_by] | default('') == mutexrunconfig_owner -%}
+          {%- set annotations = pool.metadata.annotations | default({}, true) -%}
+          {%- if mutexrunconfig_owner in [annotations[mutexrunconfig_annotation_modified_by] | default(''),
+                                          annotations[mutexrunconfig_annotation_paused_by] | default('')] -%}
           {%- set ns.names = ns.names + [pool.metadata.name] -%}
           {%- endif -%}
           {%- endfor -%}
           {{ ns.names }}
-        mutexrunconfig_node_held_by_us: >-
-          {{ ((item.metadata.annotations | default({}, true))[mutexrunconfig_annotation_labelled_by] | default('')) == mutexrunconfig_owner
-             and (mutexrunconfig_mutex_labels.keys() | select('in', item.metadata.labels | default({}, true)) | list | length > 0) }}
+        mutexrunconfig_node_not_released: >-
+          {{ (item.metadata.labels | default({}, true))[mutexrunconfig_release_label] | default('') != mutexrunconfig_release_value }}
       when:
         - mutexrunconfig_node_pool | length > 0
         - mutexrunconfig_node_pool not in ([mutexrunconfig_canary_name] + machineConfigPoolList)
-        - not (mutexrunconfig_node_pool in mutexrunconfig_held_pools and mutexrunconfig_node_held_by_us | bool)
+        - not (mutexrunconfig_node_pool in mutexrunconfig_held_pools and mutexrunconfig_node_not_released | bool)
+        - item.metadata.name not in mutexrunconfig_canary_member_nodes
 
     # The expressions to suggest: 'K Exists' for a matchLabels key K of a
     # target pool that every target node carries and no conflicting node does,
@@ -406,14 +496,13 @@
     - name: Fail On Canary Overlap
       ansible.builtin.fail:
         msg: >-
-          During a run the canary MachineConfigPool {{ mutexrunconfig_canary_name }} would also select
-          {{ mutexrunconfig_canary_conflicts | length }} node(s) that belong to no target pool. Add to the
-          canary's nodeSelector.matchExpressions an expression that every target node satisfies and these
-          nodes do not, here {{ mutexrunconfig_canary_suggestions
+          The nodeSelector.matchLabels and kept matchExpressions of the canary MachineConfigPool
+          {{ mutexrunconfig_canary_name }} select {{ mutexrunconfig_canary_conflicts | length }} node(s) outside
+          the canary and the target pools. Add to the canary's nodeSelector.matchExpressions an expression that
+          every target node satisfies and these nodes do not, here {{ mutexrunconfig_canary_suggestions
           if mutexrunconfig_canary_suggestions | length > 0
           else "for example 'node-role.kubernetes.io/<role of the target nodes> Exists'" }}. It is kept
-          during runs. Otherwise MCO would move these nodes into the canary and upgrade them with it, or
-          refuse them for matching two pools. The nodes: {{ mutexrunconfig_canary_conflicts[:10] | join(', ') }}{{
+          during runs. The nodes: {{ mutexrunconfig_canary_conflicts[:10] | join(', ') }}{{
           (' and ' ~ (mutexrunconfig_canary_conflicts | length - 10) ~ ' more')
           if mutexrunconfig_canary_conflicts | length > 10 else '' }}.
       when: mutexrunconfig_canary_conflicts | length > 0

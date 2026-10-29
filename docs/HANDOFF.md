@@ -33,7 +33,8 @@ is the group of all three CRDs, and it appears in:
 
 * the CRD names (`mutexrules.openshift-optional.skrzypek.io`, ...), the CSV, RBAC, samples, molecule tests and docs;
 * the finalizer `openshift-optional.skrzypek.io/finalizer`;
-* the node labels `mutexrule.openshift-optional.skrzypek.io/<rule>.<namespace>`;
+* the node labels `mutexrule.openshift-optional.skrzypek.io/<rule>.<namespace>` and
+  `mutexrule.openshift-optional.skrzypek.io/release`;
 * the node annotations `openshift-optional.skrzypek.io/labelled-by` and `openshift-optional.skrzypek.io/released-by`;
 * the MachineConfigPool annotations `openshift-optional.skrzypek.io/paused-by`,
   `openshift-optional.skrzypek.io/original-match-expressions` and `openshift-optional.skrzypek.io/modified-by`;
@@ -81,11 +82,12 @@ RBAC. None of these has MCO, so before relying on it, run on a non-production Op
 1. An install through OLM, in `OwnNamespace` and in `AllNamespaces` mode. Check that `WATCH_NAMESPACE` and
    `POD_NAMESPACE` are set and that CRs outside the operator namespace report `NamespaceNotAllowed`.
 2. A real upgrade with at least two target nodes. Check that the pools are paused before MCO reaches them, that each
-   node moves into the canary only after its Jobs, that MCO upgrades it there, and that nodes go back to their pool
-   at the end without another reboot. Check also that the cleanup Jobs of a node start only after MCO reports the
-   node `machineconfiguration.openshift.io/state: Done` with `currentConfig` equal to `desiredConfig` and the node
-   is `Ready`, even when its `release-image-version` label changes earlier. This gate was only tested against a fake
-   MCO.
+   node moves into the canary only after its Jobs, that MCO upgrades it there, and that each node goes back to its
+   paused pool after its cleanup Jobs, with no reboot then or when the pools are unpaused at the end. Check that no
+   target node gets a canary `desiredConfig` before its release patch, also while the kube-apiserver rolls out. Check
+   also that the cleanup Jobs of a node start only after MCO reports the node
+   `machineconfiguration.openshift.io/state: Done` with `currentConfig` equal to `desiredConfig` and the node is
+   `Ready`, even when its `release-image-version` label changes earlier. This gate was only tested against a fake MCO.
 3. Aborting by deleting a MutexRunConfig in the middle of a run, and a restart of the operator pod mid-run: a node
    released before the restart resumes at the wait and gets its cleanup Jobs before any other node starts. With two
    MutexRunConfigs, check that the second waits until the first has finished its nodes, and that deleting the
@@ -93,9 +95,9 @@ RBAC. None of these has MCO, so before relying on it, run on a non-production Op
 4. A failing Job, a Job that times out, and a node that never finishes its upgrade: `Degraded=True`, the pools
    stay paused, and the next reconcile retries.
 5. A custom target pool, for example `apps`, with the sample canary: `ConfigValidated=False` names the `worker` pool
-   nodes the canary would take over, and nothing is paused or patched. After adding the suggested expression, such
-   as `node-role.kubernetes.io/app Exists`, to the canary, the run goes ahead and the `worker` pool nodes stay where
-   they are. The check takes each node's pool from the `rendered-<pool>-<hash>` name in its
+   nodes that the canary's `matchLabels` select, and nothing is paused or patched. After adding the suggested
+   expression, such as `node-role.kubernetes.io/app Exists`, to the canary, the run goes ahead and the `worker` pool
+   nodes stay where they are. The check takes each node's pool from the `rendered-<pool>-<hash>` name in its
    `machineconfiguration.openshift.io/currentConfig` annotation, which was only tested with fake values.
 6. The `release-image-version` label example in `sample-manifests/` (MachineConfig and NFD) on a current release.
 7. `operator-sdk scorecard` against the bundle, and scraping the HTTPS metrics endpoint with the

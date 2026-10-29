@@ -6,33 +6,52 @@
     e2e_phase: pre
     e2e_job_rule: "{{ e2e_rule_name }}"
 
+# The release label with this run's value is what moves the node into the
+# canary pool.
 - name: "Wait for the operator to release to the canary {{ e2e_node }}"
   kubernetes.core.k8s_info:
     api_version: v1
     kind: Node
     name: "{{ e2e_node }}"
   register: e2e_released
-  until: e2e_rule_label not in ((e2e_released.resources | first).metadata.labels | default({}, true))
+  until: ((e2e_released.resources | first).metadata.labels | default({}, true))[e2e_release_label] | default('') == e2e_release_value
   retries: "{{ ((e2e_timeout | int) / 2) | int }}"
   delay: 2
 
-- name: "List the nodes still labelled after releasing {{ e2e_node }}"
+# One patch releases the node: the release label never appears without
+# released-by, and never while the mutex label is still there.
+- name: "Check that one patch released {{ e2e_node }}"
+  ansible.builtin.assert:
+    that:
+      - e2e_rule_label not in e2e_released_labels
+      - (e2e_released_annotations[e2e_annotation_prefix ~ 'released-by'] | default('')).startswith(e2e_owner ~ '|')
+    fail_msg: "{{ e2e_node }} carries {{ e2e_release_label }}: labels {{ e2e_released_labels }}; annotations {{ e2e_released_annotations }}"
+  vars:
+    e2e_released_labels: "{{ (e2e_released.resources | first).metadata.labels | default({}, true) }}"
+    e2e_released_annotations: "{{ (e2e_released.resources | first).metadata.annotations | default({}, true) }}"
+
+- name: "List the nodes after releasing {{ e2e_node }}"
   kubernetes.core.k8s_info:
     api_version: v1
     kind: Node
-    label_selectors:
-      - "{{ e2e_rule_label }}"
-  register: e2e_still_labelled
+  register: e2e_after_release
 
 - name: "Check that the later nodes still wait while upgrading {{ e2e_node }}"
   ansible.builtin.assert:
     that:
-      - e2e_waiting | difference(e2e_still_labelled.resources | map(attribute='metadata.name') | list) | length == 0
+      - e2e_waiting | difference(e2e_still_labelled) | length == 0
+      - e2e_waiting | intersect(e2e_with_release) | length == 0
     fail_msg: >-
-      Nodes {{ e2e_waiting }} should still carry {{ e2e_rule_label }};
-      labelled: {{ e2e_still_labelled.resources | map(attribute='metadata.name') | list }}
+      Nodes {{ e2e_waiting }} should still carry {{ e2e_rule_label }} and not {{ e2e_release_label }};
+      labelled: {{ e2e_still_labelled }}; with the release label: {{ e2e_with_release }}
   vars:
     e2e_waiting: "{{ e2e_target_nodes[(e2e_node_index | int) + 1 :] }}"
+    e2e_still_labelled: >-
+      {{ e2e_after_release.resources | selectattr('metadata.labels', 'defined')
+         | selectattr('metadata.labels', 'contains', e2e_rule_label) | map(attribute='metadata.name') | list }}
+    e2e_with_release: >-
+      {{ e2e_after_release.resources | selectattr('metadata.labels', 'defined')
+         | selectattr('metadata.labels', 'contains', e2e_release_label) | map(attribute='metadata.name') | list }}
 
 # Playing the MCO: the released node now matches the canary pool, which is
 # unpaused. MCO gives it the canary's rendered config as desiredConfig and its
@@ -111,3 +130,17 @@
   vars:
     e2e_phase: cleanup
     e2e_job_rule: "{{ e2e_rule_name }}"
+
+# After the cleanup Jobs one patch removes the release label and released-by,
+# so the node goes back to its paused pool.
+- name: "Wait for the operator to return to its paused pool {{ e2e_node }}"
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Node
+    name: "{{ e2e_node }}"
+  register: e2e_returned
+  until: >-
+    e2e_release_label not in ((e2e_returned.resources | first).metadata.labels | default({}, true))
+    and (e2e_annotation_prefix ~ 'released-by') not in ((e2e_returned.resources | first).metadata.annotations | default({}, true))
+  retries: "{{ ((e2e_timeout | int) / 2) | int }}"
+  delay: 2

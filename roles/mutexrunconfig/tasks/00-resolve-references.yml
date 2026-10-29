@@ -3,9 +3,14 @@
 # namespace means the MutexRunConfig's own namespace, in every later step and
 # in the finalizer. Each rule also gets its node label key
 # mutexrule.openshift-optional.skrzypek.io/<rule>.<namespace> (01-validate
-# checks that the key is valid) and the matchExpressions that hold labelled
-# nodes in the target pools (Exists) and keep them out of the canary
-# (DoesNotExist).
+# checks that the key is valid). The rule labels track which nodes still have
+# pre-upgrade Jobs pending. Pool membership during a run follows the release
+# label (vars/main.yml), through the two expressions built here:
+# '<release label> In (<value>)' for the canary and '<release label> NotIn
+# (<value>)' for the target pools. Only in a reconcile that defers the
+# re-point (05) does a pool select on the rule labels: the canary then gets
+# '<mutex label> DoesNotExist' per rule, also built here, which keeps the nodes
+# this run holds out of it.
 - name: Reset References
   ansible.builtin.set_fact:
     mutexrunconfig_canary_name: "{{ _openshift_optional_skrzypek_io_mutexrunconfig_spec.canary.name | default('', true) }}"
@@ -13,8 +18,9 @@
     mutexrunconfig_target_refs: []
     mutexrunconfig_mutex_labels: {}
     mutexrunconfig_remove_labels: {}
-    mutexrunconfig_canary_mutex_expressions: []
-    mutexrunconfig_target_mutex_expressions: []
+    mutexrunconfig_canary_hold_expressions: []
+    mutexrunconfig_canary_release_expression: {key: "{{ mutexrunconfig_release_label }}", operator: In, values: ["{{ mutexrunconfig_release_value }}"]}
+    mutexrunconfig_target_release_expression: {key: "{{ mutexrunconfig_release_label }}", operator: NotIn, values: ["{{ mutexrunconfig_release_value }}"]}
 
 - name: Resolve MutexRule References
   ansible.builtin.set_fact:
@@ -23,8 +29,7 @@
          + [{'name': mutexrunconfig_ref_name, 'namespace': mutexrunconfig_ref_namespace, 'label': mutexrunconfig_ref_label}] }}
     mutexrunconfig_mutex_labels: "{{ mutexrunconfig_mutex_labels | combine({mutexrunconfig_ref_label: ''}) }}"
     mutexrunconfig_remove_labels: "{{ mutexrunconfig_remove_labels | combine({mutexrunconfig_ref_label: none}) }}"
-    mutexrunconfig_canary_mutex_expressions: "{{ mutexrunconfig_canary_mutex_expressions + [{'key': mutexrunconfig_ref_label, 'operator': 'DoesNotExist'}] }}"
-    mutexrunconfig_target_mutex_expressions: "{{ mutexrunconfig_target_mutex_expressions + [{'key': mutexrunconfig_ref_label, 'operator': 'Exists'}] }}"
+    mutexrunconfig_canary_hold_expressions: "{{ mutexrunconfig_canary_hold_expressions + [{'key': mutexrunconfig_ref_label, 'operator': 'DoesNotExist'}] }}"
   loop: "{{ _openshift_optional_skrzypek_io_mutexrunconfig_spec.mutexRules | default([], true) }}"
   loop_control:
     label: "{{ mutexrunconfig_ref_namespace }}/{{ mutexrunconfig_ref_name }}"

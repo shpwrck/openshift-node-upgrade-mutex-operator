@@ -19,6 +19,7 @@
   vars:
     e2e_sample_rule: "{{ lookup('ansible.builtin.file', samples_dir ~ '/openshift-optional_v1alpha1_mutexrule.yaml') | from_yaml }}"
     e2e_owner: "{{ e2e_namespace }}/{{ e2e_runconfig_name }}"
+    e2e_release_value: "{{ e2e_owner | hash('sha1') }}"
     e2e_rule_label: "{{ e2e_label_prefix }}{{ e2e_rule_name }}.{{ e2e_namespace }}"
 
   tasks:

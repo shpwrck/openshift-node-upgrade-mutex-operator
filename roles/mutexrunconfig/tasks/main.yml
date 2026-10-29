@@ -2,12 +2,18 @@
 # Reconciles a MutexRunConfig.
 #
 # While an OpenShift upgrade is pending, the target MachineConfigPools are
-# paused and their nodes are labelled with one mutex label per MutexRule. The
-# canary pool is changed to select worker nodes without those labels. Then,
-# one node at a time, the MutexRule Jobs run, the node's labels are removed
-# (so MCO upgrades it through the canary pool), the role waits for the node to
-# finish its upgrade and runs the cleanup Jobs. At the end the pool selectors
-# are restored and the pools are unpaused.
+# paused and their nodes are labelled with one mutex label per MutexRule,
+# which records that their Jobs are pending. The canary pool is changed to
+# select only the nodes that carry this MutexRunConfig's release label (the
+# nodes it has released and the canary's own nodes, which get it one
+# reconcile earlier, while the canary only leaves out the labelled nodes),
+# and the target pools to select their nodes without it.
+# Then, one node at a time, the MutexRule Jobs run, one patch replaces the
+# node's mutex labels with the release label (so MCO upgrades it through the
+# canary pool), the role waits for the node to finish its upgrade, runs the
+# cleanup Jobs and removes the release label, so the node goes back to its
+# paused pool. At the end the pool selectors are restored and the pools are
+# unpaused; the canary's own nodes lose the release label one reconcile later.
 #
 # Every step sets a real boolean gate fact: false at the top of its rescue,
 # true as the last task of its block. Status is merged condition by condition
@@ -17,10 +23,10 @@
 # Failure policy: a failure never unpauses anything. The pools stay paused, the
 # role reports Degraded=True with the reason and the next reconcile retries.
 # Deleting the MutexRunConfig runs the finalizer (watches.yaml), which unpauses
-# the pools this MutexRunConfig paused, removes its mutex labels from the nodes
-# and restores the canary and target pool selectors. Deleting it in the middle
-# of an upgrade therefore lets MCO upgrade the remaining nodes WITHOUT running
-# their MutexRule Jobs.
+# the pools this MutexRunConfig paused, removes its mutex and release labels
+# from the nodes and restores the canary and target pool selectors. Deleting
+# it in the middle of an upgrade therefore lets MCO upgrade the remaining
+# nodes WITHOUT running their MutexRule Jobs.
 
 - name: Determine Reconcile Mode
   ansible.builtin.set_fact:
@@ -97,7 +103,8 @@
 
     # The restore also covers pools and nodes whose MutexTarget is gone: it
     # follows this MutexRunConfig's paused-by and modified-by annotations on
-    # the pools and its labelled-by annotation on the nodes (08-restore.yml).
+    # the pools and its labelled-by annotation and release label value on the
+    # nodes (08-restore.yml).
     - name: Restore Pools And Nodes
       ansible.builtin.include_tasks: 08-restore.yml
       vars:
@@ -178,7 +185,8 @@
 
 # Runs after every node is done, and also whenever the check finds no target
 # node behind: then nothing is left to protect, so leftovers of an earlier
-# run (paused pools, selectors, labels) are cleaned up.
+# run (paused pools, selectors, labels) are cleaned up. The reconcile after a
+# run's end removes the release label from the canary's own nodes this way.
 - name: Finish Run
   when:
     - ConfigValidated | bool

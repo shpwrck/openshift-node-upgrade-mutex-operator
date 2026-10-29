@@ -2,14 +2,16 @@
 # Fake OpenShift only: a full run of the sample MutexRunConfig.
 # The fake ClusterVersion reports a completed control-plane upgrade to
 # e2e_to_version while the workers still run e2e_from_version. The operator
-# must pause the target pool, label the target nodes, re-point the canary and
-# then, one node at a time, run the pre-upgrade Job off that node, release the
-# node and wait. The test plays the MCO: once a node is released (its mutex
-# labels are gone, so it now belongs to the canary) it sets desiredConfig and
-# state Working, then the release-image-version label to e2e_to_version (and
-# checks that no cleanup Job starts yet), then state Done with currentConfig
-# equal to desiredConfig. The operator then runs the cleanup Job and moves to
-# the next node, and at the end restores the pools.
+# must pause the target pool, label the target nodes, re-point the target
+# pool and the canary to the release label and then, one node at a time, run
+# the pre-upgrade Job off that node, release the node and wait. The test plays
+# the MCO: once a node is released (one patch replaced its mutex label with
+# the release label, so it now belongs to the canary) it sets desiredConfig
+# and state Working, then the release-image-version label to e2e_to_version
+# (and checks that no cleanup Job starts yet), then state Done with
+# currentConfig equal to desiredConfig. The operator then runs the cleanup
+# Job, removes the release label with released-by (the node is back in its
+# paused pool) and moves to the next node, and at the end restores the pools.
 - name: Snapshot the pools before the run
   ansible.builtin.include_tasks: pools.yml
   vars:
@@ -44,21 +46,28 @@
     that:
       - e2e_target.spec.paused | bool
       - e2e_target_annotations[e2e_annotation_paused_by] | default('') == e2e_owner
-      - e2e_target.spec.nodeSelector.matchExpressions | default([], true) == e2e_target_before_expressions + [dict(key=e2e_rule_label, operator='Exists')]
+      - e2e_target.spec.nodeSelector.matchExpressions | default([], true)
+        == e2e_target_before_expressions + [dict(key=e2e_release_label, operator='NotIn', values=[e2e_release_value])]
       - e2e_target_annotations[e2e_annotation_original_expressions] | default('null') | from_json == e2e_target_before_expressions
       # isCanary is not satisfied by the target nodes, so it is dropped for
-      # the run and the canary selects every worker without the mutex label.
-      - e2e_canary.spec.nodeSelector.matchExpressions | default([], true) == [dict(key=e2e_rule_label, operator='DoesNotExist')]
+      # the run, and the canary selects only nodes with this run's release
+      # label (kind has no canary nodes of its own).
+      - e2e_canary.spec.nodeSelector.matchExpressions | default([], true) == [dict(key=e2e_release_label, operator='In', values=[e2e_release_value])]
       - e2e_canary_annotations[e2e_annotation_original_expressions] | default('null') | from_json == e2e_canary_before_expressions
       - not (e2e_canary.spec.paused | default(false) | bool)
       # Nodes after the first one keep their labels until it is upgraded.
       - e2e_target_nodes[1:] | reject('in', e2e_labelled_nodes) | list | length == 0
+      # No node carries the release label yet. Only the first target node
+      # may already have been released (its pre-upgrade Job can finish
+      # before this read), and then without its mutex label.
+      - e2e_released_nodes | reject('equalto', e2e_target_nodes[0]) | list | length == 0
+      - e2e_target_nodes[0] not in e2e_released_nodes or e2e_target_nodes[0] not in e2e_labelled_nodes
     fail_msg: >-
       target pool {{ e2e_target | to_json }}; canary {{ e2e_canary | to_json }};
-      labelled nodes {{ e2e_labelled_nodes }}
+      labelled nodes {{ e2e_labelled_nodes }}; nodes with {{ e2e_release_label }}: {{ e2e_released_nodes }}
     success_msg: >-
-      {{ e2e_target_pool }} is paused by {{ e2e_owner }} and selects nodes with {{ e2e_rule_label }};
-      {{ e2e_canary_pool }} selects nodes without it; labelled: {{ e2e_labelled_nodes | join(', ') }}
+      {{ e2e_target_pool }} is paused by {{ e2e_owner }} and selects its nodes without {{ e2e_release_label }}={{ e2e_release_value }};
+      {{ e2e_canary_pool }} selects nodes with it; labelled: {{ e2e_labelled_nodes | join(', ') }}
   vars:
     e2e_target: "{{ e2e_pools[e2e_target_pool] }}"
     e2e_canary: "{{ e2e_pools[e2e_canary_pool] }}"
@@ -68,6 +77,8 @@
     e2e_canary_before_expressions: "{{ e2e_pools_before[e2e_canary_pool].spec.nodeSelector.matchExpressions | default([], true) }}"
     e2e_labelled_nodes: >-
       {{ e2e_nodes_now | dict2items | selectattr('value', 'contains', e2e_rule_label) | map(attribute='key') | list }}
+    e2e_released_nodes: >-
+      {{ e2e_nodes_now | dict2items | selectattr('value', 'contains', e2e_release_label) | map(attribute='key') | list }}
 
 - name: Upgrade the target nodes one at a time
   ansible.builtin.include_tasks: upgrade_node.yml

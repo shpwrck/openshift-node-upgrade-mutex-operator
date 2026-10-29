@@ -35,7 +35,8 @@ rules:
   # Nodes: read versions, pool membership, mutex labels, the MCO state,
   # currentConfig and desiredConfig annotations and the Ready condition;
   # patch adds and removes the mutexrule.openshift-optional.skrzypek.io/*
-  # labels and the openshift-optional.skrzypek.io/labelled-by and
+  # labels (the mutex labels and the .../release label) and the
+  # openshift-optional.skrzypek.io/labelled-by and
   # openshift-optional.skrzypek.io/released-by annotations.
   - apiGroups:
       - ""
