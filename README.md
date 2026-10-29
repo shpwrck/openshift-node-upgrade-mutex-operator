@@ -9,7 +9,7 @@ node: the operator only decides when each node may go. If a Job fails, the upgra
 | Project | |
 | --- | --- |
 | Status | Alpha. The API is `v1alpha1` and may change. |
-| Releases | Published to `ghcr.io/redhat-na-ssa` by the release workflow. Until the first release there (0.3.0-rc2), the catalog is empty: see [Install](#install). |
+| Releases | Published to `ghcr.io/redhat-na-ssa` by the release workflow. The first release there is 0.3.0-rc2; until it is published, the catalog is empty: see [Install](#install). |
 | OpenShift | Declared for 4.16 and later. Tested live on 4.21 z-stream upgrades only: see [tests/Scenarios.md](tests/Scenarios.md). |
 | License | [Apache License 2.0](LICENSE) |
 | Support | Best effort. Report problems at https://github.com/redhat-na-ssa/openshift-node-upgrade-mutex-operator/issues |
@@ -146,7 +146,7 @@ Once the target pools are paused (see the [Safety model](#safety-model) for befo
 ### What it costs
 
 * **Setup:** the NFD operator and a MachineConfig that publishes the version label. Applying that MachineConfig
-  reboots every worker once.
+  reboots, once, every node of every pool that renders the worker MachineConfigs.
 * **Time:** nodes are upgraded one at a time. A pool takes about one node upgrade plus your Jobs' runtime per node, and
   its pool stays paused for all that time.
 * **Jobs:** you write and maintain them, with their ServiceAccount and RBAC.
@@ -168,6 +168,27 @@ Once the target pools are paused (see the [Safety model](#safety-model) for befo
 | Before the target pools are paused | `Paused` is `False` | **Fail-open.** The operator changes nothing, and MCO upgrades the pools normally, **without** Jobs. This covers a validation failure, a missing version label, a failed upgrade check, and the time until the operator notices the upgrade. |
 | While the pools are paused | `Paused` and `Upgrade` are `True` | **Fail-closed.** The run stops, the pools stay paused, `Degraded=True PoolsLeftPaused`, and the operator retries. No node is released without its Jobs. |
 | After an abort | the MutexRunConfig is deleted | **Unprotected.** MCO upgrades the remaining nodes **without** Jobs, as many at a time as each pool's `maxUnavailable` allows. |
+
+### When it does not protect you
+
+MCO upgrades these nodes **without** Jobs:
+
+* **Nodes outside the target pools:** the control-plane nodes, the nodes of every pool that is not a target pool, and
+  the canary's own nodes, which MCO upgrades in the unpaused canary during the run.
+* **Every target node before the pause** (fail-open): while a check fails (validation, APIServices, version labels,
+  the upgrade check), and for up to 10 minutes until the operator notices the upgrade. See
+  [Check before every upgrade](#check-before-every-upgrade) and
+  [Pausing the pools yourself](#pausing-the-pools-yourself).
+* **The remaining target nodes after an abort.** A node still released then also misses its cleanup Jobs
+  ([Abort a run](#abort-a-run)).
+* **A target node whose version label already shows the new version** ([Trust assumptions](#trust-assumptions)).
+* **Rollouts that are not an OpenShift upgrade,** such as a MachineConfig or KubeletConfig change
+  ([Limitations](#limitations)).
+* **Every upgraded node once more at the end,** if the canary renders other MachineConfigs than the target pools
+  ([The canary pool](#the-canary-pool)).
+* **Edge cases:** a second OpenShift upgrade during a run, an EUS-to-EUS upgrade, and a held node whose labels you
+  change ([Residual risks](#residual-risks),
+  [Advanced: a canary with nodes of its own](#advanced-a-canary-with-nodes-of-its-own)).
 
 ### Check before every upgrade
 
@@ -192,7 +213,9 @@ oc patch mcp worker --type merge -p '{"spec":{"paused":true}}'
 
 The operator uses a pool that is already paused as it is, and still releases its nodes one at a time through the
 canary. It never unpauses such a pool, so unpause it yourself after the run (`"paused":false`). Do not pause the
-canary. This has not been tested on a live cluster.
+canary. This was rehearsed once on a live cluster, on an earlier design and without a real upgrade: the operator set
+no `paused-by` and left the pool paused. Whether it released the nodes through the canary in that rehearsal is not
+recorded (S29 in [tests/Scenarios.md](tests/Scenarios.md)).
 
 ### Trust assumptions
 
@@ -228,8 +251,9 @@ The states of a run, and where a failure keeps the pools paused, are shown in [W
 Anyone who can create or edit MutexRules, MutexTargets or MutexRunConfigs **in the operator namespace** can pause
 MachineConfigPools, relabel nodes, and run Jobs in any namespace with any ServiceAccount there. Treat write access to
 that namespace as cluster-admin. OLM creates `admin`, `edit` and `view` aggregated roles for these CRDs, so every user
-with `admin` or `edit` in the operator namespace has that access. CRs in other namespaces are ignored for this reason.
-Check who has it: `oc adm policy who-can create mutexrunconfigs -n node-upgrade-mutex-operator`.
+with `admin` or `edit` in the operator namespace has that access. CRs in other namespaces are not acted on for this
+reason, but see [Templated CR values](#templated-cr-values) for an `AllNamespaces` install. Check who has it:
+`oc adm policy who-can create mutexrunconfigs -n node-upgrade-mutex-operator`.
 
 ### Job ServiceAccounts
 
@@ -246,10 +270,14 @@ keys the operator uses. It has no access to Secrets, ConfigMaps, Pods or workloa
 
 ### Templated CR values
 
-`watches.yaml` does not set ansible-operator's `markUnsafe`, so string values in the CRs may be evaluated as Ansible
-templates inside the operator pod. Two consequences: a value with `{{` in it, such as a Go template in a Job's
-arguments, may be rendered or rejected; and a writer of the operator namespace may be able to run code in the operator
-pod. This has not been verified with a test.
+The operator does not set ansible-operator's `markUnsafe` option (in [watches.yaml](watches.yaml)), so string values
+in the CRs may be evaluated as Ansible templates inside the operator pod. Two consequences: a value with `{{` in it,
+such as a Go template in a Job's arguments, may be rendered or rejected; and a writer of the operator namespace may be
+able to run code in the operator pod. This has not been tested through the operator itself, but a test of the same
+mechanism in the operator image, with a CR passed to Ansible as the operator passes it, did render a template in a
+`spec` string ([Known gaps](docs/HANDOFF.md#known-gaps), G6). The `mutexrunconfig` role reads its CR once before it checks
+the namespace, so with an `AllNamespaces` install the same may hold for anyone who can create a MutexRunConfig in any
+namespace. Install in `OwnNamespace` mode ([Install](#install)).
 
 ### Metrics authentication
 
@@ -271,14 +299,15 @@ Each step has a command and what you should see. The sample files are in
 2. **Install NFD.** Install the Node Feature Discovery operator from OperatorHub into `openshift-nfd`, then
    `oc apply -f sample-manifests/nodefeaturediscovery.yaml`. If the cluster already runs NFD, see
    [The release version label](#the-release-version-label) instead.
-3. **Publish the version label.** **This reboots every worker, as many at a time as the pool's `maxUnavailable`
-   allows. Do it in a maintenance window.** `oc apply -f sample-manifests/machineconfig.yaml`, then
-   `oc get mcp worker -w`. Expected: `UPDATED` `True` and `UPDATING` `False` once every worker has rebooted.
+3. **Publish the version label.** **This reboots every node of every pool that renders the worker MachineConfigs, as
+   many at a time as each pool's `maxUnavailable` allows. Do it in a maintenance window.**
+   `oc apply -f sample-manifests/machineconfig.yaml`, then `oc get mcp -w`. Expected: `UPDATED` `True` and `UPDATING`
+   `False` for every pool once its nodes have rebooted.
 4. **Check the label.** `oc get nodes -L machineconfiguration.openshift.io/release-image-version`. Expected: the
    cluster's version on every target node.
 5. **Create the canary pool.** `oc apply -f sample-manifests/canary-mcp.yaml`, then `oc get mcp canary`. Expected:
    `MACHINECOUNT` `0`.
-6. **Install the operator.** `oc apply -f sample-manifests/catalogsource.yaml` (it uses the tag `:v0.3.0-rc2`, see
+6. **Install the operator.** `oc apply -f sample-manifests/catalogsource.yaml` (its tag is in
    [Catalog and versions](#catalog-and-versions)), then
    `oc apply -f sample-manifests/operator-install.yaml` (namespace, OperatorGroup, and a Subscription with `Manual`
    approval). Approve the InstallPlan:
@@ -438,7 +467,7 @@ it during a run. The message names the nodes and gives the `oc label` command th
 
 | Catalog | Image | What it offers |
 | --- | --- | --- |
-| This project's catalog | `ghcr.io/redhat-na-ssa/openshift-node-upgrade-mutex-operator-catalog`, tag `:v<version>` for every release and pre-release, `:latest` for the newest final release only | 0.3.0 and later, channel `alpha`. Empty until the first release from this repository, 0.3.0-rc2. Until 0.3.0 itself is released there is no `:latest`, so the sample CatalogSource uses the pre-release tag `:v0.3.0-rc2`. |
+| This project's catalog | `ghcr.io/redhat-na-ssa/openshift-node-upgrade-mutex-operator-catalog`, tag `:v<version>` for every release and pre-release, `:latest` for the newest final release only | 0.3.0 and later, channel `alpha`. The first release from this repository is 0.3.0-rc2; until it is published, the catalog is empty. Until 0.3.0 itself is released there is no `:latest`, so the sample CatalogSource uses the pre-release tag `:v0.3.0-rc2`. |
 | Your own build | the catalog image you push with `make release` | what you built. Not released yet, or need your own registry: see [Releasing](docs/DEVELOPMENT.md#releasing). |
 | Community catalogs in OperatorHub | | 0.2.x only, which works differently, is not covered here and can no longer be installed (its images are gone). |
 
@@ -455,7 +484,8 @@ tile, which is 0.2.x), then **Install** with:
 * Installation mode: **A specific namespace on the cluster**, the installed namespace `node-upgrade-mutex-operator`.
   This is the `OwnNamespace` mode, recommended: only the people you allow in that namespace can control the operator
   (see [Who controls the operator](#who-controls-the-operator)). `AllNamespaces` is supported but not recommended: it
-  adds nothing, because CRs outside the operator namespace are ignored, and in a shared namespace such as
+  adds nothing, because CRs outside the operator namespace are not acted on; a MutexRunConfig there is still read
+  before that check ([Templated CR values](#templated-cr-values)); and in a shared namespace such as
   `openshift-operators` more people may have write access.
 * Update approval: **Manual**.
 
@@ -488,8 +518,7 @@ oc get packagemanifests -n openshift-marketplace -l catalog=node-upgrade-mutex-o
 ```
 
 It prints the CSV at the head of the channel, which names the newest version. No output means the catalog has no
-release yet. Versions before 0.3.0
-work differently and are not covered here.
+release yet.
 
 ### Upgrading the operator
 
@@ -658,8 +687,10 @@ included:
    `JobRun=True JobRunSucceeded` and `NodeUpgrade=True NodeUpgradeSucceeded` ("Node is i of n").
 
 A restart of the operator after step 4 resumes at step 6. Nodes already at the new version get no Jobs
-(`NodeAlreadyUpgraded`). The finalizer runs no Jobs, so a node whose cleanup is still pending when the MutexRunConfig
-is deleted does not get it.
+(`NodeAlreadyUpgraded`). Deleting the MutexRunConfig does not interrupt a reconcile that is working on a node: it
+finishes that node, cleanup Jobs included, and stops at step 1 of the next. Every reconcile after the delete is the
+finalizer, which runs no Jobs, so a node still released then, for example after a `NodeUpgradeFailed`, gets no
+cleanup Jobs.
 
 ### Your Job must
 
@@ -720,7 +751,7 @@ the target version or the MutexRunConfig: set your own env in each JobSpec, or r
 | The Job's pods are never created (missing ServiceAccount, SCC, quota) | The Job looks running, so this ends as a timeout. See [A Job's pods never start](#a-jobs-pods-never-start). |
 | The Job was deleted (TTL or by hand) before it is looked up again | Creates a new Job, which runs again. |
 | The operator restarts | Finds its Jobs again by `job-key`. A released node resumes at the wait and gets its cleanup Jobs before any other node. |
-| The MutexRunConfig is deleted | Finishes the node in progress, cleanup included, then runs no more Jobs. A node released earlier whose cleanup Jobs are still pending, for example after a `NodeUpgradeFailed`, does not get them. Jobs in its namespace are garbage-collected, with their logs. |
+| The MutexRunConfig is deleted | The reconcile in progress finishes its node, cleanup included. The finalizer then restores and runs no Jobs: a node still released at that point, for example after a `NodeUpgradeFailed`, gets no cleanup Jobs. Jobs in its namespace are garbage-collected, with their logs. |
 | A rule is removed from `spec.mutexRules` during a run | Its Jobs no longer run, and its label goes when the node is released. |
 
 ### State of the node
@@ -735,7 +766,9 @@ the target version or the MutexRunConfig: set your own env in each JobSpec, or r
 ## Before your first upgrade
 
 1. Run the [check](#check-before-every-upgrade) on every MutexRunConfig.
-2. `oc get mcp`: the target pools are not paused, and the canary has `MACHINECOUNT` `0` (or only its own nodes).
+2. The pools command in [Commands](#commands): the canary is not paused and has `MACHINECOUNT` `0` (or only its own
+   nodes), no pool shows `PAUSED-BY` or `MODIFIED-BY`, and no target pool is paused, unless you
+   [paused it yourself](#pausing-the-pools-yourself) on purpose.
 3. The canary renders the same MachineConfigs as the target pools (the `diff` in [The canary pool](#the-canary-pool)).
 4. Each MutexRule's Job works against a real node: see [JOBS.md](docs/JOBS.md).
 5. The target pools have room for one node down, plus your Jobs' pods.
@@ -772,7 +805,8 @@ In words, the states of a MutexRunConfig, with the columns `Validated`/`Upgrade`
     nodes upgrade **without** Jobs.
 
 `Paused` and `Degraded` are refreshed only at the end of a reconcile, and one reconcile can last hours. Other
-MutexRunConfigs wait meanwhile, and their status is not updated.
+MutexRunConfigs wait meanwhile, and their status is not updated. The states of a run's nodes and pools, and of the
+run as the operator drives it, are in [State machines](docs/DESIGN.md#state-machines) in the design notes.
 
 ### Health at a glance
 
@@ -788,17 +822,25 @@ MutexRunConfigs wait meanwhile, and their status is not updated.
 ### Commands
 
 ```sh
+a='.metadata.annotations.nodeupgrade\.redhat-na-ssa\.github\.io'
 oc get mutexrunconfig -n node-upgrade-mutex-operator -w
 oc get mutexrunconfig <name> -n node-upgrade-mutex-operator \
   -o jsonpath='{range .status.conditions[*]}{.type}{"\t"}{.status}{"\t"}{.reason}{"\t"}{.message}{"\n"}{end}'
-oc get mcp
+# the pools
+oc get mcp -o custom-columns="NAME:.metadata.name,PAUSED:.spec.paused,PAUSED-BY:$a/paused-by,MODIFIED-BY:$a/modified-by,MACHINECOUNT:.status.machineCount"
+oc get mcp <pool> -o jsonpath='{.spec.nodeSelector.matchExpressions}{"\n"}{.metadata.annotations}{"\n"}'
+# the nodes
 oc get nodes -L machineconfiguration.openshift.io/release-image-version \
   -L mutexrule.nodeupgrade.redhat-na-ssa.github.io/release
-oc get nodes -o custom-columns='NAME:.metadata.name,HELD:.metadata.annotations.nodeupgrade\.redhat-na-ssa\.github\.io/labelled-by,RELEASED:.metadata.annotations.nodeupgrade\.redhat-na-ssa\.github\.io/released-by,MCO:.metadata.annotations.machineconfiguration\.openshift\.io/state'
-oc get jobs -A -l nodeupgrade.redhat-na-ssa.github.io/job-key -o custom-columns='NAMESPACE:.metadata.namespace,NAME:.metadata.name,NODE:.metadata.annotations.nodeupgrade\.redhat-na-ssa\.github\.io/node,PHASE:.metadata.annotations.nodeupgrade\.redhat-na-ssa\.github\.io/phase,VERSION:.metadata.annotations.nodeupgrade\.redhat-na-ssa\.github\.io/desired-version,DONE:.status.succeeded,FAILED:.status.failed'
+oc get nodes -o custom-columns="NAME:.metadata.name,HELD:$a/labelled-by,RELEASED:$a/released-by,MCO:.metadata.annotations.machineconfiguration\.openshift\.io/state"
+# the Jobs
+oc get jobs -A -l nodeupgrade.redhat-na-ssa.github.io/job-key -o custom-columns="NAMESPACE:.metadata.namespace,NAME:.metadata.name,NODE:$a/node,PHASE:$a/phase,VERSION:$a/desired-version,DONE:.status.succeeded,FAILED:.status.failed"
 ```
 
-The node in progress is the one with a `RELEASED` value, or the one whose pre-upgrade Jobs are running.
+`oc get mcp` has no column for `spec.paused`. The pools command shows it, and which MutexRunConfig paused a pool
+(`PAUSED-BY`, `<none>` on a pool you paused) or re-pointed it (`MODIFIED-BY`). The second one shows a pool's run-time
+`matchExpressions` and its annotations ([Labels and annotations](#labels-and-annotations)). The node in progress is
+the one with a `RELEASED` value, or the one whose pre-upgrade Jobs are running.
 
 ### What is written when
 
@@ -833,9 +875,9 @@ In words, start with `oc get mutexrunconfig -n <namespace>` and the conditions c
    [Validation fails (Validated=False)](#validation-fails-validatedfalse).
 3. `NodeVersionsKnown=False`:
    [Node versions unknown (NodeVersionsKnown=False)](#node-versions-unknown-nodeversionsknownfalse).
-4. `Degraded=True` and `JobRun=False`: if the message contains "did not finish within",
-   [A Job did not finish in time](#a-job-did-not-finish-in-time), and if its pods are `Pending` or absent,
-   [A Job's pods never start](#a-jobs-pods-never-start); otherwise
+4. `Degraded=True` and `JobRun=False`: if the message ends in "did not finish within `<N>`s (timeoutSeconds)", look
+   at the Job's pods. None, or only `Pending` ones: [A Job's pods never start](#a-jobs-pods-never-start); otherwise
+   [A Job did not finish in time](#a-job-did-not-finish-in-time). Any other message:
    [A Job failed (JobRunFailed)](#a-job-failed-jobrunfailed).
 5. `Degraded=True` and `NodeUpgrade=False`:
    [A node did not finish its upgrade (NodeUpgradeFailed)](#a-node-did-not-finish-its-upgrade-nodeupgradefailed).
@@ -928,8 +970,9 @@ started meanwhile runs **without** Jobs. During a run, the pools stay paused ins
 
 ### A Job did not finish in time
 
-**What you see.** `Degraded=True`, `JobRun=False JobRunFailed`, and a message with "pre Job `<namespace>/<job>` of
-MutexRule `<namespace>/<rule>` for node `<node>` did not finish within 900s (timeoutSeconds)" (or "cleanup Job").
+**What you see.** `Degraded=True` and `JobRun=False JobRunFailed` with the message "Jobs for `<node>` failed:
+`<phase>` Job `<namespace>/<job>` of MutexRule `<namespace>/<rule>` for node `<node>` did not finish within `<N>`s
+(timeoutSeconds)". `<phase>` is `pre` or `cleanup`, `<N>` the rule's `timeoutSeconds`.
 
 **Look closer.** The Jobs command in [Watching a run](#watching-a-run), then:
 
@@ -946,7 +989,9 @@ the Job (`oc delete job <job> -n <namespace>`), so the retry starts a new one. T
 
 ### A Job's pods never start
 
-**What you see.** A Job that does not finish in time, with no pods or with `Pending` pods.
+**What you see.** The message of [A Job did not finish in time](#a-job-did-not-finish-in-time) for a Job with no
+pods or only `Pending` ones. With `activeDeadlineSeconds` set, such a Job fails instead: "failed: Job was active
+longer than specified deadline".
 
 **Look closer.**
 
@@ -971,7 +1016,8 @@ failed: ..." and the message of the Job's `Failed` condition, for example "Job h
 limit".
 
 **Look closer.** `oc logs job/<job> -n <namespace> --all-containers`, and the Jobs command in
-[Watching a run](#watching-a-run).
+[Watching a run](#watching-a-run). No logs and a deadline message: see
+[A Job's pods never start](#a-jobs-pods-never-start).
 
 **Fix.** Fix the cause, in the application or in the MutexRule. A MutexRule edit does not start a retry by itself.
 
@@ -1059,18 +1105,22 @@ MutexRunConfig is working through its nodes, the delete waits for that whole run
 and node annotations, and unpauses the pools this MutexRunConfig paused.
 
 **The remaining nodes then upgrade WITHOUT Jobs, as many at a time as each pool's `maxUnavailable` allows.** A node
-that was released and still waits for its cleanup Jobs, for example after a `NodeUpgradeFailed`, does not get them:
-run them yourself if you need them. With canary nodes of its own, see [Residual risks](#residual-risks) (the
-finalizer's single pass).
+still released when the finalizer runs, for example after a `NodeUpgradeFailed`, gets no cleanup Jobs: run them
+yourself if you need them ([Test your Job](docs/JOBS.md#test-your-job-before-an-upgrade) with `phase=cleanup`). With canary
+nodes of its own, see [Residual risks](#residual-risks) (the finalizer's single pass).
 
 ### The operator is gone in the middle of a run
 
 **What you see.** No operator pod, or no CSV, while pools are still paused, or a MutexRunConfig stays `Terminating`.
 
-**Look closer.** `oc get csv,pods -n node-upgrade-mutex-operator` and `oc get mcp` (the `PAUSED` column).
+**Look closer.** `oc get csv,pods -n node-upgrade-mutex-operator`, and the pools and nodes commands in
+[Commands](#commands): every `PAUSED-BY`, `MODIFIED-BY` and `HELD` value, and `RELEASED` up to its `|`, names a
+MutexRunConfig as `<namespace>/<name>` whose changes are still in place.
 
 **Fix.** The simplest fix is to install the operator again in the same namespace, while its CRDs and CRs still exist.
-If that is not possible, restore by hand.
+Install the same version if you can: `oc get installplan -n node-upgrade-mutex-operator` lists the CSVs installed, and
+the Subscription's `spec.startingCSV` picks one. Whether another version can finish a run that a different one
+started is unknown. If none of this is possible, restore by hand.
 
 **What happens next.** A reinstalled operator continues the run, or finishes the delete, at its first reconcile. After
 a restore by hand, MCO upgrades the remaining nodes **without** Jobs once the pools are unpaused.
@@ -1088,9 +1138,10 @@ mrc="$ns/$name"
 rel=$(printf '%s' "$mrc" | sha1sum | cut -c1-40)   # its value of the release label
 ```
 
-If the MutexRunConfig no longer exists, for example when a `ConfigValidated` message names a pool whose
-`modified-by` or `paused-by` value is a MutexRunConfig that is gone, set `ns` and `name` from that value and leave out
-step 4. In step 2, set `labels` and `targets` this way instead:
+If the MutexRunConfig no longer exists, take `ns` and `name` from a `PAUSED-BY`, `MODIFIED-BY` or `HELD` value, or a
+`RELEASED` value up to its `|`, of the pools and nodes commands in [Commands](#commands), or from a `ConfigValidated`
+message that names a pool in use by a MutexRunConfig that is gone, and leave out step 4. In step 2, set `labels` and
+`targets` this way instead:
 
 ```sh
 labels=$(oc get nodes -o json | jq -c --arg mrc "$mrc" '[.items[].metadata
@@ -1201,20 +1252,24 @@ of this has been tested.
 
 ## Uninstall
 
-If the operator is already gone, first [restore by hand](#restore-by-hand) for each MutexRunConfig.
+If the operator is already gone, first [restore by hand](#restore-by-hand) for each MutexRunConfig. After an
+`AllNamespaces` install into a shared namespace such as `openshift-operators`, use it instead of
+`node-upgrade-mutex-operator`, and keep it in step 5.
 
 1. Make sure no run is active: every MutexRunConfig shows `Upgrade` `False` and `Paused` `False`, and
    `oc get clusterversion` shows no upgrade in progress.
-2. Delete the MutexRunConfigs and wait for their finalizers. The operator must still be running.
+2. Delete the MutexRunConfigs in every namespace while the operator still runs, so that their finalizers run. In an
+   `AllNamespaces` install those outside the operator namespace carry the finalizer too; without the operator, they
+   would make the CRD deletion in step 5 hang. `oc delete` waits until they are gone:
 
    ```sh
-   oc delete mutexrunconfig --all -n node-upgrade-mutex-operator
+   oc delete mutexrunconfig --all -A
    ```
 
 3. Delete the MutexTargets and MutexRules, and the Jobs in other namespaces:
 
    ```sh
-   oc delete mutextarget,mutexrule --all -n node-upgrade-mutex-operator
+   oc delete mutextarget,mutexrule --all -A
    oc get jobs -A -l nodeupgrade.redhat-na-ssa.github.io/job-key
    oc delete jobs -A -l nodeupgrade.redhat-na-ssa.github.io/job-key
    ```
@@ -1227,7 +1282,9 @@ If the operator is already gone, first [restore by hand](#restore-by-hand) for e
      xargs oc delete -n node-upgrade-mutex-operator
    ```
 
-5. Delete the CRDs, the namespace (with its OperatorGroup), and the CatalogSource if you added one:
+5. Delete the CRDs, the namespace (with its OperatorGroup), and the CatalogSource if you added one. If a CRD stays
+   `Terminating`, `oc get mutexrunconfig -A` shows the MutexRunConfig that still has the finalizer: restore it by hand,
+   including step 4 there.
 
    ```sh
    oc delete crd mutexrules.nodeupgrade.redhat-na-ssa.github.io mutextargets.nodeupgrade.redhat-na-ssa.github.io \
@@ -1236,13 +1293,22 @@ If the operator is already gone, first [restore by hand](#restore-by-hand) for e
    oc delete catalogsource node-upgrade-mutex-operator-catalog -n openshift-marketplace
    ```
 
-6. Delete the metrics ClusterRoleBinding, if you created one (see [Metrics](#metrics)), and the RBAC of
-   `job-example.yaml`: `oc delete clusterrolebinding,clusterrole mutex-node-labeler`.
-7. Optional: delete the canary pool. First remove `isCanary` from any node that has it (`oc label node <node>
+6. Delete the RBAC you created: the metrics ClusterRoleBinding, if any (see [Metrics](#metrics)); for
+   `job-example.yaml`, `oc delete clusterrolebinding,clusterrole mutex-node-labeler`; for `job-wait-for-app.yaml`,
+   `oc delete serviceaccount,role,rolebinding mutex-wait-for-app -n my-app`; and the ServiceAccounts and RBAC of your
+   own Jobs.
+7. Undo what the operator does not track: labels your Jobs left on the nodes after an abort, such as that of
+   `job-example.yaml` (`oc label nodes --all example.com/pre-upgrade-done-`), and the pause of pools you
+   [paused yourself](#pausing-the-pools-yourself).
+8. Optional: delete the canary pool. First remove `isCanary` from any node that has it (`oc label node <node>
    isCanary-`) and wait until `oc get mcp canary` shows `MACHINECOUNT` `0`. Then `oc delete mcp canary`.
-8. Optional: delete the MachineConfig `00-release-image-version` and the NFD instance. **Deleting the MachineConfig
-   reboots every worker.**
-9. Check that nothing is left: `oc get nodes,mcp -o yaml | grep -c 'nodeupgrade.redhat-na-ssa.github.io'` prints `0`.
+9. Optional: delete the MachineConfig `00-release-image-version`, then the NFD instance
+   (`oc delete nodefeaturediscovery nfd-instance -n openshift-nfd`) and, if nothing else uses it, the NFD operator.
+   **Deleting the MachineConfig reboots every node of every pool that renders the worker MachineConfigs.** Whether NFD
+   removes the version label is unknown; `oc label nodes --all machineconfiguration.openshift.io/release-image-version-`
+   does, once NFD is gone.
+10. Check that nothing is left: `oc get nodes,mcp -o yaml | grep -c 'nodeupgrade.redhat-na-ssa.github.io'` prints
+    `0`.
 
 ## Reference
 
@@ -1379,18 +1445,18 @@ condition by condition, so progress survives a restart of the operator.
 
 ### Timings
 
-| What | Value | Where it is set |
-| --- | --- | --- |
-| Reconcile period of every CR | 10 minutes | `watches.yaml` `reconcilePeriod` |
-| Noticing a new upgrade | at the next reconcile, at most 10 minutes later (ClusterVersion is not watched) | |
-| Settle time | 300 seconds | `mutexrunconfig_label_settle_seconds` |
-| Job check | every 10 seconds, for up to `timeoutSeconds` per Job and attempt | `mutexrunconfig_job_poll_delay`; MutexRule `spec.timeoutSeconds` (default 3600) |
-| Node upgrade wait, and the wait for an update MCO already started | every 60 seconds, 120 times: 2 hours per node | `mutexrunconfig_node_upgrade_delay`, `mutexrunconfig_node_upgrade_retries` |
-| APIService check | 3 checks, 10 seconds apart | `mutexrunconfig_apiservice_retries`, `mutexrunconfig_apiservice_delay` |
-| Retry after a failed reconcile | a few milliseconds at first, doubling up to about 17 minutes | controller-runtime's default backoff |
+| What | Value |
+| --- | --- |
+| Reconcile period of every CR | 10 minutes |
+| Noticing a new upgrade | at the next reconcile, at most 10 minutes later (ClusterVersion is not watched) |
+| Settle time | 300 seconds |
+| Job check | every 10 seconds, for up to the MutexRule's `spec.timeoutSeconds` (default 3600) per Job and attempt |
+| Node upgrade wait, and the wait for an update MCO already started | every 60 seconds, 120 times: 2 hours per node |
+| APIService check | 3 checks, 10 seconds apart |
+| Retry after a failed reconcile | a few milliseconds at first, doubling up to about 17 minutes (controller-runtime's default backoff) |
 
-The `mutexrunconfig_*` values are defaults of the `mutexrunconfig` role (`roles/mutexrunconfig/defaults/main.yml`),
-built into the image. There is no operator-wide setting.
+`timeoutSeconds` is set in each MutexRule. The other values are built into the operator image (in the source:
+[watches.yaml](watches.yaml) and the [role defaults](roles/mutexrunconfig/defaults/main.yml)).
 
 #### Why some steps wait 5 minutes
 
@@ -1417,8 +1483,8 @@ do the same once.
 
 ### One MutexRunConfig at a time
 
-The operator reconciles MutexRunConfigs one at a time (`--max-concurrent-reconciles=1`, set in
-`config/manager/manager.yaml` and applied per kind). While one MutexRunConfig works through its nodes, no other is
+The operator reconciles MutexRunConfigs one at a time (the argument `--max-concurrent-reconciles=1` of its
+Deployment, which applies to each kind). While one MutexRunConfig works through its nodes, no other is
 reconciled: their periodic reconciles, retries and finalizers wait, and their status is not updated. MutexRules and
 MutexTargets have workers of their own and are not held up. In practice:
 
@@ -1439,8 +1505,8 @@ every failure the conditions report. A failed Job is started again on every retr
 
 ### Permissions
 
-The operator's ServiceAccount gets these permissions cluster-wide, from `config/rbac/role.yaml` and, for the last two
-rows, `config/rbac/metrics_auth_role.yaml`:
+The operator's ServiceAccount gets these permissions cluster-wide, as the CSV's `spec.install.spec.clusterPermissions`
+list them (source: [config/rbac/](config/rbac/)):
 
 | API group | Resource | Verbs | Used for |
 | --- | --- | --- | --- |
@@ -1456,7 +1522,7 @@ rows, `config/rbac/metrics_auth_role.yaml`:
 | `authorization.k8s.io` | `subjectaccessreviews` | create | Authorizing scrapes of the metrics endpoint. |
 
 For leader election it also gets `coordination.k8s.io` `leases` (all verbs) and `events` (create, patch) in its own
-namespace (`config/rbac/leader_election_role.yaml`). With an `AllNamespaces` install, OLM grants these namespaced
+namespace (the CSV's `spec.install.spec.permissions`). With an `AllNamespaces` install, OLM grants these namespaced
 permissions cluster-wide and adds get, list and watch on `namespaces`.
 
 ### Metrics
@@ -1479,10 +1545,9 @@ the name exactly.
 
 0.3.0 is a new API. Its group is `nodeupgrade.redhat-na-ssa.github.io` (0.2.x used `openshift-optional.skrzypek.io`),
 and so are its node labels, pool and node annotations and finalizer. 0.3.0 does not read 0.2.x CRs, labels or
-annotations, so it cannot take over from 0.2.x in place. The project's catalog therefore starts afresh: it offers 0.3.0
-as an upgrade of nothing older than 0.3.0. The same holds for 0.3.0-rc1, a pre-release published only from the old
-repository with the old group. Move by reinstalling: save the 0.2.x CRs, uninstall 0.2.x, install 0.3.0, and create
-the CRs again under the new group.
+annotations, so the project's catalog starts afresh and offers no upgrade from 0.2.x, nor from 0.3.0-rc1, a
+pre-release published only from the old repository with the old group. Move by reinstalling: save the CRs, uninstall
+the old version, install 0.3.0, and create the CRs again under the new group.
 
 The 0.2.x images are hosted in a registry that no longer exists, so 0.2.x can no longer be installed, and a 0.2.x
 operator pod that has to pull its image again cannot start. The community catalogs hold only 0.2.x. If one of them
@@ -1511,11 +1576,11 @@ To move:
    should be paused, except by you, and this must print nothing:
 
    ```sh
-   oc get nodes,mcp -o yaml | grep 'mutexrule.openshift-optional.skrzypek.io/'
+   oc get nodes,mcp -o yaml | grep 'openshift-optional.skrzypek.io/'
    ```
 
-   If it prints labels or `matchExpressions`, let the run finish, or put the pools' original `matchExpressions` back,
-   remove the labels and unpause the pools by hand.
+   If it prints labels, annotations or `matchExpressions`, let the run finish, or put the pools' original
+   `matchExpressions` back, remove the labels and unpause the pools by hand.
 2. Save the 0.2.x CRs, in every namespace:
 
    ```sh
@@ -1523,19 +1588,26 @@ To move:
    ```
 
 3. Uninstall 0.2.x: delete its Subscription and CSV, then its CRDs, which also deletes the 0.2.x CRs (0.2.x has no
-   finalizer, so nothing hangs):
+   finalizer, so nothing hangs). The 0.3.0-rc1 pre-release puts the finalizer `openshift-optional.skrzypek.io/finalizer`
+   on every MutexRunConfig: for rc1, first delete them all while the rc1 operator still runs, and wait until they are
+   gone (`oc delete` waits), so its finalizer restores what it changed:
 
    ```sh
+   oc delete mutexrunconfigs.openshift-optional.skrzypek.io --all -A     # rc1 only
    oc delete subscriptions.operators.coreos.com <name> -n <operator namespace>
    oc delete csv <0.2.x CSV name> -n <operator namespace>
    oc delete crd mutexrules.openshift-optional.skrzypek.io mutextargets.openshift-optional.skrzypek.io mutexrunconfigs.openshift-optional.skrzypek.io
    ```
 
+   Without a running rc1 operator the first delete hangs. Once the command in step 1 prints nothing, remove the
+   finalizer from each: `oc patch mutexrunconfigs.openshift-optional.skrzypek.io <name> -n <namespace> --type=merge
+   -p '{"metadata":{"finalizers":null}}'`.
+
 4. Install 0.3.0 as described in [Install](#install). If the 0.2.x OperatorGroup targets another namespace
    (`SingleNamespace`), make it `OwnNamespace` first.
 5. Create the CRs again from `mutex-0.2.x.yaml`, with `apiVersion: nodeupgrade.redhat-na-ssa.github.io/v1alpha1`, in
    the operator namespace, without `status` and the server-set `metadata` fields, and checked against the rules above.
-   Start from the samples in [config/samples](config/samples).
+   Start from the [sample manifests](sample-manifests/README.md).
 6. Afterwards `oc get mutexrunconfig -n <operator namespace>` must show every MutexRunConfig as `Validated` `True`.
    Fix any that is not before the next OpenShift upgrade: a MutexRunConfig that fails validation pauses nothing.
 
@@ -1651,7 +1723,7 @@ set it, so `make document` writes the same files on every machine. The release w
 | `run` | Runs ansible-operator locally against the cluster in your kubeconfig, with `watches.yaml` and one reconcile at a time per kind, as in `config/manager/manager.yaml`. |
 | `docker-build` / `docker-push` | Builds or pushes the operator image `IMG` (default `$(IMAGE_TAG_BASE):$(VERSION)`). |
 | `docker-buildx` | Builds and pushes a multi-arch image for `PLATFORMS`. |
-| `image-smoke-test` | Checks a built image without a cluster: collections, Python libraries, and a syntax check of every role. |
+| `image-smoke-test` | Checks a built image without a cluster: the license file and label, collections, Python libraries, and a syntax check of every role. |
 | `install` / `uninstall` | Applies or deletes the CRDs. |
 | `deploy` / `undeploy` | Applies or deletes `config/default` with `IMG`. |
 | `bundle` | Generates and validates `bundles/<VERSION>/` (manifests, metadata, scorecard tests, `bundle.Dockerfile`). The bundle's CSV description links to `BUNDLE_DOCS_REF`, by default the tag `v<VERSION>`. |
@@ -1813,10 +1885,11 @@ In words:
    default branch, and the same `.github/workflows` as the default branch.
 4. `make release` builds and pushes the operator image, generates the bundle (the operator image pinned by digest, the
    description's links pinned to the tag), pushes the bundle image, adds the bundle to `catalog-template.yaml` as the
-   new channel head (it replaces the old head and carries a `skipRange`), renders `catalog/`, and pushes the catalog
-   image. Only a final release then moves the `:latest` tags.
+   new channel head (it replaces the old head and carries a `skipRange` from `0.3.0-rc2`), renders `catalog/`, and
+   pushes the catalog image. Only a final release then moves the `:latest` tags.
 5. The workflow pushes the catalog update to the branch `release/<tag>`. The maintainer opens the pull request from
-   the link in the run summary and merges it before the next tag.
+   the link in the run summary and merges it before the next tag, then updates the docs for the new version
+   ([After each release](#after-each-release)).
 6. After a final release, a pull request bumps the version with `make increment`.
 7. On the first release, the maintainer checks that the three `ghcr.io` packages are public. Publishing in the
    community catalogs is optional and done by hand.
@@ -1828,8 +1901,11 @@ so nothing can be installed from it yet. Until the first release `catalog-valida
 match, since opm refuses a channel without a bundle, and `catalog-build` builds nothing. The first release from this
 repository is `v0.3.0-rc2`. A `0.3.0-rc1` with the old API group was published only from the old repository; it is
 not in this catalog and should not be installed. Older versions are not in it either: 0.1.x and 0.2.x use the old API
-group, and their images were on a registry that is gone. The `skipRange` starts at `CATALOG_SKIP_FROM=0.3.0-0`, so
-there is no upgrade edge from 0.2.x; moving from 0.2.x is a reinstall ([Moving from 0.2.x](docs/USAGE.md#moving-from-02x)).
+group, and their images were on a registry that is gone. Every `skipRange` starts at `CATALOG_SKIP_FROM=0.3.0-rc2`,
+the first version released with the current API group, so there is no upgrade edge from 0.2.x or from `0.3.0-rc1`.
+Moving from them is a reinstall ([Moving from 0.2.x](docs/USAGE.md#moving-from-02x)). The range must not start at
+`0.3.0-0`, which sorts before `0.3.0-rc1`. For `v0.3.0-rc2` itself the range is `>=0.3.0-rc2 <0.3.0-rc2`, which
+matches nothing.
 
 **With the release workflow** (`.github/workflows/release.yaml`):
 
@@ -1847,14 +1923,15 @@ there is no upgrade edge from 0.2.x; moving from 0.2.x is a reinstall ([Moving f
 4. It pushes the updated `catalog-template.yaml` and `catalog/` to the branch `release/<tag>`, and the run's summary
    links a new pull request from that branch into the default branch. Open it and merge it before you push the next
    tag.
-5. After a final release (not after a pre-release), run `make increment` and merge that change in a pull request.
-6. On the first release, check that clusters can pull the images without a pull secret, for example
+5. Update the docs for the new version, as in [After each release](#after-each-release).
+6. After a final release (not after a pre-release), run `make increment` and merge that change in a pull request.
+7. On the first release, check that clusters can pull the images without a pull secret, for example
    `podman pull --authfile /dev/null ghcr.io/redhat-na-ssa/openshift-node-upgrade-mutex-operator-catalog:v0.3.0-rc2`.
    The three packages (`openshift-node-upgrade-mutex-operator`, `-bundle`, `-catalog`) are created under the
    repository owner by the first push, linked to the repository by the image label, and take the repository's
    visibility. If a package is private, make it public once (package settings, Danger Zone, Change visibility; this
    cannot be undone).
-7. Write the release notes by hand. The workflow creates no GitHub Release and the repository has no changelog.
+8. Write the release notes by hand. The workflow creates no GitHub Release and the repository has no changelog.
 
 Rules that follow from how the workflow and the catalog work:
 
@@ -1862,8 +1939,9 @@ Rules that follow from how the workflow and the catalog work:
   default branch. A version whose pull request was not merged is missing from that template, so it drops out of the
   next catalog image.
 - **A pre-release stays in `alpha`.** `v0.3.0-rc2` becomes the head of the `alpha` channel. The final `v0.3.0`
-  replaces it, and its `skipRange` (`>=0.3.0-0 <0.3.0`) lets clusters on the pre-release upgrade straight to it. The
-  pre-release stays in the template.
+  replaces it, and its `skipRange` (`>=0.3.0-rc2 <0.3.0`) lets clusters on any pre-release from rc2 on upgrade straight
+  to it. The pre-release stays in the template. Pre-release names compare as text, so `0.3.0-rc10` sorts before
+  `0.3.0-rc2` and falls outside that range: keep the number of a pre-release below 10.
 - **Test a pre-release from its own catalog image**,
   `ghcr.io/redhat-na-ssa/openshift-node-upgrade-mutex-operator-catalog:v<VERSION>`, for example `:v0.3.0-rc2`. A
   pre-release does not move `:latest`, and `:latest` does not exist until the first final release.
@@ -1884,12 +1962,14 @@ Rules that follow from how the workflow and the catalog work:
    - generates the bundle, which pins the operator image by digest when `USE_IMAGE_DIGESTS=true`, then builds and
      pushes the bundle image;
    - `catalog-add` makes the bundle the new channel head, with `replaces` set to the old head and
-     `skipRange: >=0.3.0-0 <VERSION` (0.3.0 is the first version with the current API group, see `CATALOG_SKIP_FROM`);
+     `skipRange: >=0.3.0-rc2 <VERSION` (0.3.0-rc2 is the first version released with the current API group, see
+     `CATALOG_SKIP_FROM`);
    - `catalog-render` pulls every bundle image and takes a few minutes;
    - builds and pushes the catalog image, and tags all three images as `:latest` (not for a pre-release, a `VERSION`
      with a `-` such as `0.3.0-rc2`).
 3. Commit `catalog-template.yaml` and `catalog/`.
-4. Run `make increment` to bump `PATCH` in `.envrc`, then commit it (not after a pre-release).
+4. Update the docs for the new version, as in [After each release](#after-each-release).
+5. Run `make increment` to bump `PATCH` in `.envrc`, then commit it (not after a pre-release).
 
 `make release` records the bundle in the catalog by tag (`BUNDLE_IMG`) and refuses any other `BUNDLE_REF`. The
 bundle's digest is only known once it is pushed, because every `make bundle` writes a new `createdAt`. To record the
@@ -1911,7 +1991,7 @@ make latest
 `skopeo` prints the full digest, `sha256:...`, so `BUNDLE_REF` gets no second `sha256:` prefix. `catalog-add` does
 not check the format of the reference, and running it again for the same version is refused. To undo a wrong
 `catalog-add`, run `git checkout catalog-template.yaml` (and `git checkout catalog/` if `catalog-render` already ran),
-then run it again. Then continue with steps 3 and 4.
+then run it again. Then continue with steps 3 to 5.
 
 To publish in the community catalogs, copy the bundle (`manifests/`, `metadata/` and `tests/`) into
 `operators/openshift-node-upgrade-mutex-operator/<VERSION>/` of a fork of
@@ -1921,6 +2001,27 @@ and open a pull request. Those catalogs hold 0.2.x, under the old API group, in 
 there only in a new channel (set `CHANNELS` and `DEFAULT_CHANNEL` for `make bundle`), or 0.2.x installs would be
 offered an upgrade to an API that ignores their CRs. [HANDOFF.md](docs/HANDOFF.md) lists this as a decision for the
 owner.
+
+#### After each release
+
+Once the `release/<tag>` pull request is merged, update the docs for the new version in a pull request:
+
+1. `sample-manifests/catalogsource.yaml`: the tag in `spec.image` and the comment that names it. Use the newest final
+   release, or the newest pre-release while there is no final release.
+2. `docs/USAGE.md`:
+   - the `Releases` row of the table at the top;
+   - [Catalog and versions](docs/USAGE.md#catalog-and-versions): what the project's catalog offers, the tag the sample
+     CatalogSource uses and, after the first final release, that `:latest` exists;
+   - [Tested environments](docs/USAGE.md#tested-environments), if the release ran on a live cluster, together with
+     [tests/Scenarios.md](tests/Scenarios.md).
+3. Any other text that names the previous release's tag or says that nothing is released yet. While the docs name
+   `0.3.0-rc2`, this finds both; change the version in it once they name another:
+   `git grep -n -e '0\.3\.0-rc2' -e 'first release' -e 'no release yet' -- docs/USAGE.md sample-manifests/`
+4. `make document`, then commit `README.md` and the CSV base with the change.
+
+A release's CSV description is `docs/USAGE.md` at its tag, so the console shows these updates from the next release
+on. Word the release state in USAGE so that it also reads correctly at the tag, as the `Releases` row and Catalog and
+versions do now: "The first release there is 0.3.0-rc2; until it is published, the catalog is empty".
 
 ### Making a change
 

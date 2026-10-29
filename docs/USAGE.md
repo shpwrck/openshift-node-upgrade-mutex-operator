@@ -7,7 +7,7 @@ node: the operator only decides when each node may go. If a Job fails, the upgra
 | Project | |
 | --- | --- |
 | Status | Alpha. The API is `v1alpha1` and may change. |
-| Releases | Published to `ghcr.io/redhat-na-ssa` by the release workflow. Until the first release there (0.3.0-rc2), the catalog is empty: see [Install](#install). |
+| Releases | Published to `ghcr.io/redhat-na-ssa` by the release workflow. The first release there is 0.3.0-rc2; until it is published, the catalog is empty: see [Install](#install). |
 | OpenShift | Declared for 4.16 and later. Tested live on 4.21 z-stream upgrades only: see [tests/Scenarios.md](../tests/Scenarios.md). |
 | License | [Apache License 2.0](../LICENSE) |
 | Support | Best effort. Report problems at https://github.com/redhat-na-ssa/openshift-node-upgrade-mutex-operator/issues |
@@ -211,8 +211,9 @@ oc patch mcp worker --type merge -p '{"spec":{"paused":true}}'
 
 The operator uses a pool that is already paused as it is, and still releases its nodes one at a time through the
 canary. It never unpauses such a pool, so unpause it yourself after the run (`"paused":false`). Do not pause the
-canary. This ran live only in a rehearsal with an earlier build, not yet in a real upgrade (S29 in
-[tests/Scenarios.md](../tests/Scenarios.md)).
+canary. This was rehearsed once on a live cluster, on an earlier design and without a real upgrade: the operator set
+no `paused-by` and left the pool paused. Whether it released the nodes through the canary in that rehearsal is not
+recorded (S29 in [tests/Scenarios.md](../tests/Scenarios.md)).
 
 ### Trust assumptions
 
@@ -248,8 +249,9 @@ The states of a run, and where a failure keeps the pools paused, are shown in [W
 Anyone who can create or edit MutexRules, MutexTargets or MutexRunConfigs **in the operator namespace** can pause
 MachineConfigPools, relabel nodes, and run Jobs in any namespace with any ServiceAccount there. Treat write access to
 that namespace as cluster-admin. OLM creates `admin`, `edit` and `view` aggregated roles for these CRDs, so every user
-with `admin` or `edit` in the operator namespace has that access. CRs in other namespaces are ignored for this reason.
-Check who has it: `oc adm policy who-can create mutexrunconfigs -n node-upgrade-mutex-operator`.
+with `admin` or `edit` in the operator namespace has that access. CRs in other namespaces are not acted on for this
+reason, but see [Templated CR values](#templated-cr-values) for an `AllNamespaces` install. Check who has it:
+`oc adm policy who-can create mutexrunconfigs -n node-upgrade-mutex-operator`.
 
 ### Job ServiceAccounts
 
@@ -269,7 +271,11 @@ keys the operator uses. It has no access to Secrets, ConfigMaps, Pods or workloa
 The operator does not set ansible-operator's `markUnsafe` option (in [watches.yaml](../watches.yaml)), so string values
 in the CRs may be evaluated as Ansible templates inside the operator pod. Two consequences: a value with `{{` in it,
 such as a Go template in a Job's arguments, may be rendered or rejected; and a writer of the operator namespace may be
-able to run code in the operator pod. This has not been verified with a test.
+able to run code in the operator pod. This has not been tested through the operator itself, but a test of the same
+mechanism in the operator image, with a CR passed to Ansible as the operator passes it, did render a template in a
+`spec` string ([Known gaps](HANDOFF.md#known-gaps), G6). The `mutexrunconfig` role reads its CR once before it checks
+the namespace, so with an `AllNamespaces` install the same may hold for anyone who can create a MutexRunConfig in any
+namespace. Install in `OwnNamespace` mode ([Install](#install)).
 
 ### Metrics authentication
 
@@ -459,7 +465,7 @@ it during a run. The message names the nodes and gives the `oc label` command th
 
 | Catalog | Image | What it offers |
 | --- | --- | --- |
-| This project's catalog | `ghcr.io/redhat-na-ssa/openshift-node-upgrade-mutex-operator-catalog`, tag `:v<version>` for every release and pre-release, `:latest` for the newest final release only | 0.3.0 and later, channel `alpha`. Empty until the first release from this repository, 0.3.0-rc2. Until 0.3.0 itself is released there is no `:latest`, so the sample CatalogSource uses the pre-release tag `:v0.3.0-rc2`. |
+| This project's catalog | `ghcr.io/redhat-na-ssa/openshift-node-upgrade-mutex-operator-catalog`, tag `:v<version>` for every release and pre-release, `:latest` for the newest final release only | 0.3.0 and later, channel `alpha`. The first release from this repository is 0.3.0-rc2; until it is published, the catalog is empty. Until 0.3.0 itself is released there is no `:latest`, so the sample CatalogSource uses the pre-release tag `:v0.3.0-rc2`. |
 | Your own build | the catalog image you push with `make release` | what you built. Not released yet, or need your own registry: see [Releasing](DEVELOPMENT.md#releasing). |
 | Community catalogs in OperatorHub | | 0.2.x only, which works differently, is not covered here and can no longer be installed (its images are gone). |
 
@@ -476,7 +482,8 @@ tile, which is 0.2.x), then **Install** with:
 * Installation mode: **A specific namespace on the cluster**, the installed namespace `node-upgrade-mutex-operator`.
   This is the `OwnNamespace` mode, recommended: only the people you allow in that namespace can control the operator
   (see [Who controls the operator](#who-controls-the-operator)). `AllNamespaces` is supported but not recommended: it
-  adds nothing, because CRs outside the operator namespace are ignored, and in a shared namespace such as
+  adds nothing, because CRs outside the operator namespace are not acted on; a MutexRunConfig there is still read
+  before that check ([Templated CR values](#templated-cr-values)); and in a shared namespace such as
   `openshift-operators` more people may have write access.
 * Update approval: **Manual**.
 
@@ -1129,9 +1136,10 @@ mrc="$ns/$name"
 rel=$(printf '%s' "$mrc" | sha1sum | cut -c1-40)   # its value of the release label
 ```
 
-If the MutexRunConfig no longer exists, take `ns` and `name` from a `PAUSED-BY`, `MODIFIED-BY`, `HELD` or `RELEASED`
-value of the pools and nodes commands in [Commands](#commands), or from a `ConfigValidated` message that names a pool
-in use by a MutexRunConfig that is gone, and leave out step 4. In step 2, set `labels` and `targets` this way instead:
+If the MutexRunConfig no longer exists, take `ns` and `name` from a `PAUSED-BY`, `MODIFIED-BY` or `HELD` value, or a
+`RELEASED` value up to its `|`, of the pools and nodes commands in [Commands](#commands), or from a `ConfigValidated`
+message that names a pool in use by a MutexRunConfig that is gone, and leave out step 4. In step 2, set `labels` and
+`targets` this way instead:
 
 ```sh
 labels=$(oc get nodes -o json | jq -c --arg mrc "$mrc" '[.items[].metadata

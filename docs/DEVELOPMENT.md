@@ -258,10 +258,11 @@ In words:
    default branch, and the same `.github/workflows` as the default branch.
 4. `make release` builds and pushes the operator image, generates the bundle (the operator image pinned by digest, the
    description's links pinned to the tag), pushes the bundle image, adds the bundle to `catalog-template.yaml` as the
-   new channel head (it replaces the old head and carries a `skipRange`), renders `catalog/`, and pushes the catalog
-   image. Only a final release then moves the `:latest` tags.
+   new channel head (it replaces the old head and carries a `skipRange` from `0.3.0-rc2`), renders `catalog/`, and
+   pushes the catalog image. Only a final release then moves the `:latest` tags.
 5. The workflow pushes the catalog update to the branch `release/<tag>`. The maintainer opens the pull request from
-   the link in the run summary and merges it before the next tag.
+   the link in the run summary and merges it before the next tag, then updates the docs for the new version
+   ([After each release](#after-each-release)).
 6. After a final release, a pull request bumps the version with `make increment`.
 7. On the first release, the maintainer checks that the three `ghcr.io` packages are public. Publishing in the
    community catalogs is optional and done by hand.
@@ -384,7 +385,6 @@ Once the `release/<tag>` pull request is merged, update the docs for the new ver
    - the `Releases` row of the table at the top;
    - [Catalog and versions](USAGE.md#catalog-and-versions): what the project's catalog offers, the tag the sample
      CatalogSource uses and, after the first final release, that `:latest` exists;
-   - step 6 of the [Quick start](USAGE.md#quick-start), if it names that tag;
    - [Tested environments](USAGE.md#tested-environments), if the release ran on a live cluster, together with
      [tests/Scenarios.md](../tests/Scenarios.md).
 3. Any other text that names the previous release's tag or says that nothing is released yet. While the docs name
@@ -393,7 +393,8 @@ Once the `release/<tag>` pull request is merged, update the docs for the new ver
 4. `make document`, then commit `README.md` and the CSV base with the change.
 
 A release's CSV description is `docs/USAGE.md` at its tag, so the console shows these updates from the next release
-on.
+on. Word the release state in USAGE so that it also reads correctly at the tag, as the `Releases` row and Catalog and
+versions do now: "The first release there is 0.3.0-rc2; until it is published, the catalog is empty".
 
 ### Making a change
 

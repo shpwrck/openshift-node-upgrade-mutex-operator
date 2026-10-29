@@ -30,11 +30,11 @@ flowchart TB
     end
     subgraph rc2["3. Catalog (still make release)"]
       direction LR
-      cadd["catalog-add: new head,<br/>replaces the old head,<br/>skipRange #gt;=0.3.0-0 #lt;VERSION"] --> crender["catalog-render"] --> cimg["catalog image<br/>build, push"] --> latest[":latest tags<br/>(final releases only)"]
+      cadd["catalog-add: new head,<br/>replaces the old head,<br/>skipRange #gt;=0.3.0-rc2 #lt;VERSION"] --> crender["catalog-render"] --> cimg["catalog image<br/>build, push"] --> latest[":latest tags<br/>(final releases only)"]
     end
     subgraph rd["4. Catalog pull request"]
       direction LR
-      branch["release.yaml pushes<br/>release/#lt;tag#gt;"] --> pr["open the pull request<br/>into the default branch"] --> merge["merge it BEFORE<br/>the next tag"] --> inc["make increment, in a pull<br/>request (final releases only)"]
+      branch["release.yaml pushes<br/>release/#lt;tag#gt;"] --> pr["open the pull request<br/>into the default branch"] --> merge["merge it BEFORE<br/>the next tag"] --> upd["update the docs for<br/>the new version"] --> inc["make increment, in a pull<br/>request (final releases only)"]
     end
     ra --> rb --> rc2 --> rd
   end
