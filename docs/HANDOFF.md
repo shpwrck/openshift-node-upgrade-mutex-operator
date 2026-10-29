@@ -7,7 +7,9 @@ matrix, [tests/Scenarios.md](../tests/Scenarios.md).
 
 ## Takeover checklist
 
-Steps 1 to 3 had to be done before the first public release. They are done; each has a check.
+Steps 1 to 3 had to be done before the first release from this repository, `v0.3.0-rc2`. They are done; each has a
+check. What else must hold before `v0.3.0-rc2`, and before the first final release `v0.3.0`, is in
+[Release gates](#release-gates).
 
 1. **License.** Done: Apache License 2.0 ([LICENSE](../LICENSE)). Check: `grep -n 'license:' roles/*/meta/main.yml`
    prints `Apache-2.0` three times.
@@ -17,10 +19,11 @@ Steps 1 to 3 had to be done before the first public release. They are done; each
    ([Where it lives](#where-it-lives)). Check: `make docs-lint` passes, and the `git grep` in that section prints only
    lines of this file.
 4. **Repository settings.** Set them as in [Repository settings](#repository-settings) before anyone pushes a tag.
-5. **First release.** Push the tag `v0.3.0-rc2` on the default branch, as in DEVELOPMENT,
-   [Releasing](DEVELOPMENT.md#releasing). The release workflow publishes the operator, bundle and catalog images to
-   `ghcr.io/redhat-na-ssa` and pushes the branch `release/v0.3.0-rc2`. Merge the pull request from that branch before
-   you push another tag. Check that clusters can pull the images without credentials:
+5. **First release.** Once the gates [before v0.3.0-rc2](#before-v030-rc2) hold, push the tag `v0.3.0-rc2` on the
+   default branch, as in DEVELOPMENT, [Releasing](DEVELOPMENT.md#releasing). The release workflow publishes the
+   operator, bundle and catalog images to `ghcr.io/redhat-na-ssa` and pushes the branch `release/v0.3.0-rc2`. Merge
+   the pull request from that branch before you push another tag. Check that clusters can pull the images without
+   credentials:
    `podman pull --authfile /dev/null ghcr.io/redhat-na-ssa/openshift-node-upgrade-mutex-operator-catalog:v0.3.0-rc2`.
 6. **First install.** Install the rc on a non-production OpenShift cluster from that catalog image, as in USAGE,
    [Quick start](USAGE.md#quick-start). Look at the operator's description in the console once (test row S43): each
@@ -30,16 +33,65 @@ Steps 1 to 3 had to be done before the first public release. They are done; each
    least a z-stream upgrade with two target nodes (S14 to S16) with the rc. Then run the open rows you rely on, for
    example the stuck node (S24), the manual restore (S28), an abort on the shipped design (S25) and a minor upgrade
    (S39).
-8. **Docs after the release.** Until the first release, USAGE says that nothing is released yet. Once `v0.3.0-rc2`
-   (or `v0.3.0`) is in the catalog, update the status and Install text in `docs/USAGE.md` (the status table, Catalog
-   and versions, Quick start step 6), and the tested environments after step 7, then run `make document`. The sample
-   `sample-manifests/catalogsource.yaml` uses the tag `:v0.3.0-rc2`; move it to the newest release each time.
+8. **Docs after the release.** Until the first release, USAGE says that nothing is released yet. After `v0.3.0-rc2`,
+   and after every release from then on, make the updates in DEVELOPMENT,
+   [After each release](DEVELOPMENT.md#after-each-release). After step 7 they include the tested environments.
 9. **Open decisions and known gaps.** Go through [Decisions left to the new owner](#decisions-left-to-the-new-owner)
-   and [Known gaps](#known-gaps). File issues for the ones you keep. This file travels with the repository; issues in
-   the old repository did not move.
+   and [Known gaps](#known-gaps); [Release gates](#release-gates) says which of them block which release. File issues
+   for the ones you keep. This file travels with the repository; issues in the old repository did not move.
 10. **Community catalogs.** Decide what happens to the old listings ([The community catalogs](#the-community-catalogs)).
-11. **Final release.** When the rc has passed, push `v0.3.0`, merge its `release/v0.3.0` pull request, then bump the
-    version with `make increment` in a pull request.
+11. **Final release.** Once the gates [before v0.3.0](#before-v030) hold, push `v0.3.0`, merge its `release/v0.3.0`
+    pull request, then bump the version with `make increment` in a pull request.
+
+## Release gates
+
+Two releases are planned, and each has gates that must hold before its tag is pushed:
+
+* **`v0.3.0-rc2`** is the first release from this repository. It is a pre-release: it publishes public images and a
+  catalog that anyone can install, but it does not move `:latest`. Its purpose is the live test of the release
+  process, the images on `ghcr.io/redhat-na-ssa` and the new API group (checklist steps 5 to 7).
+* **`v0.3.0`** is the first final release. It moves `:latest`, and it is the version that USAGE tells 0.2.x users to
+  reinstall to.
+
+Every other open decision and known gap can follow in a later release; the last table says why.
+
+### Before v0.3.0-rc2
+
+| Gate | Why it blocks | Done when |
+| --- | --- | --- |
+| License, API group and repository URL (checklist steps 1 to 3) | The API group cannot change after a release without creating a new API. Every release links to `REPO_URL` and labels its images with the repository | Done |
+| `CATALOG_SKIP_FROM` is `0.3.0-rc2` | A catalog entry keeps the `skipRange` it was added with. One that starts at `0.3.0-0` also covers `0.3.0-rc1`, which uses the old API group, so OLM would offer an in-place upgrade from it to a version that ignores its CRs | Done (Makefile) |
+| G6 cannot be reached from outside the operator namespace | `AllNamespaces` is a supported install mode, and in it the `mutexrunconfig` role reads a MutexRunConfig from any namespace before its namespace check. If G6 holds, as the probe in its row suggests, anyone who can create a MutexRunConfig in any namespace could then run code in the operator pod, with the operator's ServiceAccount. That is outside the trust model in USAGE, Who controls the operator | `markUnsafe: true` is set with the molecule case (G6's fix), or at least the namespace check runs before the first read of the CR |
+| Repository settings (checklist step 4), the tag rule above all | Pushing a `v*` tag publishes a release with the workflow's token | The settings are made |
+| Private vulnerability reporting is enabled (repository Settings, Security) | From this tag on, anyone can install the operator from a public catalog, and an open security question (G6) is listed in this public file. Without it the only way to report a vulnerability is a public issue. It is a setting; the policy text can follow with `SECURITY.md` | Enabled |
+| CI passed on the commit to tag, including `Molecule on kind` | `release.yaml` checks the tag and the branch, not CI. `Molecule on kind` runs only on pull requests that touch its paths | `Lint` and `Build and validate` passed on it, and `Molecule on kind` passed in a run started by hand (`e2e.yaml`, Run workflow) on the default branch at that commit |
+
+### Before v0.3.0
+
+| Gate | Why it blocks | Done when |
+| --- | --- | --- |
+| The rc passed on a live cluster | No live run has used the new API group or an image from `ghcr.io/redhat-na-ssa` (test row S44), and the final release is the one users are pointed to | Checklist steps 6 and 7: an install from the rc's catalog image, the console check (S43), and a z-stream upgrade with two target nodes (S14 to S16) |
+| The `release/v0.3.0-rc2` pull request is merged | The next release starts from the template on the default branch, so without it rc2 drops out of the catalog (G15) | Merged |
+| G6 closed, if the rc only moved the namespace check | Inside the operator namespace G6 stays within the trust model, since its writers count as cluster-admin. But an open security question should not ship in the version production users install, and `markUnsafe` changes how the operator reads CR values, which should not change once users depend on the final release | `markUnsafe: true` is set with the molecule case, or the reason not to is written here, and USAGE, Templated CR values, says what was found |
+| G1: `timeoutSeconds` does not stop a Job | Changing what a field means after the final release changes what users' MutexRules do. It does not block the rc: a timeout fails closed (the run stops and the pools stay paused, S22), and USAGE and JOBS describe it, with `activeDeadlineSeconds` as the bound | The fix is merged, or the decision to keep today's meaning is written here; either way USAGE and JOBS describe what ships |
+| G8: nothing checks that the canary renders the same MachineConfigs as the target pools | It is the known way a configuration mistake makes the shipped design reboot nodes without their Jobs, and only a manual `diff` in USAGE guards against it. It does not block the rc: USAGE states the requirement and the check (The canary pool, Before your first upgrade), and the rc is tested by people who run them | At least a warning condition when the canary's rendered `spec.configuration.source` differs from a target pool's |
+| `SECURITY.md` | Production users of a final release need the supported versions and how a report is handled | A `SECURITY.md` that names the supported versions and the private reporting route |
+| Release notes | 0.2.x users must reinstall: there is no upgrade edge to 0.3.0, and the workflow creates no GitHub Release (G15) | A GitHub Release for `v0.3.0` that points to USAGE, [Moving from 0.2.x](USAGE.md#moving-from-02x) |
+
+### Not a release gate
+
+| Item | Why it can wait |
+| --- | --- |
+| The community catalogs | Releases to this repository's catalog do not touch them. Publishing 0.3.0 there is optional, and only in a new channel ([The move from 0.2.x](#the-move-from-02x)) |
+| Digests in the catalog | A choice per release: later entries can be recorded by digest without changing earlier ones |
+| Supported OpenShift range | USAGE states the declared range (4.16 and later) and the tested one (4.21 z-stream). Both values move together when 4.16 leaves support |
+| Signing, SBOM and provenance | They can be added to the release workflow in any release without changing the API or the catalog, and USAGE, Supply chain, says they are missing. If the organization's policy requires them for every published image, they block `v0.3.0-rc2` instead |
+| `CODEOWNERS` and CSV maintainers | They route reviews and contact. Branch protection already requires a pull request and the checks, and the repository's issues are the contact |
+| Job namespaces, the `master` pool as a target (G7), a suspend switch (G9) | USAGE documents each: writers of the operator namespace count as cluster-admin, `master` is not supported as a target, and deleting the MutexRunConfig is the only stop. An allow-list, a refusal or a new optional field can come in any release |
+| The disconnected annotation | It stays `"false"` until test row S42 has run. Changing it is a CSV edit |
+| How much of USAGE goes into the CSV | The CSV description can change in any release; S43 checks today's on the rc |
+| Compatibility paths | No build with the current group reaches them, so removing them changes nothing a user sees |
+| The other known gaps (G2 to G5, G10 to G22) | Each fails closed, is documented in USAGE, or concerns status, tests, naming, packaging or convenience |
 
 ## Repository settings
 
@@ -131,13 +183,16 @@ appears in:
 The old group is left only where the docs describe 0.2.x: USAGE, [Moving from 0.2.x](USAGE.md#moving-from-02x) (and
 so `README.md` and the CSV description), and this file.
 
-0.3.0 is the first version with this group. 0.2.x and every earlier build, the 0.3.0-rc1 pre-release included, used
-the old group: their CRs, labels and annotations are not read by 0.3.0, so there is no in-place upgrade from them, and
-the catalog's `skipRange` starts at `0.3.0-0` (`CATALOG_SKIP_FROM` in the Makefile) so that OLM never offers 0.3.0 as
-an upgrade of them. The roles still carry code that takes over the state of earlier builds (the selector of an
-earlier canary design, mutex labels without `labelled-by`). Every build that wrote such state used the old group, so
-with the new group only a hand-made label or annotation can reach that code (DESIGN,
-[Compatibility paths](DESIGN.md#compatibility-paths)). Changing the group again creates a new API in the same way.
+0.3.0 is the first version with this group, and 0.3.0-rc2 the first build with it to be released. 0.2.x and every
+earlier build, the 0.3.0-rc1 pre-release included, used the old group: their CRs, labels and annotations are not read
+by 0.3.0, so there is no in-place upgrade from them. The catalog's `skipRange` therefore starts at `0.3.0-rc2`
+(`CATALOG_SKIP_FROM` in the Makefile), so that OLM never offers 0.3.0 as an upgrade of them. It must not start lower:
+`0.3.0-0` sorts before `0.3.0-rc1`, so a range from it would offer an in-place upgrade from rc1.
+
+The roles still carry code that takes over the state of earlier builds (the selector of an earlier canary design,
+mutex labels without `labelled-by`). Every build that wrote such state used the old group, so with the new group only
+a hand-made label or annotation can reach that code (DESIGN, [Compatibility paths](DESIGN.md#compatibility-paths)).
+Changing the group again creates a new API in the same way.
 
 The live tests ran with the old group. In `roles/` the rename changed only names and the license metadata (commit
 b6f0d75), and the kind E2E passed with it (test row S44).
@@ -151,11 +206,13 @@ b6f0d75), and the kind E2E passed with it (test row S44).
 | Repository | A new repository at `https://github.com/redhat-na-ssa/openshift-node-upgrade-mutex-operator`, not a transfer: the old URLs do not redirect | `REPO_URL` in the Makefile |
 | Registry | `ghcr.io/redhat-na-ssa`, published by the release workflow. The old registry, `quay.io/jskrzypek`, is gone, so 0.1.x and 0.2.x can no longer be installed or mirrored | `.envrc`, [Old versions](#old-versions) |
 | Catalog | Started afresh. The first release from this repository is `v0.3.0-rc2`. `0.3.0-rc1` (old group, old repository) is not in it and should not be used | `catalog-template.yaml` |
-| Upgrade from 0.2.x | None in OLM: moving is a reinstall. The catalog's `skipRange` starts at `0.3.0-0` | `CATALOG_SKIP_FROM` in the Makefile, [The move from 0.2.x](#the-move-from-02x) |
+| Upgrade from 0.2.x | None in OLM: moving is a reinstall. The catalog's `skipRange` starts at `0.3.0-rc2`, so it covers neither 0.2.x nor `0.3.0-rc1` | `CATALOG_SKIP_FROM` in the Makefile, [The move from 0.2.x](#the-move-from-02x) |
 | Maintainers and provider | No maintainers in the CSV; the provider is Red Hat NA SSA | [Where it lives](#where-it-lives) |
 | Version | 0.3.0, because 0.2.67 and 0.2.68 were already published | `.envrc` |
 
 ## Decisions left to the new owner
+
+[Release gates](#release-gates) says which of these must be settled before a release.
 
 * **The community catalogs.** What to do with the old listings, and whether to publish 0.3.0 there
   ([The community catalogs](#the-community-catalogs)).
@@ -168,9 +225,11 @@ b6f0d75), and the kind E2E passed with it (test row S44).
   [OpenShift life cycle policy](https://access.redhat.com/support/policy/updates/openshift)).
 * **Signing and SBOM.** The release workflow pushes the images unsigned, with no SBOM and no provenance attestation.
 * **SECURITY.md and CODEOWNERS.** Neither exists. Without a `SECURITY.md` or GitHub's private vulnerability
-  reporting, the only route to report a vulnerability is a public issue.
+  reporting, the only route to report a vulnerability is a public issue. Private vulnerability reporting is a gate for
+  `v0.3.0-rc2`, and `SECURITY.md` one for `v0.3.0`.
 * **Templating of CR values.** ansible-operator's `markUnsafe: true` in `watches.yaml` would stop string values from
-  CRs from being templated. It is not enabled, because it has not been tested end to end (Known gaps G6).
+  CRs from being templated. It is not enabled, because it has not been tested end to end (Known gaps G6). It is a
+  gate for both planned releases ([Release gates](#release-gates)).
 * **Job namespaces.** `MutexRule.spec.jobNamespace` accepts any namespace, and the Jobs can use any ServiceAccount
   there. Only users who can write in the operator namespace can use it. An allow-list, or a namespaced Role for Jobs,
   would narrow it.
@@ -194,7 +253,8 @@ b6f0d75), and the kind E2E passed with it (test row S44).
 Code changes found while the docs were reviewed for the handoff. They are not made yet. Priority: **high** means a node
 can be upgraded without its Jobs, a run can hang without a clear signal, or a security question is open; **medium**
 means operations, status or test coverage; **low** means naming and convenience. Paths are relative to the repository
-root. File names without a directory, and `07:` for `07-run-job.yml`, are in `roles/mutexrunconfig/tasks/`.
+root. File names without a directory, and `07:` for `07-run-job.yml`, are in `roles/mutexrunconfig/tasks/`. G1, G6
+and G8 are [release gates](#release-gates).
 
 | ID | Gap | Evidence | Proposed fix | Priority |
 | --- | --- | --- | --- | --- |
@@ -203,7 +263,7 @@ root. File names without a directory, and `07:` for `07-run-job.yml`, are in `ro
 | G3 | `ValidConfig` checks less than a Job run needs. It is a server-side dry run of a Job, run as the operator, so no Pod is checked: a missing ServiceAccount, an SCC or Pod Security denial, a quota, the Job ServiceAccount's RBAC, an image that cannot be pulled and scheduling all show up only during the upgrade, often as a Job that stays Running until `timeoutSeconds` (G1) | `roles/mutexrule/tasks/01-validate.yml:32-53` | Also dry-run a Pod from the Job template in `jobNamespace`, so that at least a missing ServiceAccount or an SCC denial shows up | medium |
 | G4 | A MutexRule does not check its own name. The node label needs a name without `.` and `<name>.<namespace>` of at most 63 characters, but only a MutexRunConfig that references the rule checks that | `roles/mutexrunconfig/tasks/01-validate.yml:33-55`; `roles/mutexrule/tasks/01-validate.yml:16-30` | The same check in the `mutexrule` role, reported as `ValidConfig=False` | low |
 | G5 | The status lags the run. `TargetPoolsPaused` and `Degraded` are written at the end of a reconcile, which can last hours; the pause step writes `TargetPoolsPaused` only when it fails. There are no Events and no field for the current node | `09-report.yml:62-80`; `03-pause-machine-config-pools.yml:27-50`; no Event in `roles/` | Write `TargetPoolsPaused=True` in `03`; add a progress condition or `status.currentNode` with a printer column; emit Events | medium |
-| G6 | String values from CRs may be evaluated as Ansible templates inside the operator pod. Not verified either way | `watches.yaml` sets no `markUnsafe` on any of the three kinds | Set `markUnsafe: true`, and add a molecule case with `{{` in a Job argument | high |
+| G6 | String values from CRs may be evaluated as Ansible templates inside the operator pod. Not run through ansible-operator yet, but a probe points that way: in the operator image (ansible-core 2.18.18), with a CR passed as extra vars from a JSON file, as ansible-runner passes ansible-operator's `env/extravars` (`-e @`), an expression that read only `metadata.deletionTimestamp` of the CR variable evaluated a template in a string of its `spec`. The `mutexrunconfig` role reads its CR that way in its first task, before the namespace check, so in `AllNamespaces` mode this would also apply to MutexRunConfigs in other namespaces | `watches.yaml` sets no `markUnsafe` on any of the three kinds; `roles/mutexrunconfig/tasks/main.yml:34-39` (the first read of the CR) runs before `:44-70` (the namespace check). The `mutexrule` and `mutextarget` roles check the namespace before they read the CR | Set `markUnsafe: true`, and add a molecule case with `{{` in a Job argument. Also move the namespace check of the `mutexrunconfig` role before its first read of the CR | high |
 | G7 | The `master` pool, or any pool with control-plane nodes, is accepted as a target pool. What a run then does is untested | `roles/mutexrunconfig/tasks/01-validate.yml:184-228` (target pools are checked to exist and not to be in use by another MutexRunConfig, nothing more); `roles/mutextarget/tasks/02-gather-nodes.yml:91-95` | Refuse `master` and any pool that selects control-plane nodes | medium |
 | G8 | Nothing checks that the canary renders the same MachineConfigs as the target pools. If it does not, each node is updated to the canary's config and again, without its Jobs, when the pools are unpaused at the end | `roles/mutexrunconfig/tasks/01-validate.yml:153-182` (the canary checks) compare no `machineConfigSelector` or `spec.configuration.source` | Report a warning, or refuse, when the canary's rendered `spec.configuration.source` differs from a target pool's | high |
 | G9 | There is no suspend switch. Deleting the MutexRunConfig is the only stop, and it lets the remaining nodes upgrade without Jobs | `config/crd/bases/nodeupgrade.redhat-na-ssa.github.io_mutexrunconfigs.yaml:81-176` (no `suspend` in `spec`) | A `spec.suspend` field that keeps the pools paused and starts no new Job | medium |
@@ -219,6 +279,7 @@ root. File names without a directory, and `07:` for `07-run-job.yml`, are in `ro
 | G19 | The molecule scenario named `default` runs against whatever `KUBECONFIG` points at, and a plain `molecule test` picks it. It is guarded, but the name invites mistakes | `molecule/default/molecule.yml:1-19`; the guard in `molecule/default/tasks/olm_guard.yml` | Rename it to `cluster`, or make `kind` the default | low |
 | G20 | A MutexTarget's `status.nodes` does not follow MCO in two cases. MCO keeps a node that matches `master` and a custom pool in `master`, and manages a node that matches two custom pools in no pool; the role lists both under their custom pool. So a control-plane node can become a target node of a custom pool | `roles/mutextarget/tasks/02-gather-nodes.yml:89-96`; MCO `GetPoolsForNode` (DESIGN, [What the operator assumes about MCO](DESIGN.md#what-the-operator-assumes-about-mco)) | Follow MCO: put a `master` match first, and leave out nodes that match two custom pools, with a condition that names them | medium |
 | G21 | The `NodeUpgradeFailed` message repeats itself in the common case ("`<node>` did not finish its upgrade: `<node>` did not finish its upgrade to ..."), and it is also used when MCO started updating another target node, where "did not finish its upgrade" is wrong | `06-execute-jobs.yml:146-152`, `:294-299`, `:393` | Word the inner messages so the prefix reads once, and give the guard its own message or reason | low |
+| G22 | The operator image keeps the labels of its base image, so it describes itself as UBI 9 Minimal: `name` `ubi9/ubi-minimal`, `vendor` and `maintainer` `Red Hat, Inc.`, `version` `9.8`, the UBI `summary`, `description` and `io.k8s.display-name`, and the `org.opencontainers.image.created` and `.revision` of the UBI build | `Dockerfile` sets only `org.opencontainers.image.licenses`, and `make` adds only `org.opencontainers.image.source`; `podman image inspect --format '{{json .Config.Labels}}'` on a built image | Set `name`, `summary`, `description`, `io.k8s.display-name`, `io.k8s.description` and `version` for the operator, the two `org.opencontainers.image` labels at build time, and `vendor` and `maintainer` once the organization has chosen them | low |
 
 ## Old versions
 

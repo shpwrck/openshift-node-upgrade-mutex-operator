@@ -96,7 +96,7 @@ set it, so `make document` writes the same files on every machine. The release w
 | `run` | Runs ansible-operator locally against the cluster in your kubeconfig, with `watches.yaml` and one reconcile at a time per kind, as in `config/manager/manager.yaml`. |
 | `docker-build` / `docker-push` | Builds or pushes the operator image `IMG` (default `$(IMAGE_TAG_BASE):$(VERSION)`). |
 | `docker-buildx` | Builds and pushes a multi-arch image for `PLATFORMS`. |
-| `image-smoke-test` | Checks a built image without a cluster: collections, Python libraries, and a syntax check of every role. |
+| `image-smoke-test` | Checks a built image without a cluster: the license file and label, collections, Python libraries, and a syntax check of every role. |
 | `install` / `uninstall` | Applies or deletes the CRDs. |
 | `deploy` / `undeploy` | Applies or deletes `config/default` with `IMG`. |
 | `bundle` | Generates and validates `bundles/<VERSION>/` (manifests, metadata, scorecard tests, `bundle.Dockerfile`). The bundle's CSV description links to `BUNDLE_DOCS_REF`, by default the tag `v<VERSION>`. |
@@ -273,8 +273,11 @@ so nothing can be installed from it yet. Until the first release `catalog-valida
 match, since opm refuses a channel without a bundle, and `catalog-build` builds nothing. The first release from this
 repository is `v0.3.0-rc2`. A `0.3.0-rc1` with the old API group was published only from the old repository; it is
 not in this catalog and should not be installed. Older versions are not in it either: 0.1.x and 0.2.x use the old API
-group, and their images were on a registry that is gone. The `skipRange` starts at `CATALOG_SKIP_FROM=0.3.0-0`, so
-there is no upgrade edge from 0.2.x; moving from 0.2.x is a reinstall ([Moving from 0.2.x](USAGE.md#moving-from-02x)).
+group, and their images were on a registry that is gone. Every `skipRange` starts at `CATALOG_SKIP_FROM=0.3.0-rc2`,
+the first version released with the current API group, so there is no upgrade edge from 0.2.x or from `0.3.0-rc1`.
+Moving from them is a reinstall ([Moving from 0.2.x](USAGE.md#moving-from-02x)). The range must not start at
+`0.3.0-0`, which sorts before `0.3.0-rc1`. For `v0.3.0-rc2` itself the range is `>=0.3.0-rc2 <0.3.0-rc2`, which
+matches nothing.
 
 **With the release workflow** (`.github/workflows/release.yaml`):
 
@@ -292,14 +295,15 @@ there is no upgrade edge from 0.2.x; moving from 0.2.x is a reinstall ([Moving f
 4. It pushes the updated `catalog-template.yaml` and `catalog/` to the branch `release/<tag>`, and the run's summary
    links a new pull request from that branch into the default branch. Open it and merge it before you push the next
    tag.
-5. After a final release (not after a pre-release), run `make increment` and merge that change in a pull request.
-6. On the first release, check that clusters can pull the images without a pull secret, for example
+5. Update the docs for the new version, as in [After each release](#after-each-release).
+6. After a final release (not after a pre-release), run `make increment` and merge that change in a pull request.
+7. On the first release, check that clusters can pull the images without a pull secret, for example
    `podman pull --authfile /dev/null ghcr.io/redhat-na-ssa/openshift-node-upgrade-mutex-operator-catalog:v0.3.0-rc2`.
    The three packages (`openshift-node-upgrade-mutex-operator`, `-bundle`, `-catalog`) are created under the
    repository owner by the first push, linked to the repository by the image label, and take the repository's
    visibility. If a package is private, make it public once (package settings, Danger Zone, Change visibility; this
    cannot be undone).
-7. Write the release notes by hand. The workflow creates no GitHub Release and the repository has no changelog.
+8. Write the release notes by hand. The workflow creates no GitHub Release and the repository has no changelog.
 
 Rules that follow from how the workflow and the catalog work:
 
@@ -307,8 +311,9 @@ Rules that follow from how the workflow and the catalog work:
   default branch. A version whose pull request was not merged is missing from that template, so it drops out of the
   next catalog image.
 - **A pre-release stays in `alpha`.** `v0.3.0-rc2` becomes the head of the `alpha` channel. The final `v0.3.0`
-  replaces it, and its `skipRange` (`>=0.3.0-0 <0.3.0`) lets clusters on the pre-release upgrade straight to it. The
-  pre-release stays in the template.
+  replaces it, and its `skipRange` (`>=0.3.0-rc2 <0.3.0`) lets clusters on any pre-release from rc2 on upgrade straight
+  to it. The pre-release stays in the template. Pre-release names compare as text, so `0.3.0-rc10` sorts before
+  `0.3.0-rc2` and falls outside that range: keep the number of a pre-release below 10.
 - **Test a pre-release from its own catalog image**,
   `ghcr.io/redhat-na-ssa/openshift-node-upgrade-mutex-operator-catalog:v<VERSION>`, for example `:v0.3.0-rc2`. A
   pre-release does not move `:latest`, and `:latest` does not exist until the first final release.
@@ -329,12 +334,14 @@ Rules that follow from how the workflow and the catalog work:
    - generates the bundle, which pins the operator image by digest when `USE_IMAGE_DIGESTS=true`, then builds and
      pushes the bundle image;
    - `catalog-add` makes the bundle the new channel head, with `replaces` set to the old head and
-     `skipRange: >=0.3.0-0 <VERSION` (0.3.0 is the first version with the current API group, see `CATALOG_SKIP_FROM`);
+     `skipRange: >=0.3.0-rc2 <VERSION` (0.3.0-rc2 is the first version released with the current API group, see
+     `CATALOG_SKIP_FROM`);
    - `catalog-render` pulls every bundle image and takes a few minutes;
    - builds and pushes the catalog image, and tags all three images as `:latest` (not for a pre-release, a `VERSION`
      with a `-` such as `0.3.0-rc2`).
 3. Commit `catalog-template.yaml` and `catalog/`.
-4. Run `make increment` to bump `PATCH` in `.envrc`, then commit it (not after a pre-release).
+4. Update the docs for the new version, as in [After each release](#after-each-release).
+5. Run `make increment` to bump `PATCH` in `.envrc`, then commit it (not after a pre-release).
 
 `make release` records the bundle in the catalog by tag (`BUNDLE_IMG`) and refuses any other `BUNDLE_REF`. The
 bundle's digest is only known once it is pushed, because every `make bundle` writes a new `createdAt`. To record the
@@ -356,7 +363,7 @@ make latest
 `skopeo` prints the full digest, `sha256:...`, so `BUNDLE_REF` gets no second `sha256:` prefix. `catalog-add` does
 not check the format of the reference, and running it again for the same version is refused. To undo a wrong
 `catalog-add`, run `git checkout catalog-template.yaml` (and `git checkout catalog/` if `catalog-render` already ran),
-then run it again. Then continue with steps 3 and 4.
+then run it again. Then continue with steps 3 to 5.
 
 To publish in the community catalogs, copy the bundle (`manifests/`, `metadata/` and `tests/`) into
 `operators/openshift-node-upgrade-mutex-operator/<VERSION>/` of a fork of
@@ -366,6 +373,27 @@ and open a pull request. Those catalogs hold 0.2.x, under the old API group, in 
 there only in a new channel (set `CHANNELS` and `DEFAULT_CHANNEL` for `make bundle`), or 0.2.x installs would be
 offered an upgrade to an API that ignores their CRs. [HANDOFF.md](HANDOFF.md) lists this as a decision for the
 owner.
+
+#### After each release
+
+Once the `release/<tag>` pull request is merged, update the docs for the new version in a pull request:
+
+1. `sample-manifests/catalogsource.yaml`: the tag in `spec.image` and the comment that names it. Use the newest final
+   release, or the newest pre-release while there is no final release.
+2. `docs/USAGE.md`:
+   - the `Releases` row of the table at the top;
+   - [Catalog and versions](USAGE.md#catalog-and-versions): what the project's catalog offers, the tag the sample
+     CatalogSource uses and, after the first final release, that `:latest` exists;
+   - step 6 of the [Quick start](USAGE.md#quick-start), if it names that tag;
+   - [Tested environments](USAGE.md#tested-environments), if the release ran on a live cluster, together with
+     [tests/Scenarios.md](../tests/Scenarios.md).
+3. Any other text that names the previous release's tag or says that nothing is released yet. While the docs name
+   `0.3.0-rc2`, this finds both; change the version in it once they name another:
+   `git grep -n -e '0\.3\.0-rc2' -e 'first release' -e 'no release yet' -- docs/USAGE.md sample-manifests/`
+4. `make document`, then commit `README.md` and the CSV base with the change.
+
+A release's CSV description is `docs/USAGE.md` at its tag, so the console shows these updates from the next release
+on.
 
 ### Making a change
 

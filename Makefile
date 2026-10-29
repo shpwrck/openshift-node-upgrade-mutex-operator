@@ -182,7 +182,7 @@ docker-build: ## Build the operator image.
 	$(CONTAINER_TOOL) build $(IMAGE_LABELS) -t $(IMG) .
 
 .PHONY: image-smoke-test
-image-smoke-test: ## Check the built operator image (collections, python libs, role syntax) without a cluster.
+image-smoke-test: ## Check the built operator image (license, collections, python libs, role syntax) without a cluster.
 	CONTAINER_TOOL=$(CONTAINER_TOOL) hack/image-smoke-test.sh $(IMG)
 
 .PHONY: docker-push
@@ -293,11 +293,15 @@ CATALOG_IMG ?= $(IMAGE_TAG_BASE)-catalog:v$(VERSION)
 BUNDLE_REF ?= $(BUNDLE_IMG)
 # CATALOG_SKIP_RANGE lets clusters on any older version of the current API
 # group upgrade straight to VERSION instead of walking every replaces edge. It
-# starts at CATALOG_SKIP_FROM: 0.3.0 is the first version with the API group
-# nodeupgrade.redhat-na-ssa.github.io, and older versions use another group,
-# which 0.3.0 cannot take over in place (docs/USAGE.md, Moving from 0.2.x).
-# Set CATALOG_SKIP_RANGE empty to only add the replaces edge.
-CATALOG_SKIP_FROM ?= 0.3.0-0
+# starts at CATALOG_SKIP_FROM, 0.3.0-rc2: the first version released with the
+# API group nodeupgrade.redhat-na-ssa.github.io. Every older version uses
+# another group, which this one cannot take over in place (docs/USAGE.md,
+# Moving from 0.2.x). That includes the pre-release 0.3.0-rc1, so the range
+# must not start at 0.3.0-0, which sorts before 0.3.0-rc1. For 0.3.0-rc2
+# itself the range is '>=0.3.0-rc2 <0.3.0-rc2', which parses and matches
+# nothing. Pre-release names compare as text: 0.3.0-rc10 sorts before
+# 0.3.0-rc2. Set CATALOG_SKIP_RANGE empty to only add the replaces edge.
+CATALOG_SKIP_FROM ?= 0.3.0-rc2
 CATALOG_SKIP_RANGE ?= >=$(CATALOG_SKIP_FROM) <$(VERSION)
 
 .PHONY: catalog-add
