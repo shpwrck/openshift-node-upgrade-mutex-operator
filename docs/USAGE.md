@@ -244,7 +244,7 @@ recorded (S29 in [tests/Scenarios.md](../tests/Scenarios.md)).
 | --- | --- | --- | --- | --- |
 | A second upgrade during a run | `oc adm upgrade` again before every MutexRunConfig shows `Upgrade` `False` | Other MutexRunConfigs are not reconciled until the running one ends, so they do not pause their pools, and MCO can upgrade those nodes **without** Jobs. | Wait for the end of every run. See [the runbook](#a-second-openshift-upgrade-started-during-a-run). | no |
 | Detection up to 10 minutes late | ClusterVersion is not watched | MCO can start updating a target node before the pause. That node finishes its update first; its pre-upgrade Jobs run after it. | [Pause the pools yourself](#pausing-the-pools-yourself). The control plane normally takes longer than 10 minutes. | no |
-| APIService flaps early in the upgrade | An APIService is not `Available` for 3 checks 10 s apart | Before the pause: nothing is paused, so this is fail-open. During a run: the run stops with the pools paused. | Fix the APIService; pause the pools yourself. | no |
+| APIService flaps early in the upgrade | An APIService is not `Available` for 4 checks 10 s apart | Before the pause: nothing is paused, so this is fail-open. During a run: the run stops with the pools paused. | Fix the APIService; pause the pools yourself. | no |
 | An API outage longer than the settle time | An outage starts right after the canary's own nodes get the release label | One of the canary's own nodes can pass through the `worker` pool once, when `worker` is not a target pool. | Keep the canary empty. | no |
 | The finalizer's single pass | Deleting a MutexRunConfig while MCO's view of the pools lags | The same as the row above. | Keep the canary empty. | no |
 | Admin-paused pools and EUS | An EUS-to-EUS upgrade keeps the worker pools paused across two hops | The operator releases the nodes through the unpaused canary after the first hop, so workers upgrade to the intermediate version. | Delete the MutexRunConfig before the procedure. After the last control-plane hop, unpausing the pools as the procedure says runs no Jobs. To run them, unpause only the canary, create the MutexRunConfig, and unpause the target pools yourself after its run (expected to work, untested). | no |
@@ -262,7 +262,9 @@ Anyone who can create or edit MutexRules, MutexTargets or MutexRunConfigs **in t
 MachineConfigPools, relabel nodes, and run Jobs in any namespace with any ServiceAccount there. Treat write access to
 that namespace as cluster-admin. OLM creates `admin`, `edit` and `view` aggregated roles for these CRDs, so every user
 with `admin` or `edit` in the operator namespace has that access. CRs in other namespaces are not acted on for this
-reason, and no task uses their values ([Templated CR values](#templated-cr-values)). Check who has it:
+reason, and no task uses their values ([Templated CR values](#templated-cr-values)); ansible-operator itself still adds
+its finalizer to them and honours their `ansible.sdk.operatorframework.io` annotations (Ansible verbosity, runner
+artifacts) before the role's namespace check. Check who has it:
 `oc adm policy who-can create mutexrunconfigs -n node-upgrade-mutex-operator`.
 
 ### Job ServiceAccounts
@@ -281,12 +283,12 @@ keys the operator uses. It has no access to Secrets, ConfigMaps, Pods or workloa
 ### Templated CR values
 
 String values in the CRs are never evaluated as Ansible templates. [watches.yaml](../watches.yaml) sets
-ansible-operator's `markUnsafe: true` for MutexRules, MutexTargets and MutexRunConfigs, so ansible-operator passes
-every string of a CR to the role marked unsafe, and Ansible uses it only as data. A value with `{{` in it, such as a Go
-template in a Job's arguments, passes the MutexRule's dry run and reaches the Job as you wrote it. Each role also
-checks the namespace before any of its tasks uses a value of the CR, so no task uses the values of a CR outside the
-operator namespace. Earlier versions, 0.2.x and 0.3.0-rc1, do not set `markUnsafe`
-([Known gaps](HANDOFF.md#known-gaps), G6).
+ansible-operator's `markUnsafe: true` for MutexRules, MutexTargets and MutexRunConfigs, so ansible-operator passes every
+string value of a CR to the role marked unsafe, and Ansible uses it only as data. A value with `{{` in it, such as a Go
+template in a Job's arguments, passes the MutexRule's dry run and reaches the Job as you wrote it. Each role also checks
+the namespace before any of its tasks uses a value of the CR other than its name and namespace, so no task uses the
+values of a CR outside the operator namespace; a MutexRunConfig's finalizer reads only the MutexTargets in the operator
+namespace. Earlier versions, 0.2.x and 0.3.0-rc1, do not set `markUnsafe` ([Known gaps](HANDOFF.md#known-gaps), G6).
 
 ### Metrics authentication
 
@@ -688,10 +690,10 @@ included:
 4. One patch removes N's mutex labels and `labelled-by` and adds the release label and `released-by`.
 5. N now matches the canary. MCO cordons and drains it (PodDisruptionBudgets apply), updates and reboots it, and
    uncordons it.
-6. The operator checks N every 60 seconds, up to 120 times (2 hours), until its version label shows the new version,
-   MCO's state is `Done` with `currentConfig` equal to `desiredConfig` and a rendered config of the canary, and N is
-   `Ready`. The label alone is not enough: NFD can update it before MCO is done. On timeout: `NodeUpgrade=False
-   NodeUpgradeFailed`, `Degraded=True`, and N stays released; the retry resumes at this wait.
+6. The operator checks N every 60 seconds, 121 times at most (1 + 120 retries, 2 hours), until its version label shows
+   the new version, MCO's state is `Done` with `currentConfig` equal to `desiredConfig` and a rendered config of the
+   canary, and N is `Ready`. The label alone is not enough: NFD can update it before MCO is done. On timeout:
+   `NodeUpgrade=False NodeUpgradeFailed`, `Degraded=True`, and N stays released; the retry resumes at this wait.
 7. For each rule that has a `cleanUpJobSpec`, a cleanup Job runs, with the same timeout.
 8. One patch removes the release label and `released-by`, so N returns to its paused pool, with no reboot. Then
    `JobRun=True JobRunSucceeded` and `NodeUpgrade=True NodeUpgradeSucceeded` ("Node is i of n").
@@ -806,9 +808,9 @@ In words, the states of a MutexRunConfig, with the columns `Validated`/`Upgrade`
 9. **Finished:** after the last node, `MCPUpdated=False SelectorsRestored`, U `False UpgradeFinished`, P `False`.
 10. **Canary cleanup** (only with canary nodes of its own): their release label goes at least 5 minutes after the
     canary's `restored-at`. Then Idle.
-11. **Finalizing:** on delete, from any state. It finishes the current node first (its Jobs, up to `timeoutSeconds`
-    each, and up to 2 hours for its upgrade) or waits for another MutexRunConfig's run, then restores. The remaining
-    nodes upgrade **without** Jobs.
+11. **Finalizing:** on delete, from any state except Ignored (1). It finishes the current node first (its Jobs, up to
+    `timeoutSeconds` each, and up to 2 hours for its upgrade) or waits for another MutexRunConfig's run, then restores.
+    The remaining nodes upgrade **without** Jobs.
 
 `Paused` and `Degraded` are refreshed only at the end of a reconcile, and one reconcile can last hours. Other
 MutexRunConfigs wait meanwhile, and their status is not updated. The states of a run's nodes and pools, and of the
@@ -1448,11 +1450,11 @@ reports `ValidConfig`, `NodeListGathered` and `status.nodes`. During a run it us
 1. **Namespace.** Outside the operator namespace: `Reconciled=False NamespaceNotAllowed`, and nothing else. On
    delete, not even that condition is written: nothing is restored, and the finalizer goes.
 2. **Resolve references.** Default the reference namespaces; build the label keys and the release value. Always.
-3. **Finalize.** Only when the MutexRunConfig is being deleted: read the MutexTargets still present, run the Restore
-   (step 10), and stop. No validation and no Jobs.
+3. **Finalize.** Only when the MutexRunConfig is being deleted: read the MutexTargets still present in the operator
+   namespace, run the Restore (step 10), and stop. No validation and no Jobs.
 4. **Validate** (`ConfigValidated`, `ClusterStateValidated`). Always. References, rules, targets and canary as in
-   [Validation fails](#validation-fails-validatedfalse), then every APIService must be `Available` (3 checks, 10 s
-   apart). Read-only.
+   [Validation fails](#validation-fails-validatedfalse), then every APIService must be `Available` (4 checks, 1 + 3
+   retries, 10 s apart). Read-only.
 5. **Check for an upgrade** (`UpgradeChecked`, `NodeVersionsKnown`, `UpgradeAvailable`, `UpgradeReady`). When
    validation passed. The target version is `status.desired.version`. A node is behind when its version label is
    lower. `UpgradeAvailable` is also `True` while a node this run released still needs its cleanup Jobs, for any
@@ -1492,8 +1494,8 @@ condition by condition, so progress survives a restart of the operator.
 | Noticing a new upgrade | at the next reconcile, at most 10 minutes later (ClusterVersion is not watched) |
 | Settle time | 300 seconds |
 | Job check | every 10 seconds, for up to the MutexRule's `spec.timeoutSeconds` (default 3600) per Job and attempt |
-| Node upgrade wait, and the wait for an update MCO already started | every 60 seconds, 120 times: 2 hours per node |
-| APIService check | 3 checks, 10 seconds apart |
+| Node upgrade wait, and the wait for an update MCO already started | every 60 seconds, 121 checks at most (1 + 120 retries): 2 hours per node |
+| APIService check | 4 checks (1 + 3 retries), 10 seconds apart |
 | Retry after a failed reconcile | a few milliseconds at first, doubling up to about 17 minutes (controller-runtime's default backoff) |
 
 `timeoutSeconds` is set in each MutexRule. The other values are built into the operator image (in the source:

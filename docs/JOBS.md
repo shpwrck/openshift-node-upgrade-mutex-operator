@@ -63,7 +63,7 @@ In words, once the control plane has finished its upgrade and the pools are re-p
    release label and the `released-by` annotation.
 5. The node now matches the canary pool. MCO cordons it, drains it (PodDisruptionBudgets apply), updates and reboots it,
    and uncordons it.
-6. The operator checks the node every 60 seconds, at most 120 times (2 hours), until its
+6. The operator checks the node every 60 seconds, 121 times at most (1 + 120 retries, 2 hours), until its
    `machineconfiguration.openshift.io/release-image-version` label shows the new version, MCO reports it `Done` on a
    rendered config of the canary, and it is `Ready`. The label alone is not enough: it can change before the reboot. If
    the time runs out: `NodeUpgrade` `False` (`NodeUpgradeFailed`), and the retry resumes at this wait.
@@ -83,7 +83,7 @@ the new version gets no Jobs.
 | The operator notices the upgrade and pauses the target pools | at its next reconcile, at most 10 minutes after the upgrade starts, unless another MutexRunConfig is working through its nodes: then only after that run, and MCO can upgrade these nodes without Jobs meanwhile ([When it does not protect you](USAGE.md#when-it-does-not-protect-you)) | `reconcilePeriod` in `watches.yaml` |
 | The first node's pre-upgrade Jobs start | at the first reconcile after the control plane has finished (ClusterVersion `status.history[0]` is `Completed` for the new version), normally within 10 minutes; when the canary has nodes of its own, also at least 5 minutes after they were labelled | `roles/mutexrunconfig` |
 | Each Job is checked | every 10 seconds, for up to `timeoutSeconds` (default 3600) per attempt | `mutexrunconfig_job_poll_delay`, the MutexRule |
-| The node's upgrade is checked | every 60 seconds, at most 120 times (2 hours) | `mutexrunconfig_node_upgrade_delay`, `_retries` |
+| The node's upgrade is checked | every 60 seconds, 121 times at most (1 + 120 retries, 2 hours) | `mutexrunconfig_node_upgrade_delay`, `_retries` |
 | The cleanup Jobs start | up to about 60 seconds after the node is upgraded and `Ready` | the 60-second check |
 | The next node's pre-upgrade Jobs start | right after the previous node is back in its pool, in the same reconcile | |
 | A retry after a failure | after a few milliseconds at first, then doubling, up to about 17 minutes apart | the controller-runtime backoff |

@@ -95,6 +95,7 @@ stateDiagram-v2
   [*] --> Between : first reconcile in the namespace
   Between --> FailOpen : 01, 02, 03 fails
   FailOpen --> Between : fixed, retry
+  FailOpen --> Holding : fixed, a node behind
   Between --> Holding : 02 finds a node behind, main.yml runs 03 and 04
   Run --> Failed : a step fails, a pool held
   Failed --> Run : retry where it stopped
@@ -106,6 +107,7 @@ stateDiagram-v2
   Run --> Finalizing : delete, 06 stops before a node
   Failed --> Finalizing : delete
   Between --> Finalizing : delete
+  FailOpen --> Finalizing : delete
   Finalizing --> Finalizing : a task failed, retry
   Finalizing --> [*] : no task failed, ansible-operator removes the finalizer
 

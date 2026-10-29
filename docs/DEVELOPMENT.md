@@ -252,8 +252,9 @@ In words:
 
 1. Docs: `make document` writes `README.md` and the CSV description (links to `main`), and `make diagrams` renders the
    SVGs with a source stamp. CI checks both with `document-check`, `diagrams-check` and `docs-lint`.
-2. A maintainer merges a pull request that sets the version in `.envrc`, then tags `v<VERSION>` (or
-   `v<VERSION>-rcN`) on the default branch and pushes the tag.
+2. A maintainer merges a pull request that sets the version in `.envrc`, checks the commit by hand
+   ([Before you tag](#before-you-tag)), then tags `v<VERSION>` (or `v<VERSION>-rcN`) on the default branch and pushes
+   the tag.
 3. `release.yaml` checks the tag: a semver tag, its version without the suffix equal to `.envrc`, a commit of the
    default branch, and the same `.github/workflows` as the default branch. It does not check CI.
 4. `make release` builds and pushes the operator image, generates the bundle (the operator image pinned by digest, the

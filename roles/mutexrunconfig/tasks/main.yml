@@ -99,7 +99,7 @@
         kind: MutexTarget
         name: "{{ item.name }}"
         namespace: "{{ item.namespace }}"
-      loop: "{{ mutexrunconfig_target_refs }}"
+      loop: "{{ mutexrunconfig_finalize_target_refs }}"
       loop_control:
         label: "{{ item.namespace }}/{{ item.name }}"
       register: mutexrunconfig_finalize_targets

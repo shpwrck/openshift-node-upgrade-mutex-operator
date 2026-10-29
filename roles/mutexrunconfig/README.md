@@ -54,7 +54,8 @@ The conditions `Reconciled`, `NodeVersionsKnown`, `NodeUpgrade` and `Degraded` h
   restore `MCPUpdated=False` (`SelectorsRestored`) and `UpgradeAvailable`/`UpgradeReady` `False` (`UpgradeFinished`).
 - **Gates:** initialises every gate fact to false, then includes each step under the gates listed with it below.
 
-The finalizer branch reads the MutexTargets that still exist, runs `08` with the canary and their pools and nodes, and
+The finalizer branch reads the MutexTargets that still exist in the operator namespace (references to other
+namespaces are skipped, as `01` refuses them), runs `08` with the canary and their pools and nodes, and
 ends the play, so `09` does not run then.
 
 ### tasks/00-resolve-references.yml
@@ -92,7 +93,7 @@ It collects the canary's own nodes, except any node this run holds (this MutexRu
 mutex labels). `04` gives them the release label, and they are not counted as overlap. During a run, an expression
 added to the canary's live `matchExpressions` is added to the saved original. A node without this run's release label,
 in a pool the run still re-points or pauses but no longer targets, is not counted as overlap either. Last comes the
-APIService gate: every APIService must be `Available`, with 3 attempts 10 seconds apart.
+APIService gate: every APIService must be `Available`, with 4 checks (1 + 3 retries) 10 seconds apart.
 
 ### tasks/02-check-for-upgrade.yml
 
@@ -268,7 +269,7 @@ Deleting the MutexRunConfig is the way to abort.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `mutexrunconfig_node_upgrade_retries` / `_delay` | `120` / `60` | How long to wait (retries × seconds, 2 hours by default) for a released node to finish its upgrade, and for a node MCO was already updating to finish that update. |
+| `mutexrunconfig_node_upgrade_retries` / `_delay` | `120` / `60` | How long to wait (1 + retries checks, delay seconds apart: about 2 hours by default) for a released node to finish its upgrade, and for a node MCO was already updating to finish that update. |
 | `mutexrunconfig_job_poll_delay` | `10` | Seconds between Job status polls. |
 | `mutexrunconfig_apiservice_retries` / `_delay` | `3` / `10` | Attempts at the APIService health check, and the delay between them. |
 | `mutexrunconfig_label_settle_seconds` | `300` | How long a selector change that depends on a release label waits after that label changed: the re-point after the canary's own nodes got the label (`release-labelled-at`), and the removal of the label from them after the canary's restore (`restored-at`). See [DESIGN.md](../../docs/DESIGN.md#the-settle-time). |

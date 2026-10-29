@@ -43,6 +43,55 @@
           - e2e_cr.resources[0].status.conditions | map(attribute='type') | list == ['Reconciled']
         fail_msg: "conditions: {{ e2e_cr.resources[0].status.conditions | to_json }}"
 
+    # The namespace check must come before any use of the CR's values. An
+    # operator that evaluated them would fail on the Go template, which is not
+    # valid Jinja, before it reports NamespaceNotAllowed.
+    - name: Create a MutexRunConfig with template expressions in the second namespace
+      kubernetes.core.k8s:
+        state: present
+        namespace: "{{ e2e_foreign_namespace }}"
+        definition:
+          apiVersion: "{{ e2e_api_version }}"
+          kind: MutexRunConfig
+          metadata:
+            name: e2e-foreign-template
+            annotations:
+              e2e.nodeupgrade.redhat-na-ssa.github.io/template: "{{ e2e_template_arg }}"
+          spec:
+            canary:
+              name: "{{ e2e_template_canary }}"
+            mutexRules:
+              - name: "{{ e2e_rule_name }}"
+            mutexTargets:
+              - name: "{{ e2e_target_name }}"
+
+    - name: Wait for the MutexRunConfig outside the operator namespace to be refused
+      ansible.builtin.include_tasks: conditions.yml
+      vars:
+        e2e_kind: MutexRunConfig
+        e2e_name: e2e-foreign-template
+        e2e_cr_namespace: "{{ e2e_foreign_namespace }}"
+        e2e_expected:
+          - type: Reconciled
+            status: "False"
+            reason: NamespaceNotAllowed
+
+    - name: Check that the refused MutexRunConfig was not validated
+      ansible.builtin.assert:
+        that:
+          - e2e_cr.resources[0].status.conditions | map(attribute='type') | list == ['Reconciled']
+        fail_msg: "conditions: {{ e2e_cr.resources[0].status.conditions | to_json }}"
+
+    - name: Delete the refused MutexRunConfig (its finalizer run must end without a failed task)
+      kubernetes.core.k8s:
+        api_version: "{{ e2e_api_version }}"
+        kind: MutexRunConfig
+        name: e2e-foreign-template
+        namespace: "{{ e2e_foreign_namespace }}"
+        state: absent
+        wait: true
+        wait_timeout: "{{ e2e_timeout }}"
+
   always:
     - name: Delete the second namespace
       kubernetes.core.k8s:

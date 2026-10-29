@@ -197,3 +197,10 @@ mutexrunconfig_failed_msg: >-
   {{ ([ansible_failed_result.msg | default('')]
       + (ansible_failed_result.results | default([]) | map(attribute='msg', default='') | list))
      | select | unique | join(': ') | default('unknown error', true) }}
+
+# The MutexTargets the finalizer reads: only those in the operator namespace,
+# the only ones 01-validate.yml accepts, so their pools and nodes are the only
+# ones this MutexRunConfig acted on. Without POD_NAMESPACE, all of them.
+mutexrunconfig_finalize_target_refs: >-
+  {{ mutexrunconfig_target_refs if mutexrunconfig_operator_namespace | length == 0
+     else mutexrunconfig_target_refs | selectattr('namespace', 'equalto', mutexrunconfig_operator_namespace) | list }}

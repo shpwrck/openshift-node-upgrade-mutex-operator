@@ -22,7 +22,7 @@ flowchart TB
     direction TB
     subgraph ra["1. Tag"]
       direction LR
-      ver[".envrc holds VERSION,<br/>not yet in<br/>catalog-template.yaml"] --> tag["Maintainer pushes<br/>v#lt;VERSION#gt;[-rcN] on a commit<br/>of the default branch"] --> chk["release.yaml checks: semver tag,<br/>base version = .envrc, tag on the<br/>default branch, same .github/workflows"]
+      ver[".envrc holds VERSION,<br/>not yet in<br/>catalog-template.yaml"] --> pre["Before you tag, by hand:<br/>release gates, and Lint, Build<br/>and validate and Molecule on<br/>kind green on the commit"] --> tag["Maintainer pushes<br/>v#lt;VERSION#gt;[-rcN] on a commit<br/>of the default branch"] --> chk["release.yaml checks: semver tag,<br/>base version = .envrc, tag on the<br/>default branch, same .github/workflows"]
     end
     subgraph rb["2. make release (USE_IMAGE_DIGESTS=true)"]
       direction LR
@@ -51,4 +51,4 @@ flowchart TB
   class docs,rel lane
   class ra,rb,rc2,rd step
   class n1,n2 note
-  class merge warn
+  class merge,pre warn
