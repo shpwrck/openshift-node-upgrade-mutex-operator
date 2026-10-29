@@ -1,10 +1,14 @@
 ---
+# markUnsafe: ansible-operator marks every string of the CR it passes to the
+# role as unsafe, so Ansible never evaluates a template expression ('{{ }}')
+# in a CR value; a Job argument with '{{' reaches the Job as written.
 - version: v1alpha1
   group: nodeupgrade.redhat-na-ssa.github.io
   kind: MutexRule
   role: mutexrule
   reconcilePeriod: 10m
   manageStatus: false
+  markUnsafe: true
 
 - version: v1alpha1
   group: nodeupgrade.redhat-na-ssa.github.io
@@ -12,6 +16,7 @@
   role: mutextarget
   reconcilePeriod: 10m
   manageStatus: false
+  markUnsafe: true
 
 # Deleting a MutexRunConfig runs the mutexrunconfig role once more with
 # state=absent before the finalizer is removed. That run unpauses the
@@ -26,6 +31,7 @@
   role: mutexrunconfig
   reconcilePeriod: 10m
   manageStatus: false
+  markUnsafe: true
   finalizer:
     name: nodeupgrade.redhat-na-ssa.github.io/finalizer
     vars:

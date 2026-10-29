@@ -31,21 +31,12 @@
 # it in the middle of an upgrade therefore lets MCO upgrade the remaining
 # nodes WITHOUT running their MutexRule Jobs.
 
-- name: Determine Reconcile Mode
-  ansible.builtin.set_fact:
-    mutexrunconfig_operator_namespace: "{{ lookup('ansible.builtin.env', 'POD_NAMESPACE', default='') }}"
-    mutexrunconfig_finalizing: >-
-      {{ (state | default('present')) == 'absent'
-         or (_nodeupgrade_redhat_na_ssa_github_io_mutexrunconfig.metadata.deletionTimestamp | default('', true)) | length > 0 }}
-
 # Trust boundary: only MutexRunConfigs in the operator's own namespace
 # (POD_NAMESPACE) are acted on. Without POD_NAMESPACE (e.g. 'make run') every
-# namespace is allowed.
+# namespace is allowed. No task before the stop reads the CR variables.
 - name: Check Namespace
   ansible.builtin.set_fact:
-    mutexrunconfig_namespace_allowed: >-
-      {{ mutexrunconfig_operator_namespace | length == 0
-         or ansible_operator_meta.namespace == mutexrunconfig_operator_namespace }}
+    mutexrunconfig_operator_namespace: "{{ lookup('ansible.builtin.env', 'POD_NAMESPACE', default='') }}"
 
 - name: Report Namespace Not Allowed
   operator_sdk.util.k8s_status:
@@ -62,12 +53,21 @@
           '{{ mutexrunconfig_operator_namespace }}'. Nothing was done.
         lastTransitionTime: "{{ mutexrunconfig_now }}"
   when:
-    - not mutexrunconfig_namespace_allowed | bool
-    - not mutexrunconfig_finalizing | bool
+    - mutexrunconfig_operator_namespace | length > 0
+    - ansible_operator_meta.namespace != mutexrunconfig_operator_namespace
+    - (state | default('present')) != 'absent'  # a finalizer run writes no status
 
 - name: Stop Outside The Operator Namespace
   ansible.builtin.meta: end_play
-  when: not mutexrunconfig_namespace_allowed | bool
+  when:
+    - mutexrunconfig_operator_namespace | length > 0
+    - ansible_operator_meta.namespace != mutexrunconfig_operator_namespace
+
+- name: Determine Reconcile Mode
+  ansible.builtin.set_fact:
+    mutexrunconfig_finalizing: >-
+      {{ (state | default('present')) == 'absent'
+         or (_nodeupgrade_redhat_na_ssa_github_io_mutexrunconfig.metadata.deletionTimestamp | default('', true)) | length > 0 }}
 
 - name: Initialize Gates
   ansible.builtin.set_fact:

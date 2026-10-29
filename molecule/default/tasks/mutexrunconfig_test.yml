@@ -142,3 +142,56 @@
       ansible.builtin.include_tasks: assert_restored.yml
       vars:
         e2e_restored_context: invalid MutexRunConfig
+
+    # The operator uses CR values as written (markUnsafe in watches.yaml).
+    # Evaluated, this canary name would name the canary pool and pass the
+    # validation.
+    - name: Create a MutexRunConfig whose canary name is a template expression
+      kubernetes.core.k8s:
+        state: present
+        namespace: "{{ e2e_namespace }}"
+        definition:
+          apiVersion: "{{ e2e_api_version }}"
+          kind: MutexRunConfig
+          metadata:
+            name: e2e-template-canary
+          spec:
+            canary:
+              name: "{{ e2e_template_canary }}"
+            mutexRules:
+              - name: "{{ e2e_rule_name }}"
+            mutexTargets:
+              - name: "{{ e2e_target_name }}"
+
+    - name: Wait for the MutexRunConfig with the template canary name to fail validation
+      ansible.builtin.include_tasks: conditions.yml
+      vars:
+        e2e_kind: MutexRunConfig
+        e2e_name: e2e-template-canary
+        e2e_expected:
+          - {type: ConfigValidated, status: "False", reason: ValidationFailed}
+          - {type: Degraded, status: "False", reason: NoPoolsPaused}
+
+    - name: Check that the canary name was used as written
+      ansible.builtin.assert:
+        that:
+          - ('The canary MachineConfigPool ' ~ e2e_template_canary ~ ' was not found') in e2e_message
+        fail_msg: "ConfigValidated message: {{ e2e_message }}"
+      vars:
+        e2e_message: >-
+          {{ (e2e_cr.resources[0].status.conditions | selectattr('type', 'equalto', 'ConfigValidated') | first).message | default('') }}
+
+    - name: Delete the MutexRunConfig with the template canary name (runs its finalizer)
+      kubernetes.core.k8s:
+        api_version: "{{ e2e_api_version }}"
+        kind: MutexRunConfig
+        name: e2e-template-canary
+        namespace: "{{ e2e_namespace }}"
+        state: absent
+        wait: true
+        wait_timeout: "{{ e2e_timeout }}"
+
+    - name: Check that the MutexRunConfig with the template canary name changed nothing
+      ansible.builtin.include_tasks: assert_restored.yml
+      vars:
+        e2e_restored_context: MutexRunConfig with a template canary name
